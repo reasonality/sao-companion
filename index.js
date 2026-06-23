@@ -1409,6 +1409,24 @@ function initPanelLogic() {
         }
     };
 
+    // ECharts 动态加载
+    let _echartsLoaded = null;
+    async function loadECharts() {
+        if (window.echarts) return window.echarts;
+        if (_echartsLoaded) return _echartsLoaded;
+        _echartsLoaded = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
+            script.onload = () => { resolve(window.echarts); log('ECharts 加载完成'); };
+            script.onerror = () => { _echartsLoaded = null; reject(new Error('ECharts CDN 加载失败')); };
+            document.head.appendChild(script);
+        });
+        return _echartsLoaded;
+    }
+
+    let _saoChart = null;
+    let _saoTimelineOffset = 20;
+
     window.SaoPanel = {
         open() {
             const overlay = document.getElementById('sao_panel_overlay');
@@ -1418,6 +1436,9 @@ function initPanelLogic() {
             refreshMemoryList();
             refreshStatus();
             updateLogDisplay();
+            // 渲染记忆系统子标签内容
+            this.renderTimeline();
+            this.renderCharacterCards();
         },
         close() {
             const overlay = document.getElementById('sao_panel_overlay');
@@ -1638,6 +1659,166 @@ function initPanelLogic() {
                 testEl.textContent = '✗ ' + e.message;
             }
         },
+        // 子标签切换
+        switchSubTab(subtab) {
+            document.querySelectorAll('.sao-sub-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.sao-sub-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.sao-sub-tab[data-subtab="${subtab}"]`)?.classList.add('active');
+            document.querySelector(`.sao-sub-content[data-subcontent="${subtab}"]`)?.classList.add('active');
+            if (subtab === 'graph') this.renderRelationGraph();
+            if (subtab === 'timeline') this.renderTimeline();
+            if (subtab === 'characters') this.renderCharacterCards();
+        },
+        // 关系图谱（ECharts 力导向图）
+        async renderRelationGraph() {
+            const container = document.getElementById('sao_relation_chart');
+            if (!container) return;
+            const data = getSaoData();
+            const rels = data?.relationships || {};
+            const npcNames = Object.keys(rels);
+            if (npcNames.length === 0) {
+                container.innerHTML = '<div style="text-align:center;padding:80px 20px;color:var(--text-tertiary,#5c6b85);">暂无关系数据，对话后将自动生成关系图谱</div>';
+                return;
+            }
+            try {
+                const echarts = await loadECharts();
+                const playerName = data?.state?.player_name || getContext().name1 || '冒险者';
+                const nodes = [{ name: playerName, symbolSize: 45, category: 0, itemStyle: { color: '#00d2ff' }, label: { show: true, fontSize: 14, fontWeight: 'bold' } }];
+                const links = [];
+                const categories = [{ name: '玩家' }, { name: '友好' }, { name: '中立' }, { name: '敌对' }];
+                for (const npcName of npcNames) {
+                    const rel = rels[npcName];
+                    const dims = rel.dimensions || {};
+                    const avgVal = Object.values(dims).reduce((a, b) => a + (b || 0), 0) / Math.max(1, Object.keys(dims).length);
+                    const fearVal = dims.fear || 0;
+                    let cat = 1; // 友好
+                    let color = '#00d68a';
+                    if (fearVal > 60) { cat = 3; color = '#ff2e4a'; } // 敌对
+                    else if (avgVal < 30) { cat = 2; color = '#9fb0cc'; } // 中立
+                    const size = Math.min(40, Math.max(18, avgVal * 0.4 + 12));
+                    nodes.push({ name: npcName, symbolSize: size, category: cat, itemStyle: { color }, label: { show: true, fontSize: 11 } });
+                    const trustVal = dims.trust || 0;
+                    const affVal = dims.affection || 0;
+                    let edgeLabel = '';
+                    if (trustVal >= 60) edgeLabel = '信任';
+                    else if (affVal >= 60) edgeLabel = '好感';
+                    else if (fearVal >= 60) edgeLabel = '恐惧';
+                    links.push({ source: playerName, target: npcName, value: edgeLabel, label: { show: !!edgeLabel, formatter: edgeLabel, fontSize: 9, color: '#9fb0cc' }, lineStyle: { color: cat === 3 ? 'rgba(255,46,74,0.4)' : 'rgba(0,210,255,0.3)' } });
+                }
+                if (_saoChart) { _saoChart.dispose(); }
+                _saoChart = echarts.init(container);
+                _saoChart.setOption({
+                    tooltip: { formatter: (p) => p.dataType === 'node' ? p.data.name : (p.data.value || '关系') },
+                    legend: { data: categories.map(c => c.name), textStyle: { color: '#9fb0cc' }, bottom: 10 },
+                    series: [{
+                        type: 'graph', layout: 'force', roam: true, draggable: true,
+                        animation: true, animationDuration: 800,
+                        data: nodes, links, categories,
+                        force: { initLayout: 'circular', repulsion: 300, edgeLength: [80, 160], gravity: 0.12, friction: 0.6 },
+                        label: { show: true },
+                        lineStyle: { opacity: 0.6, width: 1.5, curveness: 0.1 },
+                        emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
+                    }],
+                });
+                _saoChart.on('click', (params) => {
+                    if (params.dataType === 'node' && params.data.name !== playerName) {
+                        const npcRel = rels[params.data.name];
+                        if (npcRel) {
+                            const dimsHtml = Object.entries(RELATION_DIMENSIONS).map(([dim, config]) => {
+                                const val = npcRel.dimensions?.[dim] || 0;
+                                const tier = valueToTier(dim, val);
+                                const tierIdx = config.tiers.indexOf(tier);
+                                return `<div class="sao-dim-row"><span class="sao-dim-label">${esc(config.label)}</span><div class="sao-dim-bar-wrap"><div class="sao-dim-bar sao-tier-${tierIdx}" style="width:${val}%"></div></div><span class="sao-dim-tier">${esc(tier)}</span></div>`;
+                            }).join('');
+                            showDetailModal(params.data.name, `<div style="padding:12px;">${dimsHtml}</div>`);
+                        }
+                    }
+                });
+            } catch (e) {
+                container.innerHTML = `<div style="text-align:center;padding:80px 20px;color:var(--danger,#ff2e4a);">关系图加载失败: ${esc(e.message)}</div>`;
+                log('关系图渲染失败: ' + e.message, 'error');
+            }
+        },
+        // 事件时间线
+        renderTimeline() {
+            const el = document.getElementById('sao_event_timeline');
+            if (!el) return;
+            const data = getSaoData();
+            const episodic = data?.episodic || [];
+            if (episodic.length === 0) {
+                el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-tertiary,#5c6b85);">暂无事件记录</div>';
+                return;
+            }
+            const typeLabels = { event: '事件', combat: '战斗', social: '社交', trade: '交易' };
+            const sorted = episodic.slice().reverse();
+            _saoTimelineOffset = 20;
+            const shown = sorted.slice(0, _saoTimelineOffset);
+            el.innerHTML = shown.map(m => {
+                const t = m.type || 'event';
+                const label = typeLabels[t] || t;
+                return `<div class="sao-timeline-item">
+                    <div class="sao-timeline-dot sao-timeline-${t}"></div>
+                    <div class="sao-timeline-time">${esc(m.timestamp?.substring(0, 16) || '?')}</div>
+                    <div class="sao-timeline-content">
+                        <span class="sao-timeline-type sao-timeline-type-${t}">${label}</span>
+                        <div class="sao-timeline-text">${esc(m.content?.substring(0, 200) || '')}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        },
+        loadMoreEvents() {
+            const el = document.getElementById('sao_event_timeline');
+            if (!el) return;
+            const data = getSaoData();
+            const episodic = data?.episodic || [];
+            const typeLabels = { event: '事件', combat: '战斗', social: '社交', trade: '交易' };
+            const sorted = episodic.slice().reverse();
+            const next = sorted.slice(_saoTimelineOffset, _saoTimelineOffset + 20);
+            if (next.length === 0) return;
+            const html = next.map(m => {
+                const t = m.type || 'event';
+                const label = typeLabels[t] || t;
+                return `<div class="sao-timeline-item">
+                    <div class="sao-timeline-dot sao-timeline-${t}"></div>
+                    <div class="sao-timeline-time">${esc(m.timestamp?.substring(0, 16) || '?')}</div>
+                    <div class="sao-timeline-content">
+                        <span class="sao-timeline-type sao-timeline-type-${t}">${label}</span>
+                        <div class="sao-timeline-text">${esc(m.content?.substring(0, 200) || '')}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            el.insertAdjacentHTML('beforeend', html);
+            _saoTimelineOffset += 20;
+        },
+        // 人物档案卡片
+        renderCharacterCards() {
+            const el = document.getElementById('sao_character_cards');
+            if (!el) return;
+            const data = getSaoData();
+            const rels = data?.relationships || {};
+            const names = Object.keys(rels);
+            if (names.length === 0) {
+                el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-tertiary,#5c6b85);">暂无人物关系数据</div>';
+                return;
+            }
+            el.innerHTML = names.map(name => {
+                const rel = rels[name];
+                const dims = Object.entries(RELATION_DIMENSIONS).map(([dim, config]) => {
+                    const val = rel.dimensions?.[dim] || 0;
+                    const tier = valueToTier(dim, val);
+                    const tierIdx = config.tiers.indexOf(tier);
+                    return `<div class="sao-dim-row"><span class="sao-dim-label">${esc(config.label)}</span><div class="sao-dim-bar-wrap"><div class="sao-dim-bar sao-tier-${tierIdx}" style="width:${val}%"></div></div><span class="sao-dim-tier">${esc(tier)}</span></div>`;
+                }).join('');
+                const history = (rel.history || []).slice(-3).reverse().map(h =>
+                    `<div style="font-size:0.75em;opacity:0.6;margin:2px 0;">${esc(h.timestamp?.substring(5, 10) || '?')} ${esc(h.dimension)}: ${esc(h.old_tier)} → ${esc(h.tier || h.new_tier)} ${esc(h.reason || '')}</div>`
+                ).join('');
+                return `<div class="sao-character-card">
+                    <div class="sao-character-name">${esc(name)}</div>
+                    <div class="sao-character-dims">${dims}</div>
+                    ${history ? `<div class="sao-character-history">${history}</div>` : ''}
+                </div>`;
+            }).join('');
+        },
     };
 
     // 面板事件委托（替代 onclick 内联事件，避免 DOMPurify 清洗）
@@ -1666,6 +1847,8 @@ function initPanelLogic() {
                 case 'clearMemories': window.SaoPanel.clearMemories(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
                 case 'closeDetail': window.SaoPanel.closeDetail(); break;
+                case 'switchSubTab': window.SaoPanel.switchSubTab(target.getAttribute('data-subtab')); break;
+                case 'loadMoreEvents': window.SaoPanel.loadMoreEvents(); break;
             }
         });
 
