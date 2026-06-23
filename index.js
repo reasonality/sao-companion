@@ -1997,7 +1997,20 @@ async function loadSettingsPanel() {
 
 export function init() {
     console.log('[SAO Companion] v0.5.0 初始化中...');
-    loadSettingsPanel();
+    window.__SAO_INIT_CALLED = true;
+    loadSettingsPanel().then(() => {
+        console.log('[SAO Companion] loadSettingsPanel 完成');
+        window.__SAO_SETTINGS_LOADED = true;
+        const btn = document.getElementById('sao_open_panel');
+        console.log('[SAO Companion] #sao_open_panel exists:', !!btn);
+        if (btn) {
+            const events = $._data(btn, 'events');
+            console.log('[SAO Companion] click events bound:', events?.click?.length || 0);
+        }
+    }).catch(e => {
+        console.error('[SAO Companion] loadSettingsPanel 失败:', e);
+        window.__SAO_SETTINGS_ERROR = e.message;
+    });
     bindEvents();
     if (isSaoCard()) {
         log('检测到 SAO 角色卡，立即激活');
