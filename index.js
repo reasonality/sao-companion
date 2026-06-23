@@ -1406,6 +1406,7 @@ function initPanelLogic() {
     window.SaoPanel = {
         open() {
             const overlay = document.getElementById('sao_panel_overlay');
+            console.log('[SAO Companion] SaoPanel.open 调用，overlay 存在:', !!overlay);
             if (!overlay) { log('面板未加载', 'error'); return; }
             overlay.style.display = 'block';
             loadSettingsToPanel();
@@ -1947,9 +1948,17 @@ async function loadSettingsPanel() {
     // 绑定"打开控制台"按钮
     $('#sao_open_panel').on('click', async () => {
         try {
+            console.log('[SAO Companion] 按钮点击：开始 loadPanelHTML');
             await loadPanelHTML();
-            if (!window.SaoPanel) initPanelLogic();
+            console.log('[SAO Companion] loadPanelHTML 完成，panelLoaded=', panelLoaded);
+            console.log('[SAO Companion] #sao_panel_overlay 存在:', !!document.getElementById('sao_panel_overlay'));
+            if (!window.SaoPanel) {
+                console.log('[SAO Companion] SaoPanel 不存在，调用 initPanelLogic');
+                initPanelLogic();
+            }
+            console.log('[SAO Companion] SaoPanel.open 类型:', typeof window.SaoPanel?.open);
             window.SaoPanel.open();
+            console.log('[SAO Companion] SaoPanel.open 调用完成');
         } catch (e) {
             console.error('[SAO Companion] 打开控制台失败:', e);
             alert('[SAO Companion] 打开控制台失败: ' + e.message + '\n请检查浏览器控制台获取详细信息。');
