@@ -1406,12 +1406,9 @@ function initPanelLogic() {
     window.SaoPanel = {
         open() {
             const overlay = document.getElementById('sao_panel_overlay');
-            console.log('[SAO Companion] SaoPanel.open 调用，overlay 存在:', !!overlay);
             if (!overlay) { log('面板未加载', 'error'); return; }
-            overlay.style.display = 'block';
-            overlay.style.background = 'red'; // 临时调试：红色背景确认可见性
-            overlay.style.opacity = '1';
-            overlay.style.zIndex = '999999';
+            // 强制 inline style，不依赖 CSS 文件（防止 DOMPurify/CSS 加载问题）
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999999;display:block;overflow-y:auto;background:rgba(5,10,25,0.88);';
             loadSettingsToPanel();
             refreshMemoryList();
             refreshStatus();
@@ -1951,34 +1948,9 @@ async function loadSettingsPanel() {
     // 绑定"打开控制台"按钮
     $('#sao_open_panel').on('click', async () => {
         try {
-            // 临时调试：直接创建一个全屏红色 div，不依赖 panel.html
-            const test = document.createElement('div');
-            test.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:red;z-index:9999999;opacity:1;display:block;';
-            test.innerHTML = '<div style="color:white;font-size:30px;padding:50px;">SAO 面板调试中 - 如果看到红色说明事件正常</div>';
-            document.body.appendChild(test);
-            console.log('[SAO Companion] 调试 div 已添加到 body');
-
             console.log('[SAO Companion] 按钮点击：开始 loadPanelHTML');
             await loadPanelHTML();
             console.log('[SAO Companion] loadPanelHTML 完成，panelLoaded=', panelLoaded);
-
-            // 检查 overlay 在 DOM 树中的位置
-            const overlay = document.getElementById('sao_panel_overlay');
-            console.log('[SAO Companion] #sao_panel_overlay 存在:', !!overlay);
-            if (overlay) {
-                console.log('[SAO Companion] overlay parentNode:', overlay.parentNode?.tagName, overlay.parentNode?.id || '');
-                console.log('[SAO Companion] overlay offsetHeight:', overlay.offsetHeight);
-                console.log('[SAO Companion] overlay getBoundingClientRect:', JSON.stringify(overlay.getBoundingClientRect()));
-                console.log('[SAO Companion] overlay innerHTML 长度:', overlay.innerHTML.length);
-                console.log('[SAO Companion] overlay childElementCount:', overlay.childElementCount);
-                const cs = window.getComputedStyle(overlay);
-                console.log('[SAO Companion] overlay computed display:', cs.display);
-                console.log('[SAO Companion] overlay computed visibility:', cs.visibility);
-                console.log('[SAO Companion] overlay computed opacity:', cs.opacity);
-                console.log('[SAO Companion] overlay computed zIndex:', cs.zIndex);
-                console.log('[SAO Companion] overlay computed position:', cs.position);
-            }
-
             if (!window.SaoPanel) {
                 console.log('[SAO Companion] SaoPanel 不存在，调用 initPanelLogic');
                 initPanelLogic();
