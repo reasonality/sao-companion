@@ -1566,11 +1566,8 @@ function initPanelLogic() {
             injectMemoryAndState();
             log('章节切换: ' + arc);
             // 更新 UI
-            document.querySelectorAll('[data-content="chapter"] .sao-card').forEach(c => c.style.borderColor = '');
-            document.querySelectorAll(`[data-content="chapter"] .sao-card`).forEach(c => {
-                if (c.onclick && c.getAttribute('onclick')?.includes(`'${arc}'`)) {
-                    c.style.borderColor = '#6c5ce7';
-                }
+            document.querySelectorAll('.sao-chapter-card').forEach(c => {
+                c.classList.toggle('sao-chapter-active', c.dataset.arc === arc);
             });
         },
         refreshStatus() {
@@ -1637,12 +1634,43 @@ function initPanelLogic() {
         },
     };
 
-    // 绑定标签点击
-    document.addEventListener('click', (e) => {
-        if (e.target.classList?.contains('sao-tab')) {
-            window.SaoPanel.switchTab(e.target.dataset.tab);
+    // 面板事件委托（替代 onclick 内联事件，避免 DOMPurify 清洗）
+    const panel = document.getElementById('sao_panel_overlay');
+    if (panel) {
+        panel.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-action]');
+            if (!target) return;
+            const action = target.getAttribute('data-action');
+            const role = target.getAttribute('data-role');
+            const type = target.getAttribute('data-type');
+            const tab = target.getAttribute('data-tab');
+            const arc = target.getAttribute('data-arc');
+
+            switch (action) {
+                case 'closePanel': window.SaoPanel.close(); break;
+                case 'switchTab': window.SaoPanel.switchTab(tab); break;
+                case 'switchArc': window.SaoPanel.switchArc(arc); break;
+                case 'fetchModels': window.SaoPanel.fetchModels(role); break;
+                case 'testModel': window.SaoPanel.testModel(role); break;
+                case 'saveModels': window.SaoPanel.saveModels(); break;
+                case 'testGenerate': window.SaoPanel.testGenerate(type); break;
+                case 'refreshStatus': window.SaoPanel.refreshStatus(); break;
+                case 'saveMemory': window.SaoPanel.saveMemory(); break;
+                case 'addMemoryManual': window.SaoPanel.addMemoryManual(); break;
+                case 'clearMemories': window.SaoPanel.clearMemories(); break;
+                case 'clearLogs': window.SaoPanel.clearLogs(); break;
+                case 'closeDetail': window.SaoPanel.closeDetail(); break;
+            }
+        });
+
+        // 记忆搜索框（oninput 也会被 DOMPurify 清除，用 addEventListener）
+        const searchBox = document.getElementById('sao_memory_search');
+        if (searchBox) {
+            searchBox.addEventListener('input', (e) => {
+                window.SaoPanel.filterMemories(e.target.value);
+            });
         }
-    });
+    }
 
     // 详情弹窗事件委托
     function handleDetailClick(e) {

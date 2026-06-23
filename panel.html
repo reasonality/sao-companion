@@ -267,17 +267,17 @@
 <div class='sao-panel-window'>
 <div class='sao-panel-header'>
 <div class='sao-panel-title'>&#9876;&#65039; SAO Companion</div>
-<button class='sao-panel-close' onclick='window.SaoPanel.close()'>&#10005;</button>
+<button class='sao-panel-close' data-action='closePanel'>&#10005;</button>
 </div>
 <div class='sao-panel-body'>
 <div class='sao-panel-tabs'>
-<div class='sao-tab active' data-tab='status'>&#128202; 状态监控</div>
-<div class='sao-tab' data-tab='memory'>&#129504; 记忆系统</div>
-<div class='sao-tab' data-tab='relation'>&#128155; 关系</div>
-<div class='sao-tab' data-tab='chapter'>&#128214; 章节</div>
-<div class='sao-tab' data-tab='models'>&#129302; 模型配置</div>
-<div class='sao-tab' data-tab='logs'>&#128221; 日志</div>
-<div class='sao-tab' data-tab='about'>&#8505; 关于</div>
+<div class='sao-tab active' data-action='switchTab' data-tab='status'>&#128202; 状态监控</div>
+<div class='sao-tab' data-action='switchTab' data-tab='memory'>&#129504; 记忆系统</div>
+<div class='sao-tab' data-action='switchTab' data-tab='relation'>&#128155; 关系</div>
+<div class='sao-tab' data-action='switchTab' data-tab='chapter'>&#128214; 章节</div>
+<div class='sao-tab' data-action='switchTab' data-tab='models'>&#129302; 模型配置</div>
+<div class='sao-tab' data-action='switchTab' data-tab='logs'>&#128221; 日志</div>
+<div class='sao-tab' data-action='switchTab' data-tab='about'>&#8505; 关于</div>
 </div>
 <div class='sao-tab-content active' data-content='status'>
 <div class='sao-section'><div class='sao-section-title'>玩家状态</div>
@@ -303,23 +303,23 @@
 <div class='sao-section'><div class='sao-section-title'>技能</div><div id='sao_skills_list' class='sao-card' style='min-height:40px;'><span style='opacity:0.5;font-size:0.85em;'>空</span></div></div></div>
 <div class='sao-section'><div class='sao-section-title'>队友</div><div id='sao_teammates_list'><div class='sao-card' style='opacity:0.5;font-size:0.85em;'>暂无队友</div></div></div>
 <div class='sao-section'><div class='sao-section-title'>生成测试</div><div class='sao-grid-2'>
-<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`equipment`)'>装备</button>
-<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`skill`)'>剑技</button>
-<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`loot`)'>战利品</button>
-<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`combat`)'>战斗</button>
+<button class='sao-btn' data-action='testGenerate' data-type='equipment'>装备</button>
+<button class='sao-btn' data-action='testGenerate' data-type='skill'>剑技</button>
+<button class='sao-btn' data-action='testGenerate' data-type='loot'>战利品</button>
+<button class='sao-btn' data-action='testGenerate' data-type='combat'>战斗</button>
 </div><div class='sao-test-result' id='sao_generate_test'></div></div>
-<button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.refreshStatus()'>刷新</button>
+<button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='refreshStatus'>刷新</button>
 </div>
 <div class='sao-tab-content' data-content='memory'>
 <div class='sao-section'><div class='sao-section-title'>记忆系统设置</div>
 <div class='sao-checkbox-row'><input type='checkbox' id='sao_memory_enabled' /><label for='sao_memory_enabled'>启用记忆系统</label></div>
 <div class='sao-grid-2'><div class='sao-field'><label>记忆注入深度 (0-10)</label><input id='sao_memory_depth' type='number' min='0' max='10' value='4' /></div>
 <div class='sao-field'><label>最大记忆条目数</label><input id='sao_max_memories' type='number' min='10' max='500' value='50' /></div></div>
-<button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.saveMemory()'>保存</button></div>
+<button class='sao-btn sao-btn-sm' data-action='saveMemory'>保存</button></div>
 <div class='sao-section'><div class='sao-section-title'>记忆列表</div>
 <div class='sao-memory-stats'><span>总计: <strong id='sao_mem_count'>0</strong></span><span>事件: <strong id='sao_mem_event'>0</strong></span><span>战斗: <strong id='sao_mem_combat'>0</strong></span><span>社交: <strong id='sao_mem_social'>0</strong></span></div>
-<input type='text' class='sao-search-box' id='sao_memory_search' placeholder='搜索记忆...' oninput='window.SaoPanel.filterMemories(this.value)' />
-<div style='margin-bottom:10px;'><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.addMemoryManual()'>添加</button> <button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.clearMemories()'>全部清除</button></div>
+<input type='text' class='sao-search-box' id='sao_memory_search' placeholder='搜索记忆...' />
+<div style='margin-bottom:10px;'><button class='sao-btn sao-btn-sm' data-action='addMemoryManual'>添加</button> <button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='clearMemories'>全部清除</button></div>
 <div id='sao_memory_list' style='max-height:400px;overflow-y:auto;border:1px solid var(--sao-border);border-radius:6px;'><div class='sao-memory-item' style='opacity:0.5;'>加载中...</div></div>
 </div></div>
 <div class='sao-tab-content' data-content='relation'>
@@ -330,11 +330,11 @@
 <div class='sao-section'><div class='sao-section-title'>章节切换</div>
 <div class='sao-info-box'>切换章节以启用/禁用世界书条目。当前: <strong id='sao_current_arc'>-</strong></div>
 <div class='sao-grid-2'>
-<div class='sao-card sao-chapter-card' data-arc='sao' onclick="window.SaoPanel.switchArc('sao')"><div class='sao-card-title'>SAO - 艾恩葛朗特</div><div style='font-size:0.8em;opacity:0.7;'>死亡游戏，100 层</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_sao'></div></div>
-<div class='sao-card sao-chapter-card' data-arc='alo_old' onclick="window.SaoPanel.switchArc('alo_old')"><div class='sao-card-title'>旧 ALO</div><div style='font-size:0.8em;opacity:0.7;'>妖精之舞</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_alo_old'></div></div>
-<div class='sao-card sao-chapter-card' data-arc='alo_new' onclick="window.SaoPanel.switchArc('alo_new')"><div class='sao-card-title'>新 ALO</div><div style='font-size:0.8em;opacity:0.7;'>圣剑篇、圣母圣咏篇</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_alo_new'></div></div>
-<div class='sao-card sao-chapter-card' data-arc='ggo' onclick="window.SaoPanel.switchArc('ggo')"><div class='sao-card-title'>GGO</div><div style='font-size:0.8em;opacity:0.7;'>幽灵子弹篇</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_ggo'></div></div>
-<div class='sao-card sao-chapter-card' data-arc='real' onclick="window.SaoPanel.switchArc('real')"><div class='sao-card-title'>现实世界</div><div style='font-size:0.8em;opacity:0.7;'>SAO 之后的生活</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_real'></div></div>
+<div class='sao-card sao-chapter-card' data-action='switchArc' data-arc='sao'><div class='sao-card-title'>SAO - 艾恩葛朗特</div><div style='font-size:0.8em;opacity:0.7;'>死亡游戏，100 层</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_sao'></div></div>
+<div class='sao-card sao-chapter-card' data-action='switchArc' data-arc='alo_old'><div class='sao-card-title'>旧 ALO</div><div style='font-size:0.8em;opacity:0.7;'>妖精之舞</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_alo_old'></div></div>
+<div class='sao-card sao-chapter-card' data-action='switchArc' data-arc='alo_new'><div class='sao-card-title'>新 ALO</div><div style='font-size:0.8em;opacity:0.7;'>圣剑篇、圣母圣咏篇</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_alo_new'></div></div>
+<div class='sao-card sao-chapter-card' data-action='switchArc' data-arc='ggo'><div class='sao-card-title'>GGO</div><div style='font-size:0.8em;opacity:0.7;'>幽灵子弹篇</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_ggo'></div></div>
+<div class='sao-card sao-chapter-card' data-action='switchArc' data-arc='real'><div class='sao-card-title'>现实世界</div><div style='font-size:0.8em;opacity:0.7;'>SAO 之后的生活</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_real'></div></div>
 </div></div></div>
 <div class='sao-tab-content' data-content='models'>
 <div class='sao-section'><div class='sao-section-title'>模型配置</div>
@@ -344,7 +344,7 @@
 <p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>NPC 反应生成。留空则不使用。</p>
 <div class='sao-field'><label>API 地址</label><input id='sao_narrative_url' placeholder='https://api.deepseek.com/v1' /></div>
 <div class='sao-field'><label>API 密钥</label><input id='sao_narrative_key' type='password' placeholder='sk-...' /></div>
-<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_narrative_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`narrative`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`narrative`)'>测试</button></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_narrative_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' data-action='fetchModels' data-role='narrative'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='testModel' data-role='narrative'>测试</button></div>
 <div class='sao-test-result' id='sao_narrative_test'></div>
 </div>
 <div class='sao-card'>
@@ -352,7 +352,7 @@
 <p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>战斗 + 装备/剑技/物品/经验生成。</p>
 <div class='sao-field'><label>API 地址</label><input id='sao_combat_url' placeholder='https://api.deepseek.com/v1' /></div>
 <div class='sao-field'><label>API 密钥</label><input id='sao_combat_key' type='password' placeholder='sk-...' /></div>
-<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_combat_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`combat`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`combat`)'>测试</button></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_combat_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' data-action='fetchModels' data-role='combat'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='testModel' data-role='combat'>测试</button></div>
 <div class='sao-test-result' id='sao_combat_test'></div>
 </div>
 <div class='sao-card'>
@@ -360,7 +360,7 @@
 <p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>每次 AI 回复后自动提取 HP/MP/物品/NPC 关系。</p>
 <div class='sao-field'><label>API 地址</label><input id='sao_extract_url' placeholder='https://api.deepseek.com/v1' /></div>
 <div class='sao-field'><label>API 密钥</label><input id='sao_extract_key' type='password' placeholder='sk-...' /></div>
-<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_extract_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`extract`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`extract`)'>测试</button></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_extract_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' data-action='fetchModels' data-role='extract'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='testModel' data-role='extract'>测试</button></div>
 <div class='sao-test-result' id='sao_extract_test'></div>
 </div>
 <div class='sao-card'>
@@ -368,13 +368,13 @@
 <p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>记忆检索与摘要生成。</p>
 <div class='sao-field'><label>API 地址</label><input id='sao_memory_url' placeholder='https://api.deepseek.com/v1' /></div>
 <div class='sao-field'><label>API 密钥</label><input id='sao_memory_key' type='password' placeholder='sk-...' /></div>
-<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_memory_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`memory`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`memory`)'>测试</button></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_memory_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' data-action='fetchModels' data-role='memory'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='testModel' data-role='memory'>测试</button></div>
 <div class='sao-test-result' id='sao_memory_test'></div>
 </div>
-<button class='sao-btn' onclick='window.SaoPanel.saveModels()'>保存配置</button>
+<button class='sao-btn' data-action='saveModels'>保存配置</button>
 </div></div>
 <div class='sao-tab-content' data-content='logs'>
-<div class='sao-section'><div class='sao-section-title'>日志</div><div id='sao_log_display' class='sao-log'></div><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.clearLogs()'>清除</button></div></div>
+<div class='sao-section'><div class='sao-section-title'>日志</div><div id='sao_log_display' class='sao-log'></div><button class='sao-btn sao-btn-secondary sao-btn-sm' data-action='clearLogs'>清除</button></div></div>
 <div class='sao-tab-content' data-content='about'>
 <div class='sao-section'><div class='sao-section-title'>SAO Companion</div>
 <p>版本: 0.5.0</p>
@@ -388,12 +388,11 @@
   <div class='sao-modal-window'>
     <div class='sao-modal-header'>
       <span id='sao_modal_title'>详情</span>
-      <button class='sao-modal-close' onclick='window.SaoPanel.closeDetail()'>&times;</button>
+      <button class='sao-modal-close' data-action='closeDetail'>&times;</button>
     </div>
     <div id='sao_modal_body' class='sao-modal-body'></div>
   </div>
 </div>
 </div>
-<script>// Panel logic injected by index.js</script>
 </body>
 </html>
