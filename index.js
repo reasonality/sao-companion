@@ -1323,25 +1323,38 @@ function renderTeammateDetail(t) {
 
 async function loadPanelHTML() {
     if (panelLoaded) return;
-    // 加载 panel.html 到 DOM（使用 ST API 而非硬编码路径）
-    const html = await renderExtensionTemplateAsync('third-party/sao-companion', 'panel');
-    // 提取 <body> 内容和 <style>
-    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/);
-    const styleMatch = html.match(/<style[^>]*>([\s\S]*)<\/style>/);
-    if (styleMatch) {
-        const style = document.createElement('style');
-        style.id = 'sao_panel_style';
-        style.textContent = styleMatch[1];
-        document.head.appendChild(style);
+    try {
+        // 加载 panel.html 到 DOM（使用 ST API 而非硬编码路径）
+        const html = await renderExtensionTemplateAsync('third-party/sao-companion', 'panel');
+        // 提取 <style> 内容
+        const styleMatch = html.match(/<style[^>]*>([\s\S]*)<\/style>/);
+        if (styleMatch) {
+            const style = document.createElement('style');
+            style.id = 'sao_panel_style';
+            style.textContent = styleMatch[1];
+            document.head.appendChild(style);
+        }
+        // 提取 <body> 内容；若 ST 已剥离 <body> 标签则回退到去除 <head> 后的全文
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/);
+        const bodyContent = bodyMatch && bodyMatch[1]
+            ? bodyMatch[1]
+            : html.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<html[^>]*>/i, '').replace(/<head[\s\S]*?<\/head>/i, '').replace(/<\/?html>/gi, '').replace(/<\/body>/gi, '').trim();
+        if (bodyContent) {
+            const div = document.createElement('div');
+            div.innerHTML = bodyContent;
+            // 把 body 下的所有顶层元素都添加到 DOM（不只是 firstElementChild）
+            while (div.firstElementChild) {
+                document.body.appendChild(div.firstElementChild);
+            }
+        } else {
+            log('panel.html body 提取失败', 'error');
+        }
+        panelLoaded = true;
+    } catch (e) {
+        log('loadPanelHTML 失败: ' + e.message, 'error');
+        console.error('[SAO Companion] loadPanelHTML error:', e);
+        throw e;
     }
-    if (bodyMatch && bodyMatch[1]) {
-        const div = document.createElement('div');
-        div.innerHTML = bodyMatch[1];
-        document.body.appendChild(div.firstElementChild);
-    } else {
-        log('panel.html body 提取失败', 'error');
-    }
-    panelLoaded = true;
 }
 
 function initPanelLogic() {
@@ -1905,9 +1918,14 @@ async function loadSettingsPanel() {
 
     // 绑定"打开控制台"按钮
     $('#sao_open_panel').on('click', async () => {
-        await loadPanelHTML();
-        if (!window.SaoPanel) initPanelLogic();
-        window.SaoPanel.open();
+        try {
+            await loadPanelHTML();
+            if (!window.SaoPanel) initPanelLogic();
+            window.SaoPanel.open();
+        } catch (e) {
+            console.error('[SAO Companion] 打开控制台失败:', e);
+            alert('[SAO Companion] 打开控制台失败: ' + e.message + '\n请检查浏览器控制台获取详细信息。');
+        }
     });
 
     // 绑定启用开关
