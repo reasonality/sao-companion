@@ -1,0 +1,35 @@
+<div class="sao-companion-settings inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b>⚔️ SAO Companion</b>
+        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content">
+
+        <div class="flex-container flexBaseline5 marginBottom5">
+            <label class="checkbox_label" for="sao_companion_enabled" title="启用/禁用 SAO Companion 插件">
+                <input type="checkbox" id="sao_companion_enabled" {{#if enabled}}checked{{/if}} />
+                <span>启用插件</span>
+            </label>
+        </div>
+
+        <div class="flex-container flexBaseline5 marginBottom5">
+            <label class="checkbox_label" for="sao_compat_mode" title="自动关闭不兼容选项 + 启用角色卡正则（仅在 SAO 卡时生效）">
+                <input type="checkbox" id="sao_compat_mode" {{#if compatMode}}checked{{/if}} />
+                <span>SAO 卡兼容模式</span>
+            </label>
+        </div>
+
+        <div class="marginBottom5">
+            <div id="sao_open_panel" class="menu_button" style="cursor:pointer;text-align:center;width:100%;box-sizing:border-box;">
+                ⚙️ 打开 SAO 控制台
+            </div>
+        </div>
+
+        <hr>
+
+        <div class="marginBottom5">
+            <small class="opacity70p">兼容模式：切到 SAO 卡时自动关闭"自动修复Markdown/显示标签/修剪句子"并启用角色卡正则，切出时自动恢复。</small>
+        </div>
+
+    </div>
+</div>

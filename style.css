@@ -1,0 +1,29 @@
+/* SAO Companion - 扩展样式 */
+
+.sao-companion-settings .inline-drawer-content {
+    padding: 10px;
+}
+
+.sao-companion-settings hr {
+    margin: 10px 0;
+    border: 0;
+    border-top: 1px solid var(--SmartThemeQuoteColor);
+    opacity: 0.3;
+}
+
+.sao-companion-settings label {
+    display: block;
+    font-size: 0.9em;
+    margin-bottom: 4px;
+}
+
+.sao-companion-settings small {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.8em;
+}
+
+.sao-companion-settings .text_pole {
+    width: 100%;
+    box-sizing: border-box;
+}

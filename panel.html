@@ -1,0 +1,399 @@
+﻿<!DOCTYPE html>
+<html lang='zh-CN'>
+<head>
+<meta charset='UTF-8'>
+<style>
+/* ===== SAO HUD Theme ===== */
+@import url(https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap);
+
+:root {
+    --sao-bg-overlay: rgba(5, 10, 25, 0.88);
+    --sao-bg-window: #0d1426;
+    --sao-bg-header: linear-gradient(135deg, #0a1628, #142844);
+    --sao-bg-card: rgba(255, 255, 255, 0.04);
+    --sao-bg-card-hover: rgba(255, 255, 255, 0.07);
+    --sao-border: rgba(100, 180, 255, 0.15);
+    --sao-border-hover: rgba(100, 180, 255, 0.4);
+    --sao-accent: #4fc3f7;
+    --sao-accent-2: #7c8aff;
+    --sao-text: #e2e8f0;
+    --sao-text-dim: rgba(255, 255, 255, 0.5);
+    --sao-hp: linear-gradient(90deg, #ff4757, #ff6b81);
+    --sao-mp: linear-gradient(90deg, #3b82f6, #60a5fa);
+    --sao-exp: linear-gradient(90deg, #fbbf24, #f59e0b);
+    --sao-r-common: #9ca3af;
+    --sao-r-uncommon: #34d399;
+    --sao-r-rare: #60a5fa;
+    --sao-r-epic: #a78bfa;
+    --sao-r-legendary: #fbbf24;
+}
+
+.sao-panel-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--sao-bg-overlay);
+    z-index: 99999; display: none; overflow-y: auto;
+}
+
+.sao-panel-window {
+    max-width: 1100px; margin: 30px auto;
+    background: var(--sao-bg-window);
+    color: var(--SmartThemeBodyColor, #e2e8f0);
+    border: 1px solid var(--sao-border);
+    border-radius: 12px;
+    box-shadow: 0 0 50px rgba(79, 195, 247, 0.12), 0 12px 40px rgba(0, 0, 0, 0.45);
+    overflow: hidden; font-size: 14px;
+    font-family: Orbitron, Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif;
+}
+
+.sao-panel-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 26px; background: var(--sao-bg-header);
+    border-bottom: 1px solid var(--sao-border);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.sao-panel-title {
+    font-family: Orbitron, Noto Sans SC, sans-serif;
+    font-size: 1.45em; font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+    color: var(--sao-accent);
+    text-shadow: 0 0 12px rgba(79, 195, 247, 0.35);
+    letter-spacing: 0.5px;
+}
+
+.sao-panel-close {
+    background: transparent; border: 1px solid transparent; color: inherit;
+    font-size: 1.6em; cursor: pointer; width: 40px; height: 40px;
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+}
+.sao-panel-close:hover {
+    background: rgba(255, 71, 87, 0.12); color: #ff6b81;
+    border-color: rgba(255, 71, 87, 0.3);
+}
+
+.sao-panel-body { padding: 24px 28px; max-height: 75vh; overflow-y: auto; }
+
+.sao-panel-tabs {
+    display: flex; gap: 2px; border-bottom: 2px solid var(--sao-border);
+    margin-bottom: 22px; flex-wrap: wrap;
+}
+
+.sao-tab {
+    padding: 10px 16px; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    font-size: 0.92em; font-weight: 500;
+    transition: all 0.2s; opacity: 0.6; white-space: nowrap; border-radius: 0;
+}
+.sao-tab:hover { opacity: 0.9; background: rgba(255, 255, 255, 0.03); }
+.sao-tab.active {
+    opacity: 1; color: var(--sao-accent);
+    border-bottom-color: var(--sao-accent);
+    text-shadow: 0 0 8px rgba(79, 195, 247, 0.35);
+    background: rgba(79, 195, 247, 0.05);
+}
+
+.sao-tab-content { display: none; }
+.sao-tab-content.active { display: block; animation: sao-fade-in 0.25s ease-out; }
+
+.sao-section { margin-bottom: 22px; }
+.sao-section-title {
+    font-size: 1.05em; font-weight: 700; margin-bottom: 12px;
+    padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--sao-accent); letter-spacing: 0.3px;
+}
+
+.sao-card {
+    padding: 15px; background: var(--sao-bg-card);
+    border: 1px solid var(--sao-border); border-radius: 8px;
+    margin-bottom: 12px; transition: all 0.2s ease;
+}
+.sao-card:hover {
+    background: var(--sao-bg-card-hover); border-color: var(--sao-border-hover);
+    box-shadow: 0 0 18px rgba(79, 195, 247, 0.1);
+}
+.sao-card-title {
+    font-weight: 700; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+}
+
+.sao-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.sao-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+.sao-field { margin-bottom: 14px; }
+.sao-field label { display: block; font-size: 0.85em; margin-bottom: 5px; color: var(--sao-text-dim); }
+.sao-field input,
+.sao-field select,
+.sao-search-box {
+    width: 100%; box-sizing: border-box; padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.25); border: 1px solid var(--sao-border);
+    border-radius: 6px; color: inherit; font-size: 0.9em; transition: all 0.2s;
+}
+.sao-field input:focus,
+.sao-field select:focus,
+.sao-search-box:focus {
+    border-color: var(--sao-accent); outline: none;
+    box-shadow: 0 0 8px rgba(79, 195, 247, 0.15);
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.sao-model-row { display: flex; gap: 8px; align-items: flex-end; }
+.sao-model-row .sao-field { flex: 1; margin-bottom: 0; }
+
+.sao-checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.sao-checkbox-row input[type='checkbox'] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--sao-accent); }
+
+.sao-btn {
+    padding: 8px 16px; background: var(--sao-accent); color: #0d1426;
+    border: none; border-radius: 6px; cursor: pointer;
+    font-size: 0.85em; font-weight: 600; transition: all 0.2s; white-space: nowrap;
+}
+.sao-btn:hover { filter: brightness(1.15); box-shadow: 0 0 14px rgba(79, 195, 247, 0.35); }
+.sao-btn-secondary {
+    background: rgba(255, 255, 255, 0.08); color: var(--sao-text);
+    border: 1px solid var(--sao-border);
+}
+.sao-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.14); border-color: var(--sao-border-hover);
+    box-shadow: 0 0 10px rgba(79, 195, 247, 0.12);
+}
+.sao-btn-sm { padding: 5px 10px; font-size: 0.8em; }
+
+.sao-status-box { padding: 10px 14px; background: rgba(0, 0, 0, 0.2); border-radius: 6px; border-left: 3px solid var(--sao-accent-2); font-size: 0.85em; }
+.sao-status-ok { border-left-color: var(--sao-r-uncommon); background: rgba(52, 211, 153, 0.08); }
+.sao-status-warn { border-left-color: #fbbf24; background: rgba(251, 191, 36, 0.08); }
+.sao-status-err { border-left-color: #ff4757; background: rgba(255, 71, 87, 0.08); }
+
+.sao-bar-container { height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; margin: 4px 0; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.sao-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; position: relative; }
+.sao-bar::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 45%; background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0)); pointer-events: none; border-radius: 4px 4px 0 0; }
+.sao-bar-hp { background: var(--sao-hp); }
+.sao-bar-mp { background: var(--sao-mp); }
+.sao-bar-exp { background: var(--sao-exp); }
+.sao-bar-hp-low { animation: sao-pulse-red 1s ease-in-out infinite; }
+@keyframes sao-pulse-red { 0%, 100% { filter: brightness(1); box-shadow: 0 0 0 rgba(255, 71, 87, 0); } 50% { filter: brightness(1.25); box-shadow: 0 0 10px rgba(255, 71, 87, 0.45); } }
+
+.sao-stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0; }
+.sao-stat-item { text-align: center; padding: 10px; background: var(--sao-bg-card); border: 1px solid var(--sao-border); border-radius: 6px; transition: all 0.2s; }
+.sao-stat-item:hover { background: var(--sao-bg-card-hover); border-color: var(--sao-border-hover); }
+.sao-stat-value { font-size: 1.35em; font-weight: 700; color: var(--sao-accent); text-shadow: 0 0 8px rgba(79, 195, 247, 0.25); }
+.sao-stat-label { font-size: 0.75em; color: var(--sao-text-dim); margin-top: 2px; }
+
+.sao-tag { display: inline-block; padding: 4px 10px; background: rgba(79, 195, 247, 0.1); border: 1px solid rgba(79, 195, 247, 0.25); border-radius: 15px; font-size: 0.82em; margin: 3px; cursor: pointer; transition: all 0.2s; }
+.sao-tag:hover { background: rgba(79, 195, 247, 0.18); border-color: rgba(79, 195, 247, 0.55); box-shadow: 0 0 10px rgba(79, 195, 247, 0.15); }
+.sao-tag-equip { background: rgba(52, 211, 153, 0.1); border-color: rgba(52, 211, 153, 0.3); color: #6ee7b7; }
+.sao-tag-equip:hover { background: rgba(52, 211, 153, 0.18); border-color: rgba(52, 211, 153, 0.55); box-shadow: 0 0 10px rgba(52, 211, 153, 0.2); }
+.sao-tag-inv { background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.3); color: #fcd34d; }
+.sao-tag-inv:hover { background: rgba(251, 191, 36, 0.18); border-color: rgba(251, 191, 36, 0.55); box-shadow: 0 0 10px rgba(251, 191, 36, 0.2); }
+.sao-tag-skill { background: rgba(96, 165, 250, 0.1); border-color: rgba(96, 165, 250, 0.3); color: #93c5fd; }
+.sao-tag-skill:hover { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.55); box-shadow: 0 0 10px rgba(96, 165, 250, 0.2); }
+
+.sao-teammate-card { padding: 12px 14px; background: var(--sao-bg-card); border: 1px solid var(--sao-border); border-left: 3px solid var(--sao-r-uncommon); border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+.sao-teammate-card:hover { background: var(--sao-bg-card-hover); border-color: var(--sao-border-hover); border-left-color: var(--sao-r-uncommon); box-shadow: 0 0 14px rgba(52, 211, 153, 0.12); }
+.sao-teammate-name { font-weight: 700; }
+.sao-teammate-info { font-size: 0.82em; color: var(--sao-text-dim); margin-top: 4px; }
+
+.sao-relation-card { padding: 12px 14px; background: var(--sao-bg-card); border: 1px solid var(--sao-border); border-left: 3px solid var(--sao-accent-2); border-radius: 8px; margin-bottom: 10px; }
+.sao-relation-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sao-relation-name { font-weight: 700; font-size: 1.05em; }
+.sao-relation-type { font-size: 0.75em; color: var(--sao-text-dim); background: rgba(255, 255, 255, 0.06); padding: 2px 8px; border-radius: 10px; }
+
+.sao-dim-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.85em; }
+.sao-dim-label { width: 45px; text-align: right; color: var(--sao-text-dim); font-size: 0.8em; }
+.sao-dim-bar-wrap { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.sao-dim-bar { height: 100%; border-radius: 4px; transition: width 0.3s; background: var(--sao-accent-2); }
+.sao-dim-tier { width: 65px; text-align: left; font-size: 0.8em; color: var(--sao-text); }
+
+.sao-chapter-card { cursor: pointer; transition: all 0.2s; }
+.sao-chapter-card:hover { border-color: var(--sao-border-hover); box-shadow: 0 0 14px rgba(79, 195, 247, 0.1); }
+.sao-chapter-active { border-color: var(--sao-accent) !important; background: rgba(79, 195, 247, 0.08) !important; box-shadow: 0 0 16px rgba(79, 195, 247, 0.15) !important; }
+
+.sao-log { background: rgba(0, 0, 0, 0.35); padding: 10px; border-radius: 6px; font-family: Consolas, Courier New, monospace; font-size: 0.82em; max-height: 300px; overflow-y: auto; border: 1px solid var(--sao-border); color: var(--sao-text-dim); }
+.sao-log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+.sao-log-time { opacity: 0.5; margin-right: 8px; color: var(--sao-accent); }
+
+.sao-test-result { font-size: 0.85em; padding: 8px; margin-top: 8px; border-radius: 4px; display: none; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; border: 1px solid transparent; }
+.sao-test-result.show { display: block; animation: sao-fade-in 0.2s ease-out; }
+.sao-test-result.success { background: rgba(52, 211, 153, 0.1); color: var(--sao-r-uncommon); border-color: rgba(52, 211, 153, 0.25); }
+.sao-test-result.error { background: rgba(255, 71, 87, 0.1); color: #ff6b81; border-color: rgba(255, 71, 87, 0.25); }
+
+.sao-memory-item { padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: flex-start; gap: 8px; font-size: 0.85em; transition: background 0.15s; }
+.sao-memory-item:hover { background: var(--sao-bg-card-hover); }
+.sao-memory-content { flex: 1; }
+.sao-memory-meta { font-size: 0.75em; color: var(--sao-text-dim); margin-top: 2px; }
+.sao-memory-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.sao-memory-stats { font-size: 0.8em; color: var(--sao-text-dim); margin-bottom: 10px; padding: 6px 10px; background: var(--sao-bg-card); border: 1px solid var(--sao-border); border-radius: 4px; display: flex; gap: 15px; flex-wrap: wrap; }
+
+.sao-info-box { padding: 10px 14px; background: rgba(79, 195, 247, 0.08); border: 1px solid var(--sao-border); border-radius: 6px; font-size: 0.85em; margin-bottom: 15px; color: var(--sao-text); }
+
+.sao-metric-box { text-align: center; padding: 6px; background: var(--sao-bg-card); border: 1px solid var(--sao-border); border-radius: 4px; }
+.sao-metric-label { font-size: 0.75em; color: var(--sao-text-dim); }
+.sao-metric-value { font-weight: 700; color: var(--sao-text); }
+
+.sao-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); z-index: 100001; display: none; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
+.sao-modal-window { max-width: 480px; width: 90%; max-height: 75vh; overflow-y: auto; background: var(--sao-bg-window); border: 1px solid var(--sao-border); border-radius: 12px; box-shadow: 0 0 40px rgba(79, 195, 247, 0.15); color: var(--SmartThemeBodyColor, #e2e8f0); animation: sao-scale-in 0.2s ease-out; }
+.sao-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--sao-border); }
+.sao-modal-header span { font-weight: 700; font-size: 1.05em; color: var(--sao-accent); }
+.sao-modal-close { background: transparent; border: none; color: var(--sao-text-dim); font-size: 1.6em; line-height: 1; cursor: pointer; padding: 0 4px; transition: color 0.2s; }
+.sao-modal-close:hover { color: #ff6b81; text-shadow: 0 0 8px rgba(255, 71, 87, 0.4); }
+.sao-modal-body { padding: 18px 22px; font-size: 0.9em; line-height: 1.7; }
+
+.sao-detail-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); gap: 12px; }
+.sao-detail-label { opacity: 0.6; font-size: 0.85em; color: var(--sao-text-dim); }
+.sao-detail-value { font-weight: 700; color: var(--sao-text); text-align: right; }
+
+.sao-rarity-common { color: var(--sao-r-common); }
+.sao-rarity-uncommon { color: var(--sao-r-uncommon); }
+.sao-rarity-rare { color: var(--sao-r-rare); }
+.sao-rarity-epic { color: var(--sao-r-epic); }
+.sao-rarity-legendary { color: var(--sao-r-legendary); text-shadow: 0 0 8px rgba(251, 191, 36, 0.35); }
+
+@keyframes sao-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes sao-scale-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+
+@media (max-width: 640px) {
+    .sao-panel-window { margin: 15px auto; max-width: 95%; }
+    .sao-panel-body { padding: 16px; }
+    .sao-grid-2, .sao-grid-3 { grid-template-columns: 1fr; }
+    .sao-stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .sao-panel-tabs { gap: 0; }
+    .sao-tab { padding: 8px 10px; font-size: 0.85em; }
+}
+</style>
+</head>
+<body>
+<div id='sao_panel_overlay' class='sao-panel-overlay'>
+<div class='sao-panel-window'>
+<div class='sao-panel-header'>
+<div class='sao-panel-title'>&#9876;&#65039; SAO Companion</div>
+<button class='sao-panel-close' onclick='window.SaoPanel.close()'>&#10005;</button>
+</div>
+<div class='sao-panel-body'>
+<div class='sao-panel-tabs'>
+<div class='sao-tab active' data-tab='status'>&#128202; 状态监控</div>
+<div class='sao-tab' data-tab='memory'>&#129504; 记忆系统</div>
+<div class='sao-tab' data-tab='relation'>&#128155; 关系</div>
+<div class='sao-tab' data-tab='chapter'>&#128214; 章节</div>
+<div class='sao-tab' data-tab='models'>&#129302; 模型配置</div>
+<div class='sao-tab' data-tab='logs'>&#128221; 日志</div>
+<div class='sao-tab' data-tab='about'>&#8505; 关于</div>
+</div>
+<div class='sao-tab-content active' data-content='status'>
+<div class='sao-section'><div class='sao-section-title'>玩家状态</div>
+<div id='sao_player_card' class='sao-card'>
+<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;'>
+<span style='font-size:1.1em;font-weight:bold;' id='sao_player_name'>冒险者</span>
+<span style='font-size:0.85em;opacity:0.7;' id='sao_player_location'>-</span></div>
+<div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85em;'><span>HP</span><span id='sao_hp_text'>-/-</span></div><div class='sao-bar-container'><div class='sao-bar sao-bar-hp' id='sao_hp_bar' style='width:0%'></div></div></div>
+<div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85em;'><span>MP</span><span id='sao_mp_text'>-/-</span></div><div class='sao-bar-container'><div class='sao-bar sao-bar-mp' id='sao_mp_bar' style='width:0%'></div></div></div>
+<div class='sao-stat-grid'>
+<div class='sao-stat-item'><div class='sao-stat-value' id='sao_stat_str'>-</div><div class='sao-stat-label'>STR</div></div>
+<div class='sao-stat-item'><div class='sao-stat-value' id='sao_stat_agi'>-</div><div class='sao-stat-label'>AGI</div></div>
+<div class='sao-stat-item'><div class='sao-stat-value' id='sao_stat_int'>-</div><div class='sao-stat-label'>INT</div></div>
+<div class='sao-stat-item'><div class='sao-stat-value' id='sao_stat_vit'>-</div><div class='sao-stat-label'>VIT</div></div>
+</div>
+<div class='sao-grid-3' style='margin-top:8px;'>
+<div class='sao-metric-box'><div class='sao-metric-label'>等级</div><div class='sao-metric-value' id='sao_level_text'>-</div></div>
+<div class='sao-metric-box'><div class='sao-metric-label'>珂尔</div><div class='sao-metric-value' id='sao_cor_text'>-</div></div>
+<div class='sao-metric-box'><div class='sao-metric-label'>楼层</div><div class='sao-metric-value' id='sao_floor_text'>-</div></div>
+</div></div></div>
+<div class='sao-section'><div class='sao-section-title'>装备</div><div id='sao_equipment_list' class='sao-card' style='min-height:40px;'><span style='opacity:0.5;font-size:0.85em;'>暂无装备数据</span></div></div>
+<div class='sao-grid-2'><div class='sao-section'><div class='sao-section-title'>背包</div><div id='sao_inventory_list' class='sao-card' style='min-height:40px;'><span style='opacity:0.5;font-size:0.85em;'>空</span></div></div>
+<div class='sao-section'><div class='sao-section-title'>技能</div><div id='sao_skills_list' class='sao-card' style='min-height:40px;'><span style='opacity:0.5;font-size:0.85em;'>空</span></div></div></div>
+<div class='sao-section'><div class='sao-section-title'>队友</div><div id='sao_teammates_list'><div class='sao-card' style='opacity:0.5;font-size:0.85em;'>暂无队友</div></div></div>
+<div class='sao-section'><div class='sao-section-title'>生成测试</div><div class='sao-grid-2'>
+<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`equipment`)'>装备</button>
+<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`skill`)'>剑技</button>
+<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`loot`)'>战利品</button>
+<button class='sao-btn' onclick='window.SaoPanel.testGenerate(`combat`)'>战斗</button>
+</div><div class='sao-test-result' id='sao_generate_test'></div></div>
+<button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.refreshStatus()'>刷新</button>
+</div>
+<div class='sao-tab-content' data-content='memory'>
+<div class='sao-section'><div class='sao-section-title'>记忆系统设置</div>
+<div class='sao-checkbox-row'><input type='checkbox' id='sao_memory_enabled' /><label for='sao_memory_enabled'>启用记忆系统</label></div>
+<div class='sao-grid-2'><div class='sao-field'><label>记忆注入深度 (0-10)</label><input id='sao_memory_depth' type='number' min='0' max='10' value='4' /></div>
+<div class='sao-field'><label>最大记忆条目数</label><input id='sao_max_memories' type='number' min='10' max='500' value='50' /></div></div>
+<button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.saveMemory()'>保存</button></div>
+<div class='sao-section'><div class='sao-section-title'>记忆列表</div>
+<div class='sao-memory-stats'><span>总计: <strong id='sao_mem_count'>0</strong></span><span>事件: <strong id='sao_mem_event'>0</strong></span><span>战斗: <strong id='sao_mem_combat'>0</strong></span><span>社交: <strong id='sao_mem_social'>0</strong></span></div>
+<input type='text' class='sao-search-box' id='sao_memory_search' placeholder='搜索记忆...' oninput='window.SaoPanel.filterMemories(this.value)' />
+<div style='margin-bottom:10px;'><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.addMemoryManual()'>添加</button> <button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.clearMemories()'>全部清除</button></div>
+<div id='sao_memory_list' style='max-height:400px;overflow-y:auto;border:1px solid var(--sao-border);border-radius:6px;'><div class='sao-memory-item' style='opacity:0.5;'>加载中...</div></div>
+</div></div>
+<div class='sao-tab-content' data-content='relation'>
+<div class='sao-section'><div class='sao-section-title'>NPC 关系</div>
+<div id='sao_relation_list'><div class='sao-card' style='opacity:0.5;font-size:0.85em;'>暂无关系数据</div></div>
+</div></div>
+<div class='sao-tab-content' data-content='chapter'>
+<div class='sao-section'><div class='sao-section-title'>章节切换</div>
+<div class='sao-info-box'>切换章节以启用/禁用世界书条目。当前: <strong id='sao_current_arc'>-</strong></div>
+<div class='sao-grid-2'>
+<div class='sao-card sao-chapter-card' data-arc='sao' onclick="window.SaoPanel.switchArc('sao')"><div class='sao-card-title'>SAO - 艾恩葛朗特</div><div style='font-size:0.8em;opacity:0.7;'>死亡游戏，100 层</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_sao'></div></div>
+<div class='sao-card sao-chapter-card' data-arc='alo_old' onclick="window.SaoPanel.switchArc('alo_old')"><div class='sao-card-title'>旧 ALO</div><div style='font-size:0.8em;opacity:0.7;'>妖精之舞</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_alo_old'></div></div>
+<div class='sao-card sao-chapter-card' data-arc='alo_new' onclick="window.SaoPanel.switchArc('alo_new')"><div class='sao-card-title'>新 ALO</div><div style='font-size:0.8em;opacity:0.7;'>圣剑篇、圣母圣咏篇</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_alo_new'></div></div>
+<div class='sao-card sao-chapter-card' data-arc='ggo' onclick="window.SaoPanel.switchArc('ggo')"><div class='sao-card-title'>GGO</div><div style='font-size:0.8em;opacity:0.7;'>幽灵子弹篇</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_ggo'></div></div>
+<div class='sao-card sao-chapter-card' data-arc='real' onclick="window.SaoPanel.switchArc('real')"><div class='sao-card-title'>现实世界</div><div style='font-size:0.8em;opacity:0.7;'>SAO 之后的生活</div><div style='font-size:0.75em;opacity:0.5;margin-top:4px;' id='sao_arc_count_real'></div></div>
+</div></div></div>
+<div class='sao-tab-content' data-content='models'>
+<div class='sao-section'><div class='sao-section-title'>模型配置</div>
+<div class='sao-info-box'>主对话始终使用酒馆主模型。在此配置子代理模型；留空则回退到主模型。</div>
+<div class='sao-card'>
+<div class='sao-card-title'>叙事/NPC 模型<span class='sao-status-box sao-status-warn' id='sao_narrative_status' style='font-size:0.8em;'>未配置</span></div>
+<p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>NPC 反应生成。留空则不使用。</p>
+<div class='sao-field'><label>API 地址</label><input id='sao_narrative_url' placeholder='https://api.deepseek.com/v1' /></div>
+<div class='sao-field'><label>API 密钥</label><input id='sao_narrative_key' type='password' placeholder='sk-...' /></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_narrative_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`narrative`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`narrative`)'>测试</button></div>
+<div class='sao-test-result' id='sao_narrative_test'></div>
+</div>
+<div class='sao-card'>
+<div class='sao-card-title'>战斗/生成模型<span class='sao-status-box sao-status-warn' id='sao_combat_status' style='font-size:0.8em;'>未配置</span></div>
+<p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>战斗 + 装备/剑技/物品/经验生成。</p>
+<div class='sao-field'><label>API 地址</label><input id='sao_combat_url' placeholder='https://api.deepseek.com/v1' /></div>
+<div class='sao-field'><label>API 密钥</label><input id='sao_combat_key' type='password' placeholder='sk-...' /></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_combat_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`combat`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`combat`)'>测试</button></div>
+<div class='sao-test-result' id='sao_combat_test'></div>
+</div>
+<div class='sao-card'>
+<div class='sao-card-title'>状态提取模型<span class='sao-status-box sao-status-warn' id='sao_extract_status' style='font-size:0.8em;'>未配置</span></div>
+<p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>每次 AI 回复后自动提取 HP/MP/物品/NPC 关系。</p>
+<div class='sao-field'><label>API 地址</label><input id='sao_extract_url' placeholder='https://api.deepseek.com/v1' /></div>
+<div class='sao-field'><label>API 密钥</label><input id='sao_extract_key' type='password' placeholder='sk-...' /></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_extract_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`extract`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`extract`)'>测试</button></div>
+<div class='sao-test-result' id='sao_extract_test'></div>
+</div>
+<div class='sao-card'>
+<div class='sao-card-title'>记忆模型<span class='sao-status-box sao-status-warn' id='sao_memory_status' style='font-size:0.8em;'>未配置</span></div>
+<p style='opacity:0.6;font-size:0.8em;margin-bottom:10px;'>记忆检索与摘要生成。</p>
+<div class='sao-field'><label>API 地址</label><input id='sao_memory_url' placeholder='https://api.deepseek.com/v1' /></div>
+<div class='sao-field'><label>API 密钥</label><input id='sao_memory_key' type='password' placeholder='sk-...' /></div>
+<div class='sao-model-row'><div class='sao-field'><label>模型</label><select id='sao_memory_model'><option value=''>点击获取</option></select></div><button class='sao-btn sao-btn-sm' onclick='window.SaoPanel.fetchModels(`memory`)'>获取</button><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.testModel(`memory`)'>测试</button></div>
+<div class='sao-test-result' id='sao_memory_test'></div>
+</div>
+<button class='sao-btn' onclick='window.SaoPanel.saveModels()'>保存配置</button>
+</div></div>
+<div class='sao-tab-content' data-content='logs'>
+<div class='sao-section'><div class='sao-section-title'>日志</div><div id='sao_log_display' class='sao-log'></div><button class='sao-btn sao-btn-secondary sao-btn-sm' onclick='window.SaoPanel.clearLogs()'>清除</button></div></div>
+<div class='sao-tab-content' data-content='about'>
+<div class='sao-section'><div class='sao-section-title'>SAO Companion</div>
+<p>版本: 0.4.0</p>
+<p>SAO 角色卡扩展 - SillyTavern 专用</p>
+<p>功能: 多模型 + 记忆系统 + 章节管理 + NPC 关系</p>
+<hr style='border:0;border-top:1px solid rgba(255,255,255,0.1);margin:15px 0;'>
+<p style='opacity:0.7;font-size:0.85em;'>所有 API 配置存储在本地，不会上传到任何服务器。</p>
+</div></div>
+</div></div>
+<div id='sao_detail_modal' class='sao-modal-overlay' style='display:none;'>
+  <div class='sao-modal-window'>
+    <div class='sao-modal-header'>
+      <span id='sao_modal_title'>详情</span>
+      <button class='sao-modal-close' onclick='window.SaoPanel.closeDetail()'>&times;</button>
+    </div>
+    <div id='sao_modal_body' class='sao-modal-body'></div>
+  </div>
+</div>
+</div></div>
+<script>// Panel logic injected by index.js</script>
+</body>
+</html>
