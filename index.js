@@ -1326,26 +1326,29 @@ async function loadPanelHTML() {
     try {
         // 加载 panel.html 到 DOM（使用 ST API 而非硬编码路径）
         const html = await renderExtensionTemplateAsync('third-party/sao-companion', 'panel');
-        // 提取 <style> 内容
-        const styleMatch = html.match(/<style[^>]*>([\s\S]*)<\/style>/);
-        if (styleMatch) {
-            const style = document.createElement('style');
-            style.id = 'sao_panel_style';
-            style.textContent = styleMatch[1];
-            document.head.appendChild(style);
+
+        // 用 DOMParser 解析 HTML，避免正则匹配的坑
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // 1. 提取所有 <style> 标签，添加到 head（只添加一次）
+        if (!document.getElementById('sao_panel_style')) {
+            const styles = doc.querySelectorAll('style');
+            const combinedStyle = document.createElement('style');
+            combinedStyle.id = 'sao_panel_style';
+            combinedStyle.textContent = Array.from(styles).map(s => s.textContent).join('\n');
+            document.head.appendChild(combinedStyle);
         }
-        // 提取 <body> 内容；若 ST 已剥离 <body> 标签则回退到去除 <head> 后的全文
-        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/);
-        const bodyContent = bodyMatch && bodyMatch[1]
-            ? bodyMatch[1]
-            : html.replace(/<!DOCTYPE[^>]*>/i, '').replace(/<html[^>]*>/i, '').replace(/<head[\s\S]*?<\/head>/i, '').replace(/<\/?html>/gi, '').replace(/<\/body>/gi, '').trim();
-        if (bodyContent) {
-            const div = document.createElement('div');
-            div.innerHTML = bodyContent;
-            // 把 body 下的所有顶层元素都添加到 DOM（不只是 firstElementChild）
-            while (div.firstElementChild) {
-                document.body.appendChild(div.firstElementChild);
-            }
+
+        // 2. 提取 body 的所有子元素（不包括 style），添加到 document.body
+        const bodyElements = doc.body
+            ? Array.from(doc.body.children).filter(el => el.tagName !== 'STYLE')
+            : Array.from(doc.documentElement.children).filter(el => el.tagName !== 'HEAD' && el.tagName !== 'STYLE');
+
+        if (bodyElements.length > 0) {
+            const fragment = document.createDocumentFragment();
+            bodyElements.forEach(el => fragment.appendChild(el));
+            document.body.appendChild(fragment);
         } else {
             log('panel.html body 提取失败', 'error');
         }
@@ -1407,8 +1410,7 @@ function initPanelLogic() {
         open() {
             const overlay = document.getElementById('sao_panel_overlay');
             if (!overlay) { log('面板未加载', 'error'); return; }
-            // 强制 inline style，不依赖 CSS 文件（防止 DOMPurify/CSS 加载问题）
-            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999999;display:block;overflow-y:auto;background:rgba(5,10,25,0.88);';
+            overlay.style.display = 'block';
             loadSettingsToPanel();
             refreshMemoryList();
             refreshStatus();
