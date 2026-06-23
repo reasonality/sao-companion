@@ -1409,6 +1409,9 @@ function initPanelLogic() {
             console.log('[SAO Companion] SaoPanel.open 调用，overlay 存在:', !!overlay);
             if (!overlay) { log('面板未加载', 'error'); return; }
             overlay.style.display = 'block';
+            overlay.style.background = 'red'; // 临时调试：红色背景确认可见性
+            overlay.style.opacity = '1';
+            overlay.style.zIndex = '999999';
             loadSettingsToPanel();
             refreshMemoryList();
             refreshStatus();
