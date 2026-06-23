@@ -1324,10 +1324,13 @@ function renderTeammateDetail(t) {
 async function loadPanelHTML() {
     if (panelLoaded) return;
     try {
-        // 加载 panel.html 到 DOM（使用 ST API 而非硬编码路径）
-        const html = await renderExtensionTemplateAsync('third-party/sao-companion', 'panel');
+        // 不使用 renderExtensionTemplateAsync（DOMPurify 会移除 <style> 标签）
+        // 直接 fetch 原始 panel.html
+        const url = `/scripts/extensions/third-party/sao-companion/panel.html`;
+        const resp = await fetch(url);
+        const html = await resp.text();
 
-        // 用 DOMParser 解析 HTML，避免正则匹配的坑
+        // 用 DOMParser 解析 HTML
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
