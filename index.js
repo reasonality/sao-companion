@@ -1,15 +1,11 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.5.0 (全面修复 + UI重写 + 标签兼容 + 世界书切换 + 消息回滚 + per-chat存储)
-// 功能: 多模型分工 + 记忆系统 + 章节管理 + 独立控制台
+// 版本: 0.5.0 (记忆系统已移除)
+// 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
-import {
-    RELATION_DIMENSIONS, RelationshipManager, TeammateManager,
-    StateFormatter, MemoryManager, tokenize, bm25Search,
-    tierToValue, valueToTier, deriveRelationTypes,
-} from './memory.js';
+// memory.js 已移除
 
 // ============================================================
 // 常量
@@ -18,18 +14,16 @@ import {
 const MODULE_NAME = 'sao_companion';
 // 5 个子代理角色：narrative 不干预主对话，用于 NPC 反应生成
 // combat 兼管武器/技能/物品生成（因为涉及数值）
-const ROLES = ['narrative', 'combat', 'extract', 'memory'];
+const ROLES = ['narrative', 'combat', 'extract'];
 const ROLE_LABELS = {
     narrative: '📝 叙事/NPC模型',
     combat: '⚔️ 数值与生成模型',
     extract: '📊 状态提取模型',
-    memory: '🧠 记忆检索模型',
 };
 const ROLE_DESC = {
     narrative: 'NPC 反应生成、剧情分支生成（留空=不使用，主对话始终用酒馆主模型）',
     combat: '战斗结算 + 武器/装备/剑技/物品/经验生成（留空=用主模型）',
     extract: '从 AI 输出提取 HP/MP/物品等状态 JSON',
-    memory: '记忆检索与摘要',
 };
 
 const SLOT_LABELS = {
@@ -47,12 +41,7 @@ const DEFAULT_SETTINGS = Object.freeze({
         narrative: { url: '', key: '', model: '' },
         combat:    { url: '', key: '', model: '' },
         extract:   { url: '', key: '', model: '' },
-        memory:    { url: '', key: '', model: '' },
     },
-    // 记忆系统
-    memoryEnabled: true,
-    memoryDepth: 4,
-    maxMemories: 50,
     // 章节
     currentArc: 'sao',
     // SAO 卡兼容模式（替代 TavernHelper 脚本）
@@ -143,31 +132,22 @@ function getSaoData() {
         // v1 迁移：尝试从旧的角色卡 extension field 迁移
         const char = getCurrentCharacter();
         const legacy = char?.data?.extensions?.sao_companion;
-        if (legacy && (legacy.state || legacy.episodic || legacy.relationships)) {
+        if (legacy && legacy.state) {
             meta[MODULE_NAME] = {
                 state: legacy.state || null,
-                episodic: legacy.episodic || legacy.memories || [],
-                relationships: legacy.relationships || {},
-                teammates: legacy.teammates || [],
-                quests: legacy.quests || [],
                 arc: legacy.arc || 'sao',
                 _migrated: true,
             };
             log('从角色卡迁移 v1 数据到 chatMetadata');
         } else {
             meta[MODULE_NAME] = {
-                state: null, episodic: [], relationships: {},
-                teammates: [], quests: [], arc: 'sao',
+                state: null, arc: 'sao',
             };
         }
     }
     const d = meta[MODULE_NAME];
     // 兼容旧字段
-    if (!d.episodic) d.episodic = d.memories || [];
-    if (!d.relationships) d.relationships = {};
-    if (!d.teammates) d.teammates = [];
     if (!d.quests) d.quests = [];
-    delete d.memories;
     return d;
 }
 
@@ -216,7 +196,7 @@ function updateLogDisplay() {
 
 /**
  * 拉取模型列表
- * @param {string} role - narrative|combat|extract|memory
+ * @param {string} role - narrative|combat|extract
  * @returns {Promise<string[]>} 模型 ID 列表
  */
 async function fetchModelList(role) {
@@ -252,7 +232,7 @@ async function fetchModelList(role) {
 
 /**
  * 调用模型 (OpenAI 兼容格式)
- * @param {string} role - narrative|combat|extract|memory
+ * @param {string} role - narrative|combat|extract
  * @param {Array<{role:string,content:string}>} messages
  * @param {number} maxTokens
  * @param {object} [opts] - {temperature, jsonSchema, prefill}
@@ -339,20 +319,13 @@ async function callViaMainModel(messages, maxTokens, opts) {
 // ============================================================
 
 /**
- * 一次调用 extract 子代理，提取三类数据：
- * 1. 游戏状态 (HP/MP/属性/物品/技能/位置)
- * 2. 关系 tier 变化 (NPC 名+维度+tier+原因)
- * 3. 队友变化 (加入/离开/状态更新)
+ * 提取游戏状态 (HP/MP/属性/物品/技能/位置)
  */
 async function extractAll(aiMessage) {
     const settings = getSettings();
     if (!settings.enabled) return null;
 
-    const tierExamples = Object.entries(RELATION_DIMENSIONS).map(([dim, config]) =>
-        `${config.label}: ${config.tiers.join('/')}`
-    ).join('\n');
-
-    const systemPrompt = `你是 SAO 游戏状态提取器。分析 AI 的输出文本，提取三类信息，只输出 JSON。`;
+    const systemPrompt = `你是 SAO 游戏状态提取器。分析 AI 的输出文本，提取游戏状态信息，只输出 JSON。`;
     const userPrompt = `分析以下 SAO 游戏输出，提取数据，返回严格的 JSON：
 {
   "state": {
@@ -364,23 +337,11 @@ async function extractAll(aiMessage) {
     "inventory": [{"name": string, "qty": number}],
     "skills": [{"name": string, "level": number}],
     "equipment": {"weapon": {"name": string, "stats": {"str": number, "vit": number, "hp": number}}}
-  },
-  "relationship_changes": [
-    {"npc": "NPC名字", "dimension": "trust|affection|respect|fear|familiarity", "tier": "档位文本", "reason": "原因"}
-  ],
-  "teammate_changes": [
-    {"action": "join|leave|update|dead", "name": "队友名", "hp": number, "max_hp": number, "mp": number, "weapon_type": string, "level": number}
-  ]
+  }
 }
 
-关系维度和档位：
-${tierExamples}
-
 规则：
-- 关系 tier 必须是上面列出的档位之一
 - 如果某字段无法确定，用 null
-- 如果没有关系变化，relationship_changes 为空数组 []
-- 如果没有队友变化，teammate_changes 为空数组 []
 - player_name 必须是玩家角色名，不是NPC名，无法确定则为 null
 
 AI 输出：
@@ -413,52 +374,11 @@ async function applyExtractedData(extracted) {
     if (!extracted) return;
     const data = getSaoData();
     if (!data) return;
-    const settings = getSettings();
 
-    // 1. 更新状态
+    // 更新状态
     if (extracted.state) {
         data.state = { ...data.state, ...extracted.state };
         log('状态已更新');
-    }
-
-    // 2. 更新关系 tier
-    if (extracted.relationship_changes && extracted.relationship_changes.length > 0) {
-        for (const change of extracted.relationship_changes) {
-            if (!change.npc || !change.dimension || !change.tier) continue;
-            RelationshipManager.setTier(data, change.npc, change.dimension, change.tier, change.reason || '');
-            log(`关系更新: ${change.npc} ${change.dimension}=${change.tier}`);
-        }
-    }
-
-    // 3. 更新队友
-    if (extracted.teammate_changes && extracted.teammate_changes.length > 0) {
-        for (const change of extracted.teammate_changes) {
-            if (!change.name || !change.action) continue;
-            switch (change.action) {
-                case 'join':
-                    TeammateManager.add(data, change.name, {
-                        hp: change.hp, max_hp: change.max_hp, mp: change.mp,
-                        weapon_type: change.weapon_type, level: change.level,
-                    });
-                    log(`队友加入: ${change.name}`);
-                    break;
-                case 'leave':
-                    TeammateManager.remove(data, change.name, 'left');
-                    log(`队友离开: ${change.name}`);
-                    break;
-                case 'dead':
-                    TeammateManager.remove(data, change.name, 'dead');
-                    log(`队友死亡: ${change.name}`);
-                    break;
-                case 'update':
-                    TeammateManager.update(data, change.name, {
-                        hp: change.hp, max_hp: change.max_hp, mp: change.mp,
-                        weapon_type: change.weapon_type, level: change.level,
-                    });
-                    log(`队友更新: ${change.name}`);
-                    break;
-            }
-        }
     }
 
     // 持久化
@@ -616,49 +536,36 @@ async function generateNpcReaction(npcName, situation) {
 }
 
 // ============================================================
-// 记忆系统
-// ============================================================
-
-async function saveState(state) {
-    const data = getSaoData();
-    if (!data || !state) return;
-    data.state = { ...data.state, ...state };
-    data.arc = state.arc || data.arc || 'sao';
-    await saveSaoDataNow();
-    log('状态已保存');
-}
-
-async function addMemory(content, type = 'event') {
-    const settings = getSettings();
-    const data = getSaoData();
-    if (!data) return;
-    // 用 MemoryManager 添加（含关键词总结+代词消解）
-    const npcNames = RelationshipManager.getAllNpcNames(data);
-    const speaker = npcNames.length > 0 ? npcNames[0] : '';
-    MemoryManager.add(data, content, type, {
-        maxMemories: settings.maxMemories,
-        speaker,
-    });
-    await saveSaoDataNow();
-    log('记忆已添加: ' + type);
-}
-
-// ============================================================
-// M9: 分层注入（Core Blocks + Working Memory + BM25 检索 + 上一轮恒定注入）
+// 状态注入
 // ============================================================
 
 /**
- * 获取当前用户消息（用于检索查询）
+ * 格式化紧凑状态文本（用于注入 AI 上下文）
  */
-function getCurrentUserMessage() {
-    const ctx = getContext();
-    const chat = ctx.chat;
-    if (!chat || chat.length === 0) return '';
-    // 找最后一条用户消息
-    for (let i = chat.length - 1; i >= 0; i--) {
-        if (chat[i].is_user) return chat[i].mes || '';
+function formatCompactState(state) {
+    if (!state) return '';
+    const parts = [];
+    if (state.player_name) parts.push(`[玩家]${state.player_name}`);
+    if (state.level != null) parts.push(`Lv${state.level}`);
+    if (state.hp != null) parts.push(`HP:${state.hp}/${state.max_hp || '?'}`);
+    if (state.mp != null) parts.push(`MP:${state.mp}/${state.max_mp || '?'}`);
+    if (state.floor != null) parts.push(`${state.floor}F`);
+    if (state.location) parts.push(`@${state.location}`);
+    if (state.cor != null) parts.push(`珂尔:${state.cor}`);
+    // 装备摘要
+    if (state.equipment) {
+        const equips = Object.entries(state.equipment)
+            .filter(([, v]) => v && v.name)
+            .map(([k, v]) => `${k}:${v.name}`)
+            .join(',');
+        if (equips) parts.push(`[装备]${equips}`);
     }
-    return '';
+    // 技能摘要
+    if (state.skills?.length) {
+        const sk = state.skills.slice(0, 5).map(s => `${s.name}Lv${s.level}`).join(',');
+        parts.push(`[技能]${sk}`);
+    }
+    return parts.join(' | ');
 }
 
 function injectMemoryAndState() {
@@ -670,90 +577,18 @@ function injectMemoryAndState() {
     if (!data) return;
     const parts = [];
 
-    // === L0: Core Blocks（常驻，紧凑格式）===
-    const compactState = StateFormatter.formatCompactState(data.state, data);
+    // Core State（常驻，紧凑格式）
+    const compactState = formatCompactState(data.state);
     if (compactState) {
         parts.push(compactState);
     }
 
-    // === L1: Working Memory - 上一轮 AI 回复摘要（恒定注入）===
-    const lastSummary = MemoryManager.getLastSummary(data);
-    if (lastSummary) {
-        parts.push(`[上一轮]${lastSummary}`);
-    }
-
-    // === L2: BM25 检索相关记忆（<10ms）===
-    if (settings.memoryEnabled && data.episodic && data.episodic.length > 1) {
-        const userMsg = getCurrentUserMessage();
-        if (userMsg) {
-            const results = MemoryManager.search(data, userMsg, 3);
-            if (results.length > 0) {
-                // 过滤掉上一轮摘要（已恒定注入）
-                const filtered = results.filter(r => r.content !== lastSummary);
-                if (filtered.length > 0) {
-                    parts.push(`[相关记忆]\n${MemoryManager.formatSearchResults(filtered)}`);
-                }
-            }
-        }
-    }
-
-    // === 当前章节 ===
+    // 当前章节
     parts.push(`[章节]${settings.currentArc}`);
 
     if (parts.length > 0) {
-        ctx.setExtensionPrompt('sao_companion_inject', parts.join('\n'), 1, settings.memoryDepth, false, 0);
+        ctx.setExtensionPrompt('sao_companion_inject', parts.join('\n'), 1, 4, false, 0);
     }
-}
-
-async function extractMemoryFromMessage(message, messageId) {
-    const settings = getSettings();
-    if (!settings.memoryEnabled) return null;
-
-    const data = getSaoData();
-    if (!data) return null;
-
-    // 从 digest 标签提取（无需调用模型）
-    const digestMatch = message.match(/<digest>([\s\S]*?)<\/digest>/);
-    if (digestMatch) {
-        const content = digestMatch[1].trim();
-        // 代词消解：获取上下文 NPC 名字
-        const npcNames = RelationshipManager.getAllNpcNames(data);
-        const speaker = npcNames.length > 0 ? npcNames[0] : '';
-        MemoryManager.add(data, content, 'event', {
-            maxMemories: settings.maxMemories,
-            tags: ['digest'],
-            speaker,
-            messageId,
-        });
-        // 持久化
-        await saveSaoDataNow();
-        log('记忆已添加(digest)');
-        return content;
-    }
-
-    // 用记忆模型提取
-    try {
-        const result = await callModel('memory', [
-            { role: 'system', content: '你是 SAO 记忆提取器。从 AI 输出中提取一个关键事件摘要（一句话），如果没有重要事件返回 "NONE"。' },
-            { role: 'user', content: message.substring(0, 4000) },
-        ], 128);
-        if (result.trim() !== 'NONE') {
-            const content = result.trim();
-            const npcNames = RelationshipManager.getAllNpcNames(data);
-            const speaker = npcNames.length > 0 ? npcNames[0] : '';
-            MemoryManager.add(data, content, 'event', {
-                maxMemories: settings.maxMemories,
-                speaker,
-                messageId,
-            });
-            await saveSaoDataNow();
-            log('记忆已添加(模型提取)');
-            return content;
-        }
-    } catch (e) {
-        log('记忆提取失败: ' + e.message, 'warn');
-    }
-    return null;
 }
 
 // ============================================================
@@ -1117,7 +952,6 @@ function bindEvents() {
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
                 refreshStatus();
-                refreshMemoryList();
             }
         } else {
             // 切出 SAO 卡，恢复设置
@@ -1134,22 +968,12 @@ function bindEvents() {
         const message = ctx.chat?.[messageId];
         if (!message || message.is_user) return;
 
-        // 如果是 swipe，先回滚该消息的旧记忆
-        if (type === 'swipe') {
-            const data = getSaoData();
-            if (data) {
-                const removed = MemoryManager.rollbackByMessageId(data, messageId);
-                if (removed > 0) log(`swipe 回滚 ${removed} 条旧记忆 (消息 #${messageId})`);
-            }
-        }
-
         const rawText = message.mes;
         log(`处理消息 #${messageId} (${rawText.length} 字符)`);
 
         // === 使用 per-message 锁串行执行，防止并发竞争 ===
         await withProcessingLock(`msg-${messageId}`, async () => {
             // 1. 标签填充：扫描 <equip> <swordskill> 标签，调用子代理填充数值
-            // fillGenTags 只修改 msg.mes（非共享数据），先执行
             await fillGenTags(messageId, rawText);
 
             // 2. 战斗结算：检测 <zd_status> 含战斗场景
@@ -1158,16 +982,9 @@ function bindEvents() {
             // 3. 战利品生成：检测敌人击败
             await processLootIfNeeded(messageId, rawText);
 
-            // 4. 多任务提取（状态+关系 tier+队友变化）— 修改共享数据，串行
+            // 4. 多任务提取（状态）— 修改共享数据，串行
             const extracted = await extractAll(rawText);
             if (extracted) await applyExtractedData(extracted);
-
-            // 5. 记忆提取（含关键词总结+代词消解）— 修改共享数据，串行
-            await extractMemoryFromMessage(rawText, messageId);
-
-            // 6. 关系衰减检查（同步，安全）
-            const decayData = getSaoData();
-            if (decayData) RelationshipManager.applyDecay(decayData);
         });
 
         // 更新消息显示
@@ -1186,36 +1003,6 @@ function bindEvents() {
         if (!isSaoCard()) return;
         injectMemoryAndState();
     });
-
-    // B3: 监听消息重新生成（swipe），回滚对应记忆
-    if (event_types.MESSAGE_SWIPED) {
-        eventSource.on(event_types.MESSAGE_SWIPED, wrapAsync(async (messageId) => {
-            if (!isSaoCard()) return;
-            const data = getSaoData();
-            if (!data) return;
-            const removed = MemoryManager.rollbackByMessageId(data, messageId);
-            if (removed > 0) {
-                log(`回滚 ${removed} 条记忆 (消息 #${messageId} swipe)`);
-                saveSaoData();
-            }
-        }));
-    }
-
-    // B3: 监听消息删除，GC 清理悬空记忆
-    if (event_types.MESSAGE_DELETED) {
-        eventSource.on(event_types.MESSAGE_DELETED, wrapAsync(async () => {
-            if (!isSaoCard()) return;
-            const data = getSaoData();
-            if (!data) return;
-            const ctx = getContext();
-            const existingIds = new Set((ctx.chat || []).map((m, i) => i));
-            const removed = MemoryManager.gc(data, existingIds);
-            if (removed > 0) {
-                log(`GC 清理 ${removed} 条悬空记忆（消息删除）`);
-                saveSaoData();
-            }
-        }));
-    }
 
     log('事件绑定完成');
 }
@@ -1298,26 +1085,6 @@ function renderInventoryDetail(item) {
     if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(item.type)}</span></div>`)
     if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
     if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
-    return rows.join('')
-}
-
-function renderTeammateDetail(t) {
-    const statusMap = { active: '在队', inactive: '暂离', left: '已离队', dead: '已阵亡' }
-    const rows = []
-    if (t.status) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">状态</span><span class="sao-detail-value">${esc(statusMap[t.status] || t.status)}</span></div>`)
-    if (t.level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">等级</span><span class="sao-detail-value">Lv${esc(t.level)}</span></div>`)
-    if (t.hp != null && t.max_hp != null) {
-        const pct = t.max_hp > 0 ? Math.round(t.hp / t.max_hp * 100) : 0
-        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">HP</span><span class="sao-detail-value">${esc(t.hp)}/${esc(t.max_hp)} (${pct}%)</span></div>`)
-    }
-    if (t.mp != null && t.max_mp != null) {
-        const pct = t.max_mp > 0 ? Math.round(t.mp / t.max_mp * 100) : 0
-        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">MP</span><span class="sao-detail-value">${esc(t.mp)}/${esc(t.max_mp)} (${pct}%)</span></div>`)
-    }
-    if (t.weapon) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">武器</span><span class="sao-detail-value">${esc(t.weapon)}</span></div>`)
-    if (t.weapon_type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">武器类型</span><span class="sao-detail-value">${esc(t.weapon_type)}</span></div>`)
-    if (t.joined_at) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">入队时间</span><span class="sao-detail-value">${esc(t.joined_at?.substring(0, 10))}</span></div>`)
-    if (t.left_at) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">离队时间</span><span class="sao-detail-value">${esc(t.left_at?.substring(0, 10))}</span></div>`)
     return rows.join('')
 }
 
@@ -1409,36 +1176,14 @@ function initPanelLogic() {
         }
     };
 
-    // ECharts 动态加载
-    let _echartsLoaded = null;
-    async function loadECharts() {
-        if (window.echarts) return window.echarts;
-        if (_echartsLoaded) return _echartsLoaded;
-        _echartsLoaded = new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
-            script.onload = () => { resolve(window.echarts); log('ECharts 加载完成'); };
-            script.onerror = () => { _echartsLoaded = null; reject(new Error('ECharts CDN 加载失败')); };
-            document.head.appendChild(script);
-        });
-        return _echartsLoaded;
-    }
-
-    let _saoChart = null;
-    let _saoTimelineOffset = 20;
-
     window.SaoPanel = {
         open() {
             const overlay = document.getElementById('sao_panel_overlay');
             if (!overlay) { log('面板未加载', 'error'); return; }
             overlay.style.display = 'block';
             loadSettingsToPanel();
-            refreshMemoryList();
             refreshStatus();
             updateLogDisplay();
-            // 渲染记忆系统子标签内容
-            this.renderTimeline();
-            this.renderCharacterCards();
         },
         close() {
             const overlay = document.getElementById('sao_panel_overlay');
@@ -1527,62 +1272,6 @@ function initPanelLogic() {
             }
             log('模型配置已保存');
         },
-        saveMemory() {
-            const settings = getSettings();
-            settings.memoryEnabled = document.getElementById('sao_memory_enabled')?.checked ?? true;
-            settings.memoryDepth = parseInt(document.getElementById('sao_memory_depth')?.value) || 4;
-            settings.maxMemories = parseInt(document.getElementById('sao_max_memories')?.value) || 50;
-            saveSettings();
-            log('记忆设置已保存');
-        },
-        async clearMemories() {
-            const data = getSaoData();
-            if (data) {
-                data.episodic = [];
-                await saveSaoDataNow();
-                log('记忆已清空');
-                refreshMemoryList();
-            }
-        },
-        async editMemory(memoryId) {
-            const data = getSaoData();
-            if (!data?.episodic) return;
-            const m = data.episodic.find(x => x.id === memoryId);
-            if (!m) return;
-            const newContent = prompt('编辑记忆内容:', m.content);
-            if (newContent !== null && newContent.trim()) {
-                MemoryManager.update(data, memoryId, { content: newContent.trim() });
-                await saveSaoDataNow();
-                log('记忆已编辑');
-                refreshMemoryList();
-            }
-        },
-        async deleteMemory(memoryId) {
-            if (!confirm('确定删除这条记忆？')) return;
-            const data = getSaoData();
-            if (!data?.episodic) return;
-            MemoryManager.delete(data, memoryId);
-            await saveSaoDataNow();
-            log('记忆已删除');
-            refreshMemoryList();
-        },
-        async addMemoryManual() {
-            const content = prompt('输入记忆内容:');
-            if (!content || !content.trim()) return;
-            const type = prompt('记忆类型 (event/combat/trade/social):', 'event') || 'event';
-            const data = getSaoData();
-            if (!data) return;
-            const settings = getSettings();
-            const npcNames = RelationshipManager.getAllNpcNames(data);
-            const speaker = npcNames.length > 0 ? npcNames[0] : '';
-            MemoryManager.add(data, content.trim(), type, {
-                maxMemories: settings.maxMemories,
-                speaker,
-            });
-            await saveSaoDataNow();
-            log('记忆已手动添加');
-            refreshMemoryList();
-        },
         switchArc(arc) {
             const settings = getSettings();
             settings.currentArc = arc;
@@ -1599,20 +1288,6 @@ function initPanelLogic() {
         },
         refreshStatus() {
             refreshStatus();
-        },
-        filterMemories(query) {
-            const el = document.getElementById('sao_memory_list');
-            if (!el) return;
-            const data = getSaoData();
-            if (!data?.episodic?.length) {
-                el.innerHTML = '<div class="sao-memory-item" style="opacity:0.5;">暂无记忆</div>';
-                return;
-            }
-            const q = (query || '').toLowerCase().trim();
-            const filtered = q ? data.episodic.filter(m => (m.content || '').toLowerCase().includes(q)) : data.episodic;
-            el.innerHTML = filtered.slice().reverse().map(m =>
-                `<div class="sao-memory-item" data-mem-id="${esc(m.id)}"><div class="sao-memory-content"><div>${esc(m.content?.substring(0, 120))}</div><div class="sao-memory-meta">[${esc(m.type || 'event')}] ${esc(m.timestamp?.substring(0, 10))} #${esc(String(m.id).substring(0,6))}</div></div><div class="sao-memory-actions"><button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="edit">编辑</button><button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="delete">删除</button></div></div>`
-            ).join('') || '<div class="sao-memory-item" style="opacity:0.5;">无匹配记忆</div>';
         },
         clearLogs() {
             logs.length = 0;
@@ -1659,166 +1334,6 @@ function initPanelLogic() {
                 testEl.textContent = '✗ ' + e.message;
             }
         },
-        // 子标签切换
-        switchSubTab(subtab) {
-            document.querySelectorAll('.sao-sub-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.sao-sub-content').forEach(c => c.classList.remove('active'));
-            document.querySelector(`.sao-sub-tab[data-subtab="${subtab}"]`)?.classList.add('active');
-            document.querySelector(`.sao-sub-content[data-subcontent="${subtab}"]`)?.classList.add('active');
-            if (subtab === 'graph') this.renderRelationGraph();
-            if (subtab === 'timeline') this.renderTimeline();
-            if (subtab === 'characters') this.renderCharacterCards();
-        },
-        // 关系图谱（ECharts 力导向图）
-        async renderRelationGraph() {
-            const container = document.getElementById('sao_relation_chart');
-            if (!container) return;
-            const data = getSaoData();
-            const rels = data?.relationships || {};
-            const npcNames = Object.keys(rels);
-            if (npcNames.length === 0) {
-                container.innerHTML = '<div style="text-align:center;padding:80px 20px;color:var(--text-tertiary,#5c6b85);">暂无关系数据，对话后将自动生成关系图谱</div>';
-                return;
-            }
-            try {
-                const echarts = await loadECharts();
-                const playerName = data?.state?.player_name || getContext().name1 || '冒险者';
-                const nodes = [{ name: playerName, symbolSize: 45, category: 0, itemStyle: { color: '#00d2ff' }, label: { show: true, fontSize: 14, fontWeight: 'bold' } }];
-                const links = [];
-                const categories = [{ name: '玩家' }, { name: '友好' }, { name: '中立' }, { name: '敌对' }];
-                for (const npcName of npcNames) {
-                    const rel = rels[npcName];
-                    const dims = rel.dimensions || {};
-                    const avgVal = Object.values(dims).reduce((a, b) => a + (b || 0), 0) / Math.max(1, Object.keys(dims).length);
-                    const fearVal = dims.fear || 0;
-                    let cat = 1; // 友好
-                    let color = '#00d68a';
-                    if (fearVal > 60) { cat = 3; color = '#ff2e4a'; } // 敌对
-                    else if (avgVal < 30) { cat = 2; color = '#9fb0cc'; } // 中立
-                    const size = Math.min(40, Math.max(18, avgVal * 0.4 + 12));
-                    nodes.push({ name: npcName, symbolSize: size, category: cat, itemStyle: { color }, label: { show: true, fontSize: 11 } });
-                    const trustVal = dims.trust || 0;
-                    const affVal = dims.affection || 0;
-                    let edgeLabel = '';
-                    if (trustVal >= 60) edgeLabel = '信任';
-                    else if (affVal >= 60) edgeLabel = '好感';
-                    else if (fearVal >= 60) edgeLabel = '恐惧';
-                    links.push({ source: playerName, target: npcName, value: edgeLabel, label: { show: !!edgeLabel, formatter: edgeLabel, fontSize: 9, color: '#9fb0cc' }, lineStyle: { color: cat === 3 ? 'rgba(255,46,74,0.4)' : 'rgba(0,210,255,0.3)' } });
-                }
-                if (_saoChart) { _saoChart.dispose(); }
-                _saoChart = echarts.init(container);
-                _saoChart.setOption({
-                    tooltip: { formatter: (p) => p.dataType === 'node' ? p.data.name : (p.data.value || '关系') },
-                    legend: { data: categories.map(c => c.name), textStyle: { color: '#9fb0cc' }, bottom: 10 },
-                    series: [{
-                        type: 'graph', layout: 'force', roam: true, draggable: true,
-                        animation: true, animationDuration: 800,
-                        data: nodes, links, categories,
-                        force: { initLayout: 'circular', repulsion: 300, edgeLength: [80, 160], gravity: 0.12, friction: 0.6 },
-                        label: { show: true },
-                        lineStyle: { opacity: 0.6, width: 1.5, curveness: 0.1 },
-                        emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
-                    }],
-                });
-                _saoChart.on('click', (params) => {
-                    if (params.dataType === 'node' && params.data.name !== playerName) {
-                        const npcRel = rels[params.data.name];
-                        if (npcRel) {
-                            const dimsHtml = Object.entries(RELATION_DIMENSIONS).map(([dim, config]) => {
-                                const val = npcRel.dimensions?.[dim] || 0;
-                                const tier = valueToTier(dim, val);
-                                const tierIdx = config.tiers.indexOf(tier);
-                                return `<div class="sao-dim-row"><span class="sao-dim-label">${esc(config.label)}</span><div class="sao-dim-bar-wrap"><div class="sao-dim-bar sao-tier-${tierIdx}" style="width:${val}%"></div></div><span class="sao-dim-tier">${esc(tier)}</span></div>`;
-                            }).join('');
-                            showDetailModal(params.data.name, `<div style="padding:12px;">${dimsHtml}</div>`);
-                        }
-                    }
-                });
-            } catch (e) {
-                container.innerHTML = `<div style="text-align:center;padding:80px 20px;color:var(--danger,#ff2e4a);">关系图加载失败: ${esc(e.message)}</div>`;
-                log('关系图渲染失败: ' + e.message, 'error');
-            }
-        },
-        // 事件时间线
-        renderTimeline() {
-            const el = document.getElementById('sao_event_timeline');
-            if (!el) return;
-            const data = getSaoData();
-            const episodic = data?.episodic || [];
-            if (episodic.length === 0) {
-                el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-tertiary,#5c6b85);">暂无事件记录</div>';
-                return;
-            }
-            const typeLabels = { event: '事件', combat: '战斗', social: '社交', trade: '交易' };
-            const sorted = episodic.slice().reverse();
-            _saoTimelineOffset = 20;
-            const shown = sorted.slice(0, _saoTimelineOffset);
-            el.innerHTML = shown.map(m => {
-                const t = m.type || 'event';
-                const label = typeLabels[t] || t;
-                return `<div class="sao-timeline-item">
-                    <div class="sao-timeline-dot sao-timeline-${t}"></div>
-                    <div class="sao-timeline-time">${esc(m.timestamp?.substring(0, 16) || '?')}</div>
-                    <div class="sao-timeline-content">
-                        <span class="sao-timeline-type sao-timeline-type-${t}">${label}</span>
-                        <div class="sao-timeline-text">${esc(m.content?.substring(0, 200) || '')}</div>
-                    </div>
-                </div>`;
-            }).join('');
-        },
-        loadMoreEvents() {
-            const el = document.getElementById('sao_event_timeline');
-            if (!el) return;
-            const data = getSaoData();
-            const episodic = data?.episodic || [];
-            const typeLabels = { event: '事件', combat: '战斗', social: '社交', trade: '交易' };
-            const sorted = episodic.slice().reverse();
-            const next = sorted.slice(_saoTimelineOffset, _saoTimelineOffset + 20);
-            if (next.length === 0) return;
-            const html = next.map(m => {
-                const t = m.type || 'event';
-                const label = typeLabels[t] || t;
-                return `<div class="sao-timeline-item">
-                    <div class="sao-timeline-dot sao-timeline-${t}"></div>
-                    <div class="sao-timeline-time">${esc(m.timestamp?.substring(0, 16) || '?')}</div>
-                    <div class="sao-timeline-content">
-                        <span class="sao-timeline-type sao-timeline-type-${t}">${label}</span>
-                        <div class="sao-timeline-text">${esc(m.content?.substring(0, 200) || '')}</div>
-                    </div>
-                </div>`;
-            }).join('');
-            el.insertAdjacentHTML('beforeend', html);
-            _saoTimelineOffset += 20;
-        },
-        // 人物档案卡片
-        renderCharacterCards() {
-            const el = document.getElementById('sao_character_cards');
-            if (!el) return;
-            const data = getSaoData();
-            const rels = data?.relationships || {};
-            const names = Object.keys(rels);
-            if (names.length === 0) {
-                el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-tertiary,#5c6b85);">暂无人物关系数据</div>';
-                return;
-            }
-            el.innerHTML = names.map(name => {
-                const rel = rels[name];
-                const dims = Object.entries(RELATION_DIMENSIONS).map(([dim, config]) => {
-                    const val = rel.dimensions?.[dim] || 0;
-                    const tier = valueToTier(dim, val);
-                    const tierIdx = config.tiers.indexOf(tier);
-                    return `<div class="sao-dim-row"><span class="sao-dim-label">${esc(config.label)}</span><div class="sao-dim-bar-wrap"><div class="sao-dim-bar sao-tier-${tierIdx}" style="width:${val}%"></div></div><span class="sao-dim-tier">${esc(tier)}</span></div>`;
-                }).join('');
-                const history = (rel.history || []).slice(-3).reverse().map(h =>
-                    `<div style="font-size:0.75em;opacity:0.6;margin:2px 0;">${esc(h.timestamp?.substring(5, 10) || '?')} ${esc(h.dimension)}: ${esc(h.old_tier)} → ${esc(h.tier || h.new_tier)} ${esc(h.reason || '')}</div>`
-                ).join('');
-                return `<div class="sao-character-card">
-                    <div class="sao-character-name">${esc(name)}</div>
-                    <div class="sao-character-dims">${dims}</div>
-                    ${history ? `<div class="sao-character-history">${history}</div>` : ''}
-                </div>`;
-            }).join('');
-        },
     };
 
     // 面板事件委托（替代 onclick 内联事件，避免 DOMPurify 清洗）
@@ -1842,23 +1357,10 @@ function initPanelLogic() {
                 case 'saveModels': window.SaoPanel.saveModels(); break;
                 case 'testGenerate': window.SaoPanel.testGenerate(type); break;
                 case 'refreshStatus': window.SaoPanel.refreshStatus(); break;
-                case 'saveMemory': window.SaoPanel.saveMemory(); break;
-                case 'addMemoryManual': window.SaoPanel.addMemoryManual(); break;
-                case 'clearMemories': window.SaoPanel.clearMemories(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
                 case 'closeDetail': window.SaoPanel.closeDetail(); break;
-                case 'switchSubTab': window.SaoPanel.switchSubTab(target.getAttribute('data-subtab')); break;
-                case 'loadMoreEvents': window.SaoPanel.loadMoreEvents(); break;
             }
         });
-
-        // 记忆搜索框（oninput 也会被 DOMPurify 清除，用 addEventListener）
-        const searchBox = document.getElementById('sao_memory_search');
-        if (searchBox) {
-            searchBox.addEventListener('input', (e) => {
-                window.SaoPanel.filterMemories(e.target.value);
-            });
-        }
     }
 
     // 详情弹窗事件委托
@@ -1896,14 +1398,6 @@ function initPanelLogic() {
                 }
                 break;
             }
-            case 'teammate': {
-                const t = cached.teammates?.[index];
-                if (t) {
-                    title = t.name || '队友';
-                    html = renderTeammateDetail(t);
-                }
-                break;
-            }
         }
         if (title && html) {
             showDetailModal(title, html);
@@ -1912,7 +1406,6 @@ function initPanelLogic() {
     document.getElementById('sao_equipment_list')?.addEventListener('click', handleDetailClick);
     document.getElementById('sao_inventory_list')?.addEventListener('click', handleDetailClick);
     document.getElementById('sao_skills_list')?.addEventListener('click', handleDetailClick);
-    document.getElementById('sao_teammates_list')?.addEventListener('click', handleDetailClick);
 }
 
 function saveModelsToSettings() {
@@ -1946,13 +1439,6 @@ function loadSettingsToPanel() {
             updateModelStatus(role, !!cfg.url && !!cfg.model);
         }
     });
-    // 记忆设置
-    const memEnabled = document.getElementById('sao_memory_enabled');
-    const memDepth = document.getElementById('sao_memory_depth');
-    const maxMem = document.getElementById('sao_max_memories');
-    if (memEnabled) memEnabled.checked = settings.memoryEnabled;
-    if (memDepth) memDepth.value = settings.memoryDepth;
-    if (maxMem) maxMem.value = settings.maxMemories;
 }
 
 function updateModelStatus(role, ok) {
@@ -1965,20 +1451,6 @@ function updateModelStatus(role, ok) {
         el.className = 'sao-status-box sao-status-warn';
         el.textContent = '未配置';
     }
-}
-
-function refreshMemoryList() {
-    const el = document.getElementById('sao_memory_list');
-    if (!el) return;
-    const data = getSaoData();
-    if (!data?.episodic?.length) {
-        el.innerHTML = '<div class="sao-memory-item" style="opacity:0.5;">暂无记忆</div>';
-        return;
-    }
-    el.innerHTML = data.episodic.slice().reverse().map(m =>
-        `<div class="sao-memory-item" data-mem-id="${esc(m.id)}"><div class="sao-memory-content"><div>${esc(m.content?.substring(0, 120))}</div><div class="sao-memory-meta">[${esc(m.type || 'event')}] ${esc(m.timestamp?.substring(0, 10))} #${esc(String(m.id).substring(0,6))}</div></div><div class="sao-memory-actions"><button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="edit">编辑</button><button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="delete">删除</button></div></div>`
-    ).join('');
-    refreshMemoryStats();
 }
 
 function refreshStatus() {
@@ -2057,75 +1529,17 @@ function refreshStatus() {
         }
     }
 
-    // 队友面板 - 显示名字+HP条+事件委托
-    const teamEl = document.getElementById('sao_teammates_list');
-    if (teamEl) {
-        const teammates = TeammateManager.getAll(data).filter(t => t.status === 'active');
-        if (teammates.length > 0) {
-            teamEl.innerHTML = teammates.map((t, i) => {
-                const hpPct = t.max_hp > 0 ? (t.hp / t.max_hp * 100) : 0;
-                return `<div class="sao-teammate-card" data-detail-type="teammate" data-detail-index="${i}" style="cursor:pointer;"><div class="sao-teammate-name">${esc(t.name)}</div><div class="sao-bar-container"><div class="sao-bar sao-bar-hp" style="width:${hpPct}%"></div></div></div>`;
-            }).join('');
-            window._saoCurrentData = window._saoCurrentData || {};
-            window._saoCurrentData.teammates = teammates;
-        } else {
-            teamEl.innerHTML = '<div class="sao-card" style="opacity:0.5;font-size:0.85em;">暂无队友</div>';
-            if (window._saoCurrentData) window._saoCurrentData.teammates = [];
-        }
-    }
-
     // 当前章节高亮
     const arcEl = document.getElementById('sao_current_arc');
     if (arcEl) arcEl.textContent = settings.currentArc || 'sao';
     document.querySelectorAll('.sao-chapter-card').forEach(c => {
         c.classList.toggle('sao-chapter-active', c.dataset.arc === settings.currentArc);
     });
-
-    // 关系图
-    refreshRelationList();
-
-    // 记忆统计
-    refreshMemoryStats();
 }
 
 // ============================================================
 // 扩展面板入口 (酒馆左侧设置)
 // ============================================================
-
-function refreshRelationList() {
-    const el = document.getElementById('sao_relation_list');
-    if (!el) return;
-    const data = getSaoData();
-    if (!data?.relationships || Object.keys(data.relationships).length === 0) {
-        el.innerHTML = '<div class="sao-card" style="opacity:0.5;font-size:0.85em;">暂无关系数据</div>';
-        return;
-    }
-    el.innerHTML = Object.entries(data.relationships).map(([name, rel]) => {
-        const dims = Object.entries(RELATION_DIMENSIONS).map(([dim, config]) => {
-            const val = rel.dimensions[dim] || 0;
-            const tier = valueToTier(dim, val);
-            const tierIdx = config.tiers.indexOf(tier);
-            const pct = val; // 0-100
-            return `<div class="sao-dim-row"><span class="sao-dim-label">${esc(config.label)}</span><div class="sao-dim-bar-wrap"><div class="sao-dim-bar sao-tier-${tierIdx}" style="width:${pct}%"></div></div><span class="sao-dim-tier">${esc(tier)}</span></div>`;
-        }).join('');
-        const types = (rel.relation_type || []).join(', ') || 'stranger';
-        const history = (rel.history || []).slice(-3).reverse().map(h =>
-            `<div style="font-size:0.75em;opacity:0.6;margin:2px 0;">${esc(h.timestamp?.substring(5,10))} ${esc(h.dimension)}: ${esc(h.old_tier)} → ${esc(h.tier || h.new_tier)} ${esc(h.reason)}</div>`
-        ).join('');
-        return `<div class="sao-relation-card"><div class="sao-relation-header"><span class="sao-relation-name">${esc(name)}</span><span class="sao-relation-type">${esc(types)}</span></div>${dims}${history ? '<div style="margin-top:6px;">' + history + '</div>' : ''}</div>`;
-    }).join('');
-}
-
-function refreshMemoryStats() {
-    const data = getSaoData();
-    if (!data?.episodic) return;
-    const mems = data.episodic;
-    const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    setT('sao_mem_count', mems.length);
-    setT('sao_mem_event', mems.filter(m => m.type === 'event').length);
-    setT('sao_mem_combat', mems.filter(m => m.type === 'combat').length);
-    setT('sao_mem_social', mems.filter(m => m.type === 'social' || m.type === 'trade').length);
-}
 
 async function loadSettingsPanel() {
     const settings = getSettings();
@@ -2165,21 +1579,6 @@ async function loadSettingsPanel() {
             enableCompatMode();
         } else if (!settings.compatMode) {
             disableCompatMode();
-        }
-    });
-
-    // 记忆列表按钮事件委托（避免 onclick 内联注入风险）
-    document.getElementById('sao_memory_list')?.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-action]');
-        if (!btn) return;
-        const item = btn.closest('[data-mem-id]');
-        if (!item) return;
-        const id = item.getAttribute('data-mem-id');
-        const action = btn.getAttribute('data-action');
-        if (action === 'edit' && window.SaoPanel?.editMemory) {
-            window.SaoPanel.editMemory(id);
-        } else if (action === 'delete' && window.SaoPanel?.deleteMemory) {
-            window.SaoPanel.deleteMemory(id);
         }
     });
 

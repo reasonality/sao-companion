@@ -37,8 +37,6 @@
 <div class="sao-panel-body">
 <div class="sao-panel-tabs">
 <div class="sao-tab active" data-action="switchTab" data-tab="status">状态监控</div>
-<div class="sao-tab" data-action="switchTab" data-tab="memory">记忆系统</div>
-<div class="sao-tab" data-action="switchTab" data-tab="relation">关系</div>
 <div class="sao-tab" data-action="switchTab" data-tab="chapter">章节</div>
 <div class="sao-tab" data-action="switchTab" data-tab="models">模型配置</div>
 <div class="sao-tab" data-action="switchTab" data-tab="logs">日志</div>
@@ -77,7 +75,6 @@
 <div class="sao-section"><div class="sao-section-title">背包</div><div id="sao_inventory_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">空</span></div></div>
 <div class="sao-section"><div class="sao-section-title">技能</div><div id="sao_skills_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">空</span></div></div>
 </div>
-<div class="sao-section"><div class="sao-section-title">队友</div><div id="sao_teammates_list"><div class="sao-card" style="opacity:0.6;font-size:0.85em;">暂无队友</div></div></div>
 <div class="sao-section"><div class="sao-section-title">生成测试</div><div class="sao-grid-2">
 <button class="sao-btn" data-action="testGenerate" data-type="equipment">装备</button>
 <button class="sao-btn" data-action="testGenerate" data-type="skill">剑技</button>
@@ -87,65 +84,6 @@
 <div class="sao-test-result" id="sao_generate_test"></div>
 </div>
 <div style="margin-top:10px;"><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="refreshStatus">刷新</button></div>
-</div>
-<div class="sao-tab-content" data-content="memory">
-<div class="sao-section"><div class="sao-section-title">记忆系统设置</div>
-<div class="sao-checkbox-row"><input type="checkbox" id="sao_memory_enabled" /><label for="sao_memory_enabled">启用记忆系统</label></div>
-<div class="sao-grid-2">
-<div class="sao-field"><label>记忆注入深度 (0-10)</label><input id="sao_memory_depth" type="number" min="0" max="10" value="4" /></div>
-<div class="sao-field"><label>最大记忆条目数</label><input id="sao_max_memories" type="number" min="10" max="500" value="50" /></div>
-</div>
-<button class="sao-btn sao-btn-sm" data-action="saveMemory">保存</button>
-</div>
-<div class="sao-sub-tabs">
-<div class="sao-sub-tab active" data-action="switchSubTab" data-subtab="graph">关系图谱</div>
-<div class="sao-sub-tab" data-action="switchSubTab" data-subtab="timeline">事件时间线</div>
-<div class="sao-sub-tab" data-action="switchSubTab" data-subtab="characters">人物档案</div>
-<div class="sao-sub-tab" data-action="switchSubTab" data-subtab="list">记忆列表</div>
-</div>
-<div class="sao-sub-content active" data-subcontent="graph">
-<div class="sao-section"><div class="sao-section-title">关系图谱</div>
-<div id="sao_relation_chart" class="sao-relation-chart"></div>
-<div class="sao-relation-legend">
-<div class="sao-legend-title">图例说明</div>
-<div class="sao-legend-grid">
-<div class="sao-legend-item"><span class="sao-legend-dot" style="background:#00d2ff;box-shadow:0 0 8px #00d2ff;"></span><span>玩家</span></div>
-<div class="sao-legend-item"><span class="sao-legend-dot" style="background:#00d68a;box-shadow:0 0 8px #00d68a;"></span><span>友好 NPC</span></div>
-<div class="sao-legend-item"><span class="sao-legend-dot" style="background:#ffb800;box-shadow:0 0 8px #ffb800;"></span><span>中立 NPC</span></div>
-<div class="sao-legend-item"><span class="sao-legend-dot" style="background:#ff2e4a;box-shadow:0 0 8px #ff2e4a;"></span><span>敌对 NPC</span></div>
-<div class="sao-legend-item"><span class="sao-legend-line sao-legend-line-solid"></span><span>强关系</span></div>
-<div class="sao-legend-item"><span class="sao-legend-line sao-legend-line-dashed"></span><span>弱关系</span></div>
-</div>
-</div>
-</div>
-</div>
-<div class="sao-sub-content" data-subcontent="timeline">
-<div class="sao-section"><div class="sao-section-title">事件时间线</div>
-<div id="sao_event_timeline" class="sao-timeline"><div class="sao-timeline-empty">暂无事件记录</div></div>
-<div class="sao-timeline-footer"><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="loadMoreEvents">加载更多</button></div>
-</div>
-</div>
-<div class="sao-sub-content" data-subcontent="characters">
-<div class="sao-section"><div class="sao-section-title">人物档案</div>
-<div id="sao_character_cards" class="sao-character-grid"><div class="sao-character-empty">暂无人物数据</div></div>
-</div>
-</div>
-<div class="sao-sub-content" data-subcontent="list">
-<div class="sao-section"><div class="sao-section-title">记忆列表</div>
-<div class="sao-memory-stats"><span>总计: <strong id="sao_mem_count">0</strong></span><span>事件: <strong id="sao_mem_event">0</strong></span><span>战斗: <strong id="sao_mem_combat">0</strong></span><span>社交: <strong id="sao_mem_social">0</strong></span></div>
-<input type="text" class="sao-search-box" id="sao_memory_search" placeholder="搜索记忆..." />
-<div style="margin:12px 0;">
-<button class="sao-btn sao-btn-sm" data-action="addMemoryManual">添加</button>
-<button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="clearMemories">全部清除</button>
-</div>
-<div id="sao_memory_list" class="sao-memory-list-container"><div class="sao-memory-item" style="opacity:0.6;">加载中...</div></div>
-</div>
-</div>
-</div>
-<div class="sao-tab-content" data-content="relation">
-<div class="sao-section"><div class="sao-section-title">NPC 关系</div>
-<div id="sao_relation_list"><div class="sao-card" style="opacity:0.6;font-size:0.85em;">暂无关系数据</div></div>
-</div>
 </div>
 <div class="sao-tab-content" data-content="chapter">
 <div class="sao-section"><div class="sao-section-title">章节切换</div>
@@ -186,14 +124,6 @@
 <div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_extract_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="extract">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="extract">测试</button></div>
 <div class="sao-test-result" id="sao_extract_test"></div>
 </div>
-<div class="sao-card">
-<div class="sao-card-title">记忆模型<span class="sao-status-box sao-status-warn" id="sao_memory_status" style="font-size:0.8em;">未配置</span></div>
-<p style="color:var(--text-secondary);font-size:0.82em;margin-bottom:12px;">记忆检索与摘要生成。</p>
-<div class="sao-field"><label>API 地址</label><input id="sao_memory_url" placeholder="https://api.deepseek.com/v1" /></div>
-<div class="sao-field"><label>API 密钥</label><input id="sao_memory_key" type="password" placeholder="sk-..." /></div>
-<div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_memory_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="memory">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="memory">测试</button></div>
-<div class="sao-test-result" id="sao_memory_test"></div>
-</div>
 <div style="margin-top:10px;"><button class="sao-btn" data-action="saveModels">保存配置</button></div>
 </div>
 </div>
@@ -204,7 +134,7 @@
 <div class="sao-card">
 <p style="margin:0 0 8px 0;">版本: 0.5.0</p>
 <p style="margin:0 0 8px 0;">SAO 角色卡扩展 - SillyTavern 专用</p>
-<p style="margin:0 0 12px 0;">功能: 多模型 + 记忆系统 + 章节管理 + NPC 关系</p>
+<p style="margin:0 0 12px 0;">功能: 多模型 + 状态监控 + 章节管理</p>
 <div style="border-top:1px solid var(--border-subtle);margin:14px 0;"></div>
 <p style="color:var(--text-secondary);font-size:0.85em;">所有 API 配置存储在本地，不会上传到任何服务器。</p>
 </div>
