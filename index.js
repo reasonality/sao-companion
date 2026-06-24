@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.5.0 (记忆系统已移除)
+// 版本: 0.6.0 (状态解析+骰表生成+面板详情修复)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -2462,7 +2462,7 @@ async function loadSettingsPanel() {
 // ============================================================
 
 export function init() {
-    console.log('[SAO Companion] v0.5.0 初始化中...');
+    console.log('[SAO Companion] v0.6.0 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
