@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.3 (修复兼容模式初始化)
+// 版本: 0.6.6 (效果代码表动态从角色卡解析)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -1779,6 +1779,8 @@ function enableCardRegex() {
 
 function bindEvents() {
     eventSource.on(event_types.CHAT_CHANGED, () => {
+        // 切换角色卡时重置效果代码表缓存，使其重新从新卡解析
+        resetEffectCodeTable();
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
             enableCompatMode();
@@ -1899,6 +1901,209 @@ function coreCodeLabel(code) {
     return map[code] || code;
 }
 
+/**
+ * 从角色卡世界书条目「特殊效果编号」动态解析效果代码表
+ * 在首次调用时解析，结果缓存在 _effectCodeTable 中
+ * 如果解析失败则回退到内置硬编码表
+ */
+let _effectCodeTable = null;
+let _effectCodeParsed = false; // 标记是否已尝试解析（避免每次调用都重新解析角色卡）
+
+function getEffectCodeTable() {
+    if (_effectCodeParsed) return _effectCodeTable;
+    _effectCodeParsed = true;
+
+    // 内置硬编码表（作为回退）
+    const fallback = {
+        A: {
+            A1: { label: '伤害输出', fmt: a => `对敌人造成伤害` },
+            A2: { label: '生命恢复', fmt: a => `恢复自己或队友的生命值` },
+            A3: { label: '法力恢复', fmt: a => `恢复自己或队友的法力值` },
+            A4: { label: '牺牲增益', fmt: a => `牺牲生命值获得临时增益` },
+            A5: { label: '终结技', fmt: a => `耗尽剩余全AP进行连击，后续每击递减10%` },
+        },
+        B: {
+            B1: { label: '生命窃取',   fmt: a => `将${a[0]||'?'}的伤害转化为自身生命值` },
+            B2: { label: '减益·命中',   fmt: a => `${a[0]||'?'}回合内，目标命中率-${a[1]||'?'}` },
+            B3: { label: '增益·暴击',   fmt: a => `暴击后${a[0]||'?'}回合内，自身暴击率+${a[1]||'?'}` },
+            B4: { label: '触发·晕眩',   fmt: a => `暴击时晕眩目标${a[0]||'?'}回合` },
+            B5: { label: '持续伤害',   fmt: a => `${a[0]||'?'}回合内，每回合造成${a[1]||'?'}点伤害` },
+            B6: { label: '几率·晕眩',   fmt: a => `${a[0]||'?'}几率晕眩目标${a[1]||'?'}回合` },
+            B7: { label: '几率·额外伤害', fmt: a => `${a[0]||'?'}几率造成${a[1]||'?'}额外伤害` },
+            B8: { label: '易伤',       fmt: a => `${a[0]||'?'}回合内，目标受到伤害+${a[1]||'?'}` },
+            B9: { label: '恢复·法力',   fmt: a => `命中后恢复${a[0]||'?'}点MP` },
+            B10:{ label: '恢复·生命',   fmt: a => `${a[0]||'?'}回合内，每回合恢复${a[1]||'?'}点HP` },
+            B11:{ label: '增益·力量',   fmt: a => `攻击后${a[0]||'?'}回合内，自身力量+${a[1]||'?'}` },
+            B12:{ label: '增益·敏捷',   fmt: a => `攻击后${a[0]||'?'}回合内，自身敏捷+${a[1]||'?'}` },
+            B13:{ label: '增益·智力',   fmt: a => `攻击后${a[0]||'?'}回合内，自身智力+${a[1]||'?'}` },
+            B14:{ label: '增益·耐力',   fmt: a => `攻击后${a[0]||'?'}回合内，自身耐力+${a[1]||'?'}` },
+            B15:{ label: '标记·易伤',   fmt: a => `下一次攻击造成+${a[0]||'?'}额外伤害` },
+            B16:{ label: '标记·破绽',   fmt: a => `下一次攻击暴击率+${a[0]||'?'}` },
+            B17:{ label: '标记·死点',   fmt: a => `下一次攻击暴击伤害+${a[0]||'?'}` },
+            B18:{ label: '叠加·创伤',   fmt: a => `施加${a[0]||'?'}层创伤，每回合${a[1]||'?'}点伤害` },
+            B19:{ label: '叠加·腐蚀',   fmt: a => `施加${a[0]||'?'}层腐蚀，受到伤害+${a[1]||'?'}` },
+            B20:{ label: '护盾·固化',   fmt: a => `获得${a[0]||'?'}点永久护盾` },
+            B21:{ label: '护盾·瞬发',   fmt: a => `获得${a[0]||'?'}点临时护盾(1回合)` },
+            B22:{ label: '护盾·持续',   fmt: a => `${a[0]||'?'}回合内，每回合获得${a[1]||'?'}点护盾` },
+        },
+        S: {
+            S1: { label: '力量',   fmt: a => `力量+${a[0]||'?'}` },
+            S2: { label: '精准',   fmt: a => `命中率+${a[0]||'?'}%` },
+            S3: { label: '致命',   fmt: a => `暴击率+${a[0]||'?'}%` },
+            S4: { label: '节能',   fmt: a => `MP消耗+${a[0]||'?'}` },
+            S5: { label: '专注',   fmt: a => `ATK+${a[0]||'?'}, 命中率+${a[1]||'?'}%` },
+            S6: { label: '锋锐',   fmt: a => `ATK+${a[0]||'?'}, 暴击率+${a[1]||'?'}%` },
+            S7: { label: '洞察',   fmt: a => `命中率+${a[0]||'?'}%, 暴击率+${a[1]||'?'}%` },
+            S8: { label: '调和',   fmt: a => `ATK+${a[0]||'?'}, MP消耗+${a[1]||'?'}` },
+        },
+        M: {
+            M1: { label: '吸血',   fmt: a => `吸取${a[0]||'?'}伤害值恢复自身HP` },
+            M2: { label: '持续伤害', fmt: a => `持续${a[0]||'?'}回合，每回合${a[1]||'?'}点伤害` },
+            M3: { label: '力量削弱', fmt: a => `持续${a[0]||'?'}回合，目标力量-${a[1]||'?'}` },
+            M4: { label: '敏捷削弱', fmt: a => `持续${a[0]||'?'}回合，目标敏捷-${a[1]||'?'}` },
+            M5: { label: '法力燃烧', fmt: a => `持续${a[0]||'?'}回合，每回合燃烧${a[1]||'?'}点MP` },
+            M6: { label: '智力削弱', fmt: a => `持续${a[0]||'?'}回合，目标智力-${a[1]||'?'}` },
+            M7: { label: '耐力削弱', fmt: a => `持续${a[0]||'?'}回合，目标耐力-${a[1]||'?'}` },
+            M8: { label: '敏捷强化', fmt: a => `持续${a[0]||'?'}回合，自身敏捷+${a[1]||'?'}` },
+            M9: { label: '持续再生', fmt: a => `持续${a[0]||'?'}回合，每回合恢复${a[1]||'?'}点HP` },
+            M10:{ label: '力量强化', fmt: a => `持续${a[0]||'?'}回合，自身力量+${a[1]||'?'}` },
+            M11:{ label: '群体力量', fmt: a => `持续${a[0]||'?'}回合，所有敌方力量+${a[1]||'?'}` },
+            M12:{ label: '召唤',   fmt: a => `${a[0]||'?'}几率召唤衍生物` },
+        },
+        P: {
+            P1: { label: '恢复生命', fmt: a => `恢复${a[0]||'?'}点HP` },
+            P2: { label: '恢复法力', fmt: a => `恢复${a[0]||'?'}点MP` },
+            P3: { label: '力量药水', fmt: a => `力量+${a[0]||'?'}，持续${a[1]||'?'}回合` },
+            P4: { label: '敏捷药水', fmt: a => `敏捷+${a[0]||'?'}，持续${a[1]||'?'}回合` },
+            P5: { label: '智力药水', fmt: a => `智力+${a[0]||'?'}，持续${a[1]||'?'}回合` },
+            P6: { label: '耐力药水', fmt: a => `耐力+${a[0]||'?'}，持续${a[1]||'?'}回合` },
+        },
+    };
+
+    // 尝试从角色卡世界书动态解析
+    try {
+        const char = getCurrentCharacter();
+        if (!char?.data?.character_book?.entries) {
+            _effectCodeTable = fallback;
+            return _effectCodeTable;
+        }
+
+        const entries = char.data.character_book.entries;
+        // 查找包含"特殊效果编号"的条目
+        let effEntry = null;
+        for (const e of entries) {
+            const name = (e.name || e.comment || '').toLowerCase();
+            if (name.includes('特殊效果编号') || name.includes('效果编号')) {
+                effEntry = e;
+                break;
+            }
+        }
+        if (!effEntry) {
+            _effectCodeTable = fallback;
+            return _effectCodeTable;
+        }
+
+        const content = effEntry.content || '';
+        const parsed = { A: {}, B: {}, S: {}, M: {}, P: {} };
+
+        // 解析格式: **B1 (生命窃取):** `[EN:B1,X%]` ... 后面可能有说明文字
+        // 或: **A1 (伤害输出模板):** `[WN:A1]`
+        const codeRegex = /\*+\s*(A\d+|B\d+|S\d+|M\d+|P\d+)\s*\(([^)]+)\)[：:]*/g;
+        let match;
+        while ((match = codeRegex.exec(content)) !== null) {
+            const code = match[1];
+            const label = match[2].replace(/模板$/, '').trim();
+            const prefix = code[0]; // A, B, S, M, P
+
+            // 提取该条目后续的说明文字（直到下一个 ** 或 ---）
+            const afterPos = match.index + match[0].length;
+            const nextSection = content.indexOf('**', afterPos);
+            const nextDash = content.indexOf('---', afterPos);
+            const endPos = Math.min(
+                nextSection > 0 ? nextSection : content.length,
+                nextDash > 0 ? nextDash : content.length
+            );
+            const descText = content.substring(afterPos, endPos)
+                .replace(/\[.*?\]/g, '') // 去掉代码格式标记
+                .replace(/\*\*/g, '')
+                .replace(/<[^>]+>/g, '')
+                .replace(/[（(]/g, '(').replace(/[）)]/g, ')')
+                .replace(/[\r\n]+/g, ' ')
+                .trim();
+
+            // 构建描述生成函数：用卡片中的说明文字，参数用占位符替换
+            // 如果卡片有详细说明，直接用说明文字；否则用 label
+            parsed[prefix][code] = {
+                label: label,
+                fmt: (args) => {
+                    // 尝试将卡片说明中的 X, Y 等参数替换为实际值
+                    let desc = descText || label;
+                    const paramNames = ['X', 'Y', 'N', 'P%', 'Cost%'];
+                    for (let pi = 0; pi < args.length && pi < paramNames.length; pi++) {
+                        desc = desc.replace(new RegExp(paramNames[pi].replace('%', '\\%'), 'g'), args[pi]);
+                    }
+                    // 如果没有可替换的参数，直接附加
+                    if (args.length > 0 && !descText) {
+                        desc = `${label}: ${args.join(', ')}`;
+                    }
+                    return desc;
+                },
+            };
+        }
+
+        // 合并：解析到的覆盖 fallback 中没有的
+        for (const prefix of ['A', 'B', 'S', 'M', 'P']) {
+            for (const code in parsed[prefix]) {
+                if (!fallback[prefix][code]) {
+                    fallback[prefix][code] = parsed[prefix][code];
+                } else {
+                    // 用卡片解析的 label 覆盖
+                    fallback[prefix][code].label = parsed[prefix][code].label;
+                    // 如果卡片有说明文字，用它
+                    if (parsed[prefix][code].fmt) {
+                        fallback[prefix][code].fmt = parsed[prefix][code].fmt;
+                    }
+                }
+            }
+        }
+        _effectCodeTable = fallback;
+        log('效果代码表已从角色卡动态解析');
+    } catch (e) {
+        log('效果代码表动态解析失败，使用内置表: ' + e.message, 'warn');
+        _effectCodeTable = fallback;
+    }
+    return _effectCodeTable;
+}
+
+/** 切换角色卡时重置效果代码表缓存 */
+function resetEffectCodeTable() {
+    _effectCodeTable = null;
+    _effectCodeParsed = false;
+}
+
+/**
+ * 将 EN 效果代码翻译为可读说明
+ * 动态从角色卡世界书条目解析，自动同步卡片更新
+ * 格式: "B1,5%" → { code: 'B1', desc: '...', label: '生命窃取' }
+ */
+function describeEnCode(raw) {
+    if (!raw) return null;
+    const parts = raw.split(',').map(s => s.trim());
+    const code = parts[0];
+    const args = parts.slice(1);
+
+    const table = getEffectCodeTable();
+    const prefix = code[0];
+    const tableSection = table[prefix];
+
+    if (!tableSection || !tableSection[code]) {
+        return { code, label: code, desc: raw };
+    }
+    const entry = tableSection[code];
+    const desc = entry.fmt(args);
+    return { code, label: entry.label, desc };
+}
+
 function renderSkillDetail(sk) {
     const rows = []
     if (sk.weapon_type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">武器类型</span><span class="sao-detail-value">${esc(sk.weapon_type)}</span></div>`)
@@ -1913,10 +2118,19 @@ function renderSkillDetail(sk) {
     if (sk.targets != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">目标数</span><span class="sao-detail-value">${esc(sk.targets)}</span></div>`)
     if (sk.core_code) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">核心功能</span><span class="sao-detail-value">${esc(coreCodeLabel(sk.core_code))}</span></div>`)
     if (sk.affix_codes && sk.affix_codes.length > 0) {
-        const affixHtml = sk.affix_codes.map(c => `<span class="sao-tag sao-tag-affix">${esc(c)}</span>`).join(' ')
-        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果代码</span><span class="sao-detail-value">${affixHtml}</span></div>`)
+        const affixHtml = sk.affix_codes.map(raw => {
+            const d = describeEnCode(raw);
+            return d ? `<span class="sao-tag sao-tag-affix" title="${esc(d.code)}">${esc(d.label)}</span>` : `<span class="sao-tag sao-tag-affix">${esc(raw)}</span>`;
+        }).join(' ');
+        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">词条</span><span class="sao-detail-value">${affixHtml}</span></div>`)
     }
-    if (sk.effects_description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果</span><span class="sao-detail-value">${esc(sk.effects_description)}</span></div>`)
+    if (sk.affix_codes && sk.affix_codes.length > 0) {
+        const descHtml = sk.affix_codes.map(raw => {
+            const d = describeEnCode(raw);
+            return d ? `<div style="margin:2px 0;">• <strong>${esc(d.label)}</strong>：${esc(d.desc)}</div>` : '';
+        }).join('');
+        if (descHtml) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果说明</span><span class="sao-detail-value" style="text-align:left;max-width:320px;">${descHtml}</span></div>`)
+    }
     if (sk.effects && sk.effects.length > 0) {
         const effHtml = sk.effects.map(e => `<span class="sao-tag sao-tag-effect">${esc(e)}</span>`).join(' ')
         rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果</span><span class="sao-detail-value">${effHtml}</span></div>`)
@@ -2283,7 +2497,7 @@ function initPanelLogic() {
             case 'skill': {
                 const sk = cached.skills?.[index];
                 if (sk) {
-                    title = `${sk.name || '技能'} Lv${sk.skill_level ?? sk.level ?? '?'}`;
+                    title = `${sk.name || '技能'}${(sk.skill_level ?? sk.level) != null ? ' Lv' + (sk.skill_level ?? sk.level) : ''}`;
                     html = renderSkillDetail(sk);
                 }
                 break;
@@ -2408,7 +2622,7 @@ function refreshStatus() {
         if (skillEl) {
             if (s.skills && s.skills.length > 0) {
                 skillEl.innerHTML = s.skills.map((sk, i) =>
-                    `<div class="sao-tag sao-tag-skill" data-detail-type="skill" data-detail-index="${i}" style="cursor:pointer;">${esc(sk.name)} Lv${esc(sk.level)}</div>`
+                    `<div class="sao-tag sao-tag-skill" data-detail-type="skill" data-detail-index="${i}" style="cursor:pointer;">${esc(sk.name)}</div>`
                 ).join('');
                 window._saoCurrentData = window._saoCurrentData || {};
                 window._saoCurrentData.skills = s.skills;
@@ -2480,7 +2694,7 @@ async function loadSettingsPanel() {
 // ============================================================
 
 export function init() {
-    console.log('[SAO Companion] v0.6.3 初始化中...');
+    console.log('[SAO Companion] v0.6.6 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
