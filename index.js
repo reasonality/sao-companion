@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.2 (CSS作用域修复)
+// 版本: 0.6.3 (修复兼容模式初始化)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -2480,7 +2480,7 @@ async function loadSettingsPanel() {
 // ============================================================
 
 export function init() {
-    console.log('[SAO Companion] v0.6.2 初始化中...');
+    console.log('[SAO Companion] v0.6.3 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
@@ -2498,6 +2498,7 @@ export function init() {
     bindEvents();
     if (isSaoCard()) {
         log('检测到 SAO 角色卡，立即激活');
+        enableCompatMode();
         injectMemoryAndState();
     }
     console.log('[SAO Companion] 初始化完成');
