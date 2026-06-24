@@ -862,26 +862,28 @@ async function applyExtractedData(extracted) {
             Object.assign(data.state.equipment, s.equipment);
         }
 
-        // inventory: 合并（按 name 去重/叠加数量）
+        // inventory: 合并（按 name 去重，用新数据完全覆盖旧条目以保留 description/item_level 等）
         if (Array.isArray(s.inventory) && s.inventory.length > 0) {
             if (!data.state.inventory) data.state.inventory = [];
             for (const newItem of s.inventory) {
-                const existing = data.state.inventory.find(i => i.name === newItem.name);
-                if (existing) {
-                    existing.qty = newItem.qty; // 用最新数量覆盖
+                const existingIdx = data.state.inventory.findIndex(i => i.name === newItem.name);
+                if (existingIdx >= 0) {
+                    // 用新数据完全覆盖旧条目（保留完整字段：description, item_level, rarity 等）
+                    data.state.inventory[existingIdx] = { ...newItem };
                 } else {
                     data.state.inventory.push({ ...newItem });
                 }
             }
         }
 
-        // skills: 合并（按 name 去重）
+        // skills: 合并（按 name 去重，用新数据完全覆盖旧条目以保留 base_damage/hit_rate 等）
         if (Array.isArray(s.skills) && s.skills.length > 0) {
             if (!data.state.skills) data.state.skills = [];
             for (const newSk of s.skills) {
-                const existing = data.state.skills.find(sk => sk.name === newSk.name);
-                if (existing) {
-                    if (newSk.level) existing.level = newSk.level;
+                const existingIdx = data.state.skills.findIndex(sk => sk.name === newSk.name);
+                if (existingIdx >= 0) {
+                    // 用新数据完全覆盖旧条目（保留完整战斗属性）
+                    data.state.skills[existingIdx] = { ...newSk };
                 } else {
                     data.state.skills.push({ ...newSk });
                 }
