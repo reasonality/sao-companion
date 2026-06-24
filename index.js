@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.6 (效果代码表动态从角色卡解析)
+// 版本: 0.6.7 (装备解析+重新渲染修复)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -628,19 +628,39 @@ function parseUserStatus(statusText) {
     const yuldM = statusText.match(/\u7531\u9C81\u7279\s*\u0028Yuld\u0029[：:]\s*(\d+)/);
     if (yuldM && !state.cor) state.cor = parseInt(yuldM[1]);
 
-    // 装备解析: "主手: \u2B50Lv.5 铁剑" followed by stats line "\u2764\uFE0F+75 \uD83D\uDCAA+2"
+    // 装备解析: "主手: ⭐Lv.5 铁剑 (耐:100/100)" followed by stats line "❤️+50 💪+2 🏃+0 🧠+0 🔋+6"
     state.equipment = {};
-    const equipBlocks = statusText.match(/(?:\u4E3B\u624B|\u526F\u624B|\u5934\u90E8|\u80F8\u90E8|\u624B\u90E8|\u817F\u90E8|\u9970\u54C1)[：:]\s*[^\n]+/g) || [];
-    for (const block of equipBlocks) {
-        const slotM = block.match(/^(\S+?)[：:]/);
-        const nameM = block.match(/Lv\.\d+\s*(\S+)/);
-        if (slotM && nameM) {
-            const slotName = slotM[1];
-            const slotKey = slotName.includes('\u4E3B\u624B') ? 'main_hand' : slotName.includes('\u526F\u624B') ? 'off_hand' :
-                slotName.includes('\u5934') ? 'head' : slotName.includes('\u80F8') ? 'body' :
-                slotName.includes('\u624B') ? 'hands' : slotName.includes('\u817F') ? 'feet' : 'accessory';
-            state.equipment[slotKey] = { name: nameM[1] };
+    const equipSlotMap = { '主手': 'main_hand', '副手': 'off_hand', '头部': 'head', '胸部': 'body', '手部': 'hands', '腿部': 'feet', '饰品': 'accessory' };
+    // 匹配 "主手: ⭐Lv.5 铁剑 (耐:100/100)" 格式
+    const equipLines = statusText.match(/(?:主手|副手|头部|胸部|手部|腿部|饰品)\s*(?:1|2)?\s*[：:]\s*\S+/g) || [];
+    for (const line of equipLines) {
+        const slotMatch = line.match(/(主手|副手|头部|胸部|手部|腿部|饰品)/);
+        if (!slotMatch) continue;
+        const slotKey = equipSlotMap[slotMatch[1]] || 'accessory';
+        // 提取等级
+        const lvlMatch = line.match(/⭐Lv\.?(\d+)/i) || line.match(/Lv\.?(\d+)/i);
+        // 提取名称：⭐Lv.5 后面的词，或 ：后面的词
+        const nameMatch = line.match(/⭐?Lv\.?\d*\s*(\S+)/);
+        // 提取耐久
+        const durMatch = line.match(/\(耐[:：](\d+\/\d+)\)/) || line.match(/耐[:：](\d+\/\d+)/);
+        // 提取该行后面的属性行 "❤️+50 💪+2 🏃+0 🧠+0 🔋+6"
+        const lineIdx = statusText.indexOf(line);
+        const afterLine = statusText.substring(lineIdx + line.length, lineIdx + line.length + 200);
+        const statsLine = afterLine.match(/❤️\+(\d+).*?💪\+(\d+).*?🏃\+(\d+).*?🧠\+(\d+).*?🔋\+(\d+)/s);
+        
+        const equip = { name: nameMatch ? nameMatch[1] : '未知' };
+        if (lvlMatch) equip.item_level = parseInt(lvlMatch[1]);
+        if (durMatch) equip.durability = durMatch[1];
+        if (statsLine) {
+            equip.stats = {
+                max_hp: parseInt(statsLine[1]) || 0,
+                str: parseInt(statsLine[2]) || 0,
+                agi: parseInt(statsLine[3]) || 0,
+                int: parseInt(statsLine[4]) || 0,
+                vit: parseInt(statsLine[5]) || 0,
+            };
         }
+        state.equipment[slotKey] = equip;
     }
 
     // 背包: "• 初级治疗药水 x 10 (⭐Lv.1, 瞬间恢复100点HP。)" or equipment "• 铁剑 (耐:100/100) | 武器\n(⭐Lv.5|💎蓝色|❤️HP+75|💪STR+2|🔋VIT+6)"
@@ -1827,9 +1847,12 @@ function bindEvents() {
         const updatedMsg = ctx.chat?.[messageId];
         if (updatedMsg && updatedMsg.mes !== rawText) {
             // 消息内容被修改了，触发重新渲染
+            // 使用 editMessage 而非 updateMessageBlock，确保正则脚本重新处理
             log('消息已更新，触发重新渲染');
-            // 用 ST 的 updateMessageBlock 重新渲染
-            if (ctx.updateMessageBlock) {
+            if (ctx.editMessage) {
+                // SillyTavern 的 editMessage 会走完整的消息处理管线（包括正则脚本）
+                await ctx.editMessage(messageId, updatedMsg.mes, false);
+            } else if (ctx.updateMessageBlock) {
                 ctx.updateMessageBlock(messageId, updatedMsg);
             }
         }
@@ -2481,8 +2504,10 @@ function initPanelLogic() {
             case 'equip': {
                 const entry = cached.equipment?.[index];
                 if (entry) {
-                    title = `${SLOT_LABELS[entry.slot] || entry.slot}: ${entry.item?.name || '未知'}`;
-                    html = renderEquipmentDetail(entry.item || {});
+                    // entry 是 { slot, item } 格式，item 可能是 {name, stats, item_level, ...}
+                    const item = entry.item || {};
+                    title = `${SLOT_LABELS[entry.slot] || entry.slot}: ${item.name || '未知'}`;
+                    html = renderEquipmentDetail(item);
                 }
                 break;
             }
@@ -2694,7 +2719,7 @@ async function loadSettingsPanel() {
 // ============================================================
 
 export function init() {
-    console.log('[SAO Companion] v0.6.6 初始化中...');
+    console.log('[SAO Companion] v0.6.7 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
