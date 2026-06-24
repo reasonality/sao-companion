@@ -687,11 +687,12 @@ function parseUserStatus(statusText) {
         }
     }
 
-    // 技能: "• 燕返 Lv5"
+    // 技能: 卡片格式为 "• 刺击 (技能等级: 1)" 或 "• 刺击 Lv1"
     state.skills = [];
-    const skillMatches = statusText.matchAll(/[•]\s*(\S+)\s+Lv\.?(\d+)/gi);
+    const skillMatches = statusText.matchAll(/[•]\s*(\S+)\s*(?:\(\s*技能等级\s*[:：]\s*(\d+)\s*\)|Lv\.?\s*(\d+))/gi);
     for (const m of skillMatches) {
-        state.skills.push({ name: m[1], level: parseInt(m[2]) });
+        const level = m[2] ? parseInt(m[2]) : (m[3] ? parseInt(m[3]) : 0);
+        state.skills.push({ name: m[1], skill_level: level });
     }
 
     return state;
@@ -751,11 +752,28 @@ async function extractAll(aiMessage) {
     if (statusMatch) {
         try {
             const us = parseUserStatus(statusMatch[1]);
-            // 合并（user_status 的字段优先覆盖 zd_status 的）
+            // 合并规则：
+            // - equipment/inventory: user_status 优先（有描述/稀有度等详细信息）
+            // - skills: zd_status 优先（有完整战斗属性 ATK/Hit%/Crit% 等），仅补充 skill_level
             for (const k of Object.keys(us)) {
-                if (k === 'equipment' || k === 'inventory' || k === 'skills') {
+                if (k === 'equipment' || k === 'inventory') {
                     if (us[k] && (Array.isArray(us[k]) ? us[k].length > 0 : Object.keys(us[k]).length > 0)) {
                         state[k] = us[k];
+                    }
+                } else if (k === 'skills') {
+                    // 技能：不覆盖 zd_status 的完整数据，仅补充 skill_level
+                    // user_status 的技能格式是 "• 刺击 (技能等级: 1)"，解析为 {name, skill_level}
+                    if (us.skills && us.skills.length > 0 && state.skills && state.skills.length > 0) {
+                        for (const usSk of us.skills) {
+                            const zdSk = state.skills.find(s => s.name === usSk.name);
+                            if (zdSk && usSk.skill_level != null) {
+                                zdSk.skill_level = usSk.skill_level;
+                            }
+                        }
+                    }
+                    // 如果 zd_status 没有技能数据，才用 user_status 的（fallback）
+                    if ((!state.skills || state.skills.length === 0) && us.skills && us.skills.length > 0) {
+                        state.skills = us.skills;
                     }
                 } else if (us[k] != null) {
                     state[k] = us[k];
