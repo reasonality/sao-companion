@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.7 (装备解析+重新渲染修复)
+// 版本: 0.6.10 (运行时正则HTML结构稳定化)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -1751,6 +1751,54 @@ function disableCompatMode() {
     }
 }
 
+/**
+ * 运行时稳定化：剥离 SAO 卡战斗正则脚本 replaceString 外层的 markdown 代码围栏
+ * 原因: '战斗1.30电脑'/'战斗1.30手机' 的 replaceString 以 ```text\n<!DOCTYPE html... 开头，
+ * 以 ...</html>\n``` 结尾。SillyTavern 正则引擎原样注入后，二次渲染会把围栏内的
+ * HTML/JS 暴露为裸文本。去掉外层围栏后 replaceString 就是纯 HTML，注入行为不变但安全。
+ * 只做内存修改，不写磁盘/卡。
+ */
+function stabilizeSaoRegexScripts() {
+    try {
+        const char = getCurrentCharacter();
+        if (!char?.data?.extensions?.regex_scripts) return;
+
+        const scripts = char.data.extensions.regex_scripts;
+        let sanitized = 0;
+
+        for (const script of scripts) {
+            if (!script.scriptName || !script.scriptName.includes('战斗1.30')) continue;
+            if (typeof script.replaceString !== 'string') continue;
+
+            let rs = script.replaceString;
+
+            // 剥离开头 ```text 或 ```html 围栏
+            const fenceHeadMatch = rs.match(/^```(?:text|html)?\s*/);
+            // 剥离结尾 ``` 围栏（允许尾部空白/换行）
+            const fenceTailMatch = rs.match(/\s*```\s*$/);
+
+            if (fenceHeadMatch && fenceTailMatch) {
+                rs = rs.slice(fenceHeadMatch[0].length);
+                rs = rs.slice(0, rs.length - fenceTailMatch[0].length);
+
+                // 可选: 修复已知的畸形碎片 '</head></html>\n\n  <body>'（重复/错位标签）
+                // 修成正常的 '</head><body>'，避免 body 内容落在 head 中
+                rs = rs.replace(/<\/head>\s*<\/html>\s*\n\s*<body>/gi, '</head>\n  <body>');
+
+                script.replaceString = rs;
+                sanitized++;
+                log(`正则脚本「${script.scriptName}」已剥离代码围栏 (${rs.length} 字符)`);
+            }
+        }
+
+        if (sanitized > 0) {
+            log(`运行时正则稳定化: 共处理 ${sanitized} 个战斗脚本`);
+        }
+    } catch (e) {
+        log('正则稳定化失败: ' + e.message, 'warn');
+    }
+}
+
 // 白名单：插件应管理的正则脚本（排除4个不应自动启用的脚本）
 const REGEX_WHITELIST = new Set([
     '摘要', '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗',
@@ -1803,6 +1851,7 @@ function bindEvents() {
         resetEffectCodeTable();
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
+            stabilizeSaoRegexScripts();
             enableCompatMode();
             injectMemoryAndState();
             // 刷新面板（如果已打开）
@@ -1827,34 +1876,23 @@ function bindEvents() {
         const rawText = message.mes;
         log(`处理消息 #${messageId} (${rawText.length} 字符)`);
 
-        // === 使用 per-message 锁串行执行，防止并发竞争 ===
+        // === READ-ONLY handler: 只提取状态并刷新面板，不修改消息文本 ===
+        // 原因: SAO 卡的正则脚本（如「战斗1.30电脑」）会把 <zd_status> 替换为
+        // 382KB 的完整 HTML/JS 文档并包裹在 ```text 围栏中。
+        // 如果插件修改 msg.mes 并触发二次渲染，正则脚本会再次执行，
+        // 导致原始消息文本被破坏、原始卡片 HTML/JS 暴露为裸代码。
+        // 因此 fillGenTags / processCombatIfNeeded / processLootIfNeeded
+        // 以及 editMessage / updateMessageBlock 都不应在自动事件中调用。
+        // 这些函数保留可用于手动/面板操作。
         await withProcessingLock(`msg-${messageId}`, async () => {
-            // 1. 标签填充：扫描 <equip> <swordskill> 标签，调用子代理填充数值
-            await fillGenTags(messageId, rawText);
-
-            // 2. 战斗结算：检测 <zd_status> 含战斗场景
-            await processCombatIfNeeded(messageId, rawText);
-
-            // 3. 战利品生成：检测敌人击败
-            await processLootIfNeeded(messageId, rawText);
-
-            // 4. 多任务提取（状态）— 修改共享数据，串行
+            // 多任务提取（状态）— 只读取文本、写入 chatMetadata，不修改消息
             const extracted = await extractAll(rawText);
             if (extracted) await applyExtractedData(extracted);
         });
 
-        // 更新消息显示
-        const updatedMsg = ctx.chat?.[messageId];
-        if (updatedMsg && updatedMsg.mes !== rawText) {
-            // 消息内容被修改了，触发重新渲染
-            // 使用 editMessage 而非 updateMessageBlock，确保正则脚本重新处理
-            log('消息已更新，触发重新渲染');
-            if (ctx.editMessage) {
-                // SillyTavern 的 editMessage 会走完整的消息处理管线（包括正则脚本）
-                await ctx.editMessage(messageId, updatedMsg.mes, false);
-            } else if (ctx.updateMessageBlock) {
-                ctx.updateMessageBlock(messageId, updatedMsg);
-            }
+        // 状态提取完成后刷新面板（如果已打开）
+        if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
+            refreshStatus();
         }
     }));
 
@@ -1903,12 +1941,16 @@ function rarityClass(rarity) {
 
 function renderEquipmentDetail(item) {
     const rows = []
+    // 名称行：确保有名字的装备一定显示名称（避免详情弹窗为空）
+    if (item.name) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">名称</span><span class="sao-detail-value">${esc(item.name)}</span></div>`)
     if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(item.type)}</span></div>`)
     if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
     if (item.item_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">物品等级</span><span class="sao-detail-value">${esc(item.item_level)}</span></div>`)
+    if (item.durability) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">耐久</span><span class="sao-detail-value">${esc(item.durability)}</span></div>`)
     if (item.stats) {
+        const statLabels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT' };
         for (const [k, v] of Object.entries(item.stats)) {
-            if (v > 0) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">${esc(k.toUpperCase())}</span><span class="sao-detail-value">+${esc(v)}</span></div>`)
+            if (v > 0) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">${statLabels[k] || esc(k.toUpperCase())}</span><span class="sao-detail-value">+${esc(v)}</span></div>`)
         }
     }
     if (item.affixes && item.affixes.length > 0) {
@@ -1916,6 +1958,8 @@ function renderEquipmentDetail(item) {
         rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">附魔</span><span class="sao-detail-value">${affixHtml}</span></div>`)
     }
     if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
+    // 如果没有任何行，至少显示名称防止空弹窗
+    if (rows.length === 0 && item.name) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">名称</span><span class="sao-detail-value">${esc(item.name)}</span></div>`)
     return rows.join('')
 }
 
@@ -2719,7 +2763,7 @@ async function loadSettingsPanel() {
 // ============================================================
 
 export function init() {
-    console.log('[SAO Companion] v0.6.7 初始化中...');
+    console.log('[SAO Companion] v0.6.10 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
@@ -2737,6 +2781,7 @@ export function init() {
     bindEvents();
     if (isSaoCard()) {
         log('检测到 SAO 角色卡，立即激活');
+        stabilizeSaoRegexScripts();
         enableCompatMode();
         injectMemoryAndState();
     }
