@@ -7,6 +7,7 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
 import { serializeBattleState, restoreBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
+import { SAO_DISPLAY_SCRIPTS } from './sao-display-scripts.js';
 // memory.js 已移除
 
 // ============================================================
@@ -1704,6 +1705,45 @@ function disableCompatMode() {
 }
 
 /**
+ * 运行时注入 5 个显示类正则脚本（装备栏/剑技栏/角色状态栏/日期/地图2）到当前角色卡。
+ * 原因: 这些脚本的 replaceString 将自定义标签转换为合法 HTML（div+style+details），
+ * 让 ST messageFormatting 在 DOMPurify 之前完成转换，解决 Shadow DOM 渲染器无法
+ * 找到被 DOMPurify 剥离的自定义标签的根本问题。
+ * 只做内存修改，不写磁盘/卡文件。
+ */
+function injectDisplayScripts() {
+    try {
+        const char = getCurrentCharacter();
+        if (!char?.data?.extensions?.regex_scripts) return;
+
+        const scripts = char.data.extensions.regex_scripts;
+        let injected = 0;
+        let updated = 0;
+
+        for (const displayScript of SAO_DISPLAY_SCRIPTS) {
+            const existing = scripts.find(s => s.scriptName === displayScript.scriptName);
+            if (!existing) {
+                // 没有同名脚本 → push 一份副本
+                scripts.push({ ...displayScript });
+                injected++;
+            } else if (existing.replaceString !== displayScript.replaceString) {
+                // 同名脚本但 replaceString 不一致 → 更新为规范版本
+                existing.findRegex = displayScript.findRegex;
+                existing.replaceString = displayScript.replaceString;
+                updated++;
+            }
+        }
+
+        if (injected > 0 || updated > 0) {
+            char._saoDisplayScriptsInjected = true;
+            log(`显示正则脚本注入: ${injected} 新增, ${updated} 更新`);
+        }
+    } catch (e) {
+        log('显示正则脚本注入失败: ' + e.message, 'warn');
+    }
+}
+
+/**
  * 运行时稳定化：剥离 SAO 卡正则脚本 replaceString 外层的 markdown 代码围栏
  * 原因: 部分正则脚本（如「快速回复」「开场白」；已迁移/删除的「战斗1.30」系列也曾如此）
  * 的 replaceString 以 ```text\n<!DOCTYPE html... 开头、以 ...</html>\n``` 结尾。
@@ -1761,9 +1801,10 @@ const REGEX_WHITELIST = new Set([
     // 手机版是桌面端的窄屏适配，两者不应同时启用。
     // 插件无法可靠检测设备类型，因此手机版由用户手动启用/禁用。
 
-    // Phase 1: 以下显示类正则已由插件 Shadow DOM 渲染器替代，从白名单移除。
-    // 它们保持 disabled=true，避免与插件渲染产生双重渲染。
-    // 移除的正则: '日期', '角色状态栏', '装备栏', '剑技栏', '地图2'
+    // Phase 1: 以下 5 个显示类正则现在由 injectDisplayScripts() 运行时注入（disabled=false），
+    // 它们的 replaceString 将自定义标签转换为合法 HTML，让 ST messageFormatting 在 DOMPurify 前处理。
+    // Shadow DOM 渲染器不再需要，从白名单移除。
+    // 注入的正则: '日期', '角色状态栏', '装备栏', '剑技栏', '地图2'
 
     // Phase 2: '战斗1.30电脑' 已由插件 battle/battleRenderer.js 迁移，从白名单移除。
     // 移除的正则: '战斗1.30电脑'
@@ -1777,14 +1818,15 @@ const REGEX_WHITELIST = new Set([
 ]);
 
 // 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
-// Phase 1 (显示类): 日期, 角色状态栏, 装备栏, 剑技栏, 地图2
+// Phase 1 (显示类): 日期, 角色状态栏, 装备栏, 剑技栏, 地图2 — 已由 injectDisplayScripts() 运行时注入（disabled=false），
+//                    不再需要 force-disable。它们的 replaceString 将自定义标签转换为合法 HTML，
+//                    让 ST messageFormatting 在 DOMPurify 前完成处理，Shadow DOM 渲染器不再调用。
 // Phase 2 (战斗): 战斗1.30电脑
 // Phase 3 (promptOnly): 隐藏摘要, 隐藏npc, 隐藏日历, 隐藏战斗, 隐藏状态栏,
 //                        隐藏地图, 隐藏骰子, 隐藏npc思维链, 隐藏公会状态栏, 隐藏回复, 隐藏预告
 // Phase 4 (摘要): 摘要 (extractAll + SAO_PROMPT_STRIP_TAGS 已接管 digest 解析和 prompt 清理)
 // 注意: '战斗1.30手机' 有意不在列表中（用户手动控制，见 §12.3）。
 const MIGRATED_SCRIPTS = new Set([
-    '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
     '战斗1.30电脑',
     '摘要',
     '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
@@ -1898,10 +1940,7 @@ function hideSaoLightDomTags(messageEl) {
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
     styleEl.textContent = `
-        .sao-tags-rendered calendar, .sao-tags-rendered user_status, .sao-tags-rendered equip,
-        .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
-        .sao-tags-rendered calendar *, .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
-        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status * {
+        .sao-tags-rendered zd_status, .sao-tags-rendered zd_status * {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -2238,14 +2277,9 @@ function renderCalendar(messageEl, rawText) {
 }
 
 function renderAllTags(messageEl, rawText) {
-    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status)\b/i.test(rawText || '')) {
+    if (/<zd_status\b/i.test(rawText || '')) {
         hideSaoLightDomTags(messageEl)
     }
-    renderCalendar(messageEl, rawText)
-    renderUserStatus(messageEl, rawText)
-    renderEquipment(messageEl, rawText)
-    renderSwordSkill(messageEl, rawText)
-    renderMap(messageEl, rawText)
     renderBattlePanel(messageEl, rawText)
     // 渲染战斗面板后检查是否需要恢复战斗状态
     if (rawText.includes('<zd_status>')) {
@@ -2981,6 +3015,7 @@ function bindEvents() {
         destroyBattleSideEffects();
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
+            injectDisplayScripts();
             stabilizeSaoRegexScripts();
             enableCompatMode();
             injectMemoryAndState();
@@ -4070,6 +4105,7 @@ export function init() {
     setBattleEndCallback(clearBattleState);
     if (isSaoCard()) {
         log('检测到 SAO 角色卡，立即激活');
+        injectDisplayScripts();
         stabilizeSaoRegexScripts();
         enableCompatMode();
         injectMemoryAndState();
