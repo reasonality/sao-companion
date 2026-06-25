@@ -2036,7 +2036,7 @@ function renderCalendar(messageEl, rawText) {
 
     shadow.innerHTML = `
         <style>
-            :host { display: block; }
+            :host { display: block; margin: 0; padding: 0; }
             /* 移动优先设计 */
                   * {
                     box-sizing: border-box;
@@ -2338,6 +2338,14 @@ function cleanupSaoLightDom(messageEl) {
             }
         }
     });
+    // 3. 删除 Showdown 生成的空 <p>/<br>/<hr>（自定义标签删除后留下的空壳）
+    mesText.querySelectorAll(':scope > p, :scope > br, :scope > hr').forEach(el => {
+        const text = el.textContent.trim();
+        const isOnlyBr = el.childNodes.length === 1 && el.firstChild.nodeName === 'BR';
+        if (!text || isOnlyBr) {
+            el.remove();
+        }
+    });
 }
 
 function renderUserStatus(messageEl, rawText) {
@@ -2349,7 +2357,7 @@ function renderUserStatus(messageEl, rawText) {
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
-            :host { display: block; }
+            :host { display: block; margin: 0; padding: 0; }
             /* 主容器样式 */
                 .character-status-wrapper {
                   background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
@@ -2509,7 +2517,7 @@ function renderUserStatus(messageEl, rawText) {
                   border: 1px solid var(--char-content-border);
                   border-radius: 4px;
                   font-weight: normal; /* 内容使用普通字重 */
-                  white-space: pre-wrap;
+                  white-space: normal;
                   word-break: break-word;
                 }
         </style>
@@ -2531,7 +2539,7 @@ function renderEquipment(messageEl, rawText) {
     const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
-            :host { display: block; }
+            :host { display: block; margin: 0; padding: 0; }
             /* Define the custom font */
                     @font-face {
                         font-family: 'NotoSansCJKsc-Bold';
@@ -2704,7 +2712,7 @@ function renderSwordSkill(messageEl, rawText) {
     const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
-            :host { display: block; }
+            :host { display: block; margin: 0; padding: 0; }
             /* Define the custom font */
                     @font-face {
                         font-family: 'NotoSansCJKsc-Bold';
@@ -2886,7 +2894,7 @@ function renderMap(messageEl, rawText) {
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
-            :host { display: block; }
+            :host { display: block; margin: 0; padding: 0; }
             /* 主容器样式 */
                 .map-status-wrapper {
                   background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */

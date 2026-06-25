@@ -38,6 +38,12 @@ export function renderBattlePanel(messageEl, rawText) {
     style.textContent = getBattleCSS();
     shadow.appendChild(style);
 
+    // 注入 Font Awesome CSS 到 Shadow DOM（全局样式不穿透 Shadow 边界）
+    const faLink = document.createElement('link');
+    faLink.rel = 'stylesheet';
+    faLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css';
+    shadow.appendChild(faLink);
+
     // 注入 HTML 模板
     const templateWrapper = document.createElement('div');
     templateWrapper.innerHTML = getBattleTemplate();
