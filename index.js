@@ -4098,8 +4098,11 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.13 初始化中...');
+    console.log('[SAO Companion] v0.6.14 初始化中...');
+    console.log('[SAO Companion] DOMPurify hook fix active — commit 6380a4d+');
     registerSaoDompurifyHook();
+    // 验证钩子是否真的注册了
+    console.log('[SAO Companion] DOMPurify hook registered:', saoDompurifyHookRegistered);
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
