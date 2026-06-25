@@ -1921,6 +1921,21 @@ function hideSaoLightDomTags(messageEl) {
     const mesText = messageEl.querySelector('.mes_text');
     const target = mesText || messageEl;
     target.classList.add('sao-tags-rendered');
+    
+    // 直接隐藏 light DOM 中的 SAO 自定义标签元素（比 CSS 更可靠）
+    const tagsToHide = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
+    for (const tag of tagsToHide) {
+        const elements = target.querySelectorAll(tag);
+        elements.forEach(el => {
+            el.style.display = 'none';
+            el.style.visibility = 'hidden';
+            el.style.opacity = '0';
+            el.style.height = '0';
+            el.style.overflow = 'hidden';
+        });
+    }
+    
+    // CSS 作为备份
     const styleId = 'sao-hide-custom-tags';
     if (target.querySelector(`#${styleId}`)) return;
     const styleEl = document.createElement('style');
