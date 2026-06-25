@@ -2288,22 +2288,21 @@ function renderCalendar(messageEl, rawText) {
 
 function renderAllTags(messageEl, rawText) {
     const hasTags = /<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
+    console.log('[SAO Companion] renderAllTags: hasTags=' + hasTags + ' len=' + (rawText||'').length);
     if (hasTags) {
         hideSaoLightDomTags(messageEl)
     }
-    renderCalendar(messageEl, rawText)
-    renderUserStatus(messageEl, rawText)
-    renderEquipment(messageEl, rawText)
-    renderSwordSkill(messageEl, rawText)
-    renderMap(messageEl, rawText)
-    renderBattlePanel(messageEl, rawText)
-    // 渲染完成后，彻底删除 light DOM 中的自定义标签元素
-    // （Showdown 可能把 <details> 等子元素拆到标签容器外面，
-    //   仅靠 display:none 无法隐藏这些逃逸的子元素）
+    try { renderCalendar(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderCalendar ERROR:', e.message, e.stack); }
+    try { renderUserStatus(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderUserStatus ERROR:', e.message, e.stack); }
+    try { renderEquipment(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderEquipment ERROR:', e.message, e.stack); }
+    try { renderSwordSkill(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderSwordSkill ERROR:', e.message, e.stack); }
+    try { renderMap(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderMap ERROR:', e.message, e.stack); }
+    try { renderBattlePanel(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
+    console.log('[SAO Companion] renderAllTags done, shadow hosts:', messageEl.querySelectorAll('.sao-render-host').length);
     if (hasTags) {
         cleanupSaoLightDom(messageEl)
+        console.log('[SAO Companion] after cleanup, shadow hosts:', messageEl.querySelectorAll('.sao-render-host').length);
     }
-    // 渲染战斗面板后检查是否需要恢复战斗状态
     if (rawText.includes('<zd_status>')) {
         restoreBattleIfPending()
     }
