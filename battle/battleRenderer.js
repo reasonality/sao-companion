@@ -95,11 +95,11 @@ export function renderBattlePanel(messageEl, rawText) {
     if (refNode && refNode.parentNode) {
         refNode.parentNode.insertBefore(host, refNode);
         // 如果 host 被插入到 <p> 内部（Showdown 会把自定义标签包在 <p> 里），
-        // 将 host 提升到 <p> 外部，避免 cleanup 删除空 <p> 时误删 host
+        // 将 host 提升到 <p> 之后，避免 cleanup 删除空 <p> 时误删 host
         if (host.parentNode && host.parentNode.nodeName === 'P') {
             const p = host.parentNode;
             if (p.parentNode) {
-                p.parentNode.insertBefore(host, p);
+                p.parentNode.insertBefore(host, p.nextSibling);
             }
         }
     } else if (mesText) {
