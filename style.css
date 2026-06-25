@@ -27,8 +27,3 @@
     width: 100%;
     box-sizing: border-box;
 }
-
-/* Override 角色状态栏 excessive whitespace (card CSS uses white-space: pre-wrap) */
-.mes_text .details-character-status > div {
-    white-space: pre-line !important;
-}

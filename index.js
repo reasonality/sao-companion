@@ -10,7 +10,7 @@ import { serializeBattleState, restoreBattleState, setBattleStateChangeCallback,
 // memory.js 已移除
 
 // SAO 自定义标签列表 — DOMPurify 钩子会保留这些标签作为 DOM 元素
-const SAO_CUSTOM_TAGS = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status'];
+const SAO_CUSTOM_TAGS = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
 
 /**
  * 注册 DOMPurify 钩子：保留 SAO 自定义标签不被剥离。
@@ -258,6 +258,9 @@ function sanitizeInlineSaoHtml(html) {
         strong: {},
         i: {},
         em: {},
+        div: { style: true },
+        details: { open: true },
+        summary: {},
     };
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
@@ -1925,8 +1928,10 @@ function hideSaoLightDomTags(messageEl) {
     styleEl.textContent = `
         .sao-tags-rendered calendar, .sao-tags-rendered user_status, .sao-tags-rendered equip,
         .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
+        .sao-tags-rendered digest,
         .sao-tags-rendered calendar *, .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
-        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status * {
+        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
+        .sao-tags-rendered digest * {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -2263,7 +2268,7 @@ function renderCalendar(messageEl, rawText) {
 }
 
 function renderAllTags(messageEl, rawText) {
-    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status)\b/i.test(rawText || '')) {
+    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '')) {
         hideSaoLightDomTags(messageEl)
     }
     renderCalendar(messageEl, rawText)

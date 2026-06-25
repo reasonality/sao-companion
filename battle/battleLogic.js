@@ -6587,9 +6587,12 @@ function setupDetailsAnimation() {
   
   detailsElement.addEventListener('toggle', () => {
     if (detailsElement.open) {
-      // Recalculate height on open — content may have been lazily rendered
-      // after this handler was set up (e.g. by setupLazyRendering's toggle handler)
-      content.style.maxHeight = recalculateHeight();
+      // Defer height measurement to next frame — lazy rendering (setupLazyRendering)
+      // may populate content in the same toggle event, and the browser needs a
+      // layout pass before offsetHeight reflects the actual content height.
+      requestAnimationFrame(() => {
+        content.style.maxHeight = recalculateHeight();
+      });
     } else {
       content.style.maxHeight = '0';
     }
