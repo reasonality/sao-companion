@@ -6,6 +6,7 @@ import { saveSettingsDebounced } from '../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { DOMPurify } from '../../../../lib.js';
+import { power_user } from '../../../power-user.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
 import { serializeBattleState, restoreBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 // memory.js 已移除
@@ -30,6 +31,8 @@ function registerSaoDompurifyHook() {
     DOMPurify.addHook('uponSanitizeElement', (node, data, config) => {
         if (!data || !data.tagName || !data.allowedTags) return;
         if (SAO_CUSTOM_TAGS.includes(data.tagName.toLowerCase())) {
+            // 注意: 这会永久修改 DOMPurify 全局 allowlist（对整个 ST 会话生效）。
+            // SAO 自定义标签是无害的空元素，安全风险可忽略。
             data.allowedTags[data.tagName.toLowerCase()] = true;
         }
     });
@@ -617,7 +620,8 @@ function log(msg, level = 'info') {
     logs.push(entry);
     if (logs.length > MAX_LOGS) logs.shift();
     const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : 'ℹ️';
-    console.log(`[SAO Companion] ${prefix} ${msg}`);
+    const consoleMethod = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log';
+    console[consoleMethod](`[SAO Companion] ${prefix} ${msg}`);
     // 更新面板日志显示
     updateLogDisplay();
 }
@@ -1613,7 +1617,7 @@ function injectMemoryAndState() {
 
 /**
  * 启用 SAO 卡兼容模式
- * 1. 关闭不兼容的酒馆设置（修改全局 window.power_user）
+ * 1. 关闭不兼容的酒馆设置（修改全局 power_user）
  * 2. 启用角色卡局部正则
  *
  * 全局设置副作用（有保存/恢复机制，见 disableCompatMode）：
@@ -1629,7 +1633,6 @@ function enableCompatMode() {
 
     // === 1. 关闭不兼容设置 ===
     try {
-        const power_user = window.power_user;
         if (power_user) {
             // 保存原始值（始终覆盖，确保崩溃后恢复最新基线）
             settings._savedPowerUser = {
@@ -1667,7 +1670,6 @@ function enableCompatMode() {
  * 恢复原始设置（切出 SAO 卡时）
  */
 function disableCompatMode() {
-    const power_user = window.power_user;
     if (!power_user) return;
 
     const settings = getSettings();
@@ -1896,6 +1898,9 @@ function renderMessageWhenReady(messageId, rawText, attempts = 0) {
     const el = getMessageElement(messageId);
     if (el && el.querySelector('.mes_text')) {
         if (!el.querySelector('.sao-render-host')) {
+            const ctx = getContext();
+            const msg = ctx.chat?.[messageId];
+            if (!msg || msg.is_user) return;
             renderAllTags(el, rawText);
         }
         return;
@@ -2038,11 +2043,6 @@ function renderCalendar(messageEl, rawText) {
             /* 移动优先设计 */
                   * {
                     box-sizing: border-box;
-                    margin: 0;
-                    padding: 0;
-                  }
-            
-                  body {
                     margin: 0;
                     padding: 0;
                   }
@@ -3220,7 +3220,7 @@ function bindEvents() {
             if (!isSaoCard()) return;
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
-            if (!msg) return;
+            if (!msg || msg.is_user) return;
             const msgEl = getMessageElement(messageId);
             if (msgEl) renderAllTags(msgEl, msg.mes || '');
         });
