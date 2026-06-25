@@ -2287,8 +2287,19 @@ function renderCalendar(messageEl, rawText) {
 }
 
 function renderAllTags(messageEl, rawText) {
-    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '')) {
+    const hasTags = /<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
+    console.log('[SAO Companion] renderAllTags called, hasTags:', hasTags, 'rawText length:', (rawText||'').length);
+    if (hasTags) {
         hideSaoLightDomTags(messageEl)
+        // 诊断：检查 DOM 中是否有自定义标签元素
+        const mesText = messageEl.querySelector('.mes_text');
+        if (mesText) {
+            const found = ['equip','swordskill','user_status','calendar','zd_status','digest'].map(t => {
+                const el = mesText.querySelector(t);
+                return t + ':' + (!!el);
+            });
+            console.log('[SAO Companion] DOM tags found:', found.join(', '));
+        }
     }
     renderCalendar(messageEl, rawText)
     renderUserStatus(messageEl, rawText)
