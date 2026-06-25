@@ -2321,23 +2321,20 @@ function cleanupSaoLightDom(messageEl) {
     for (const tag of tagsToRemove) {
         mesText.querySelectorAll(tag).forEach(el => el.remove());
     }
-    // 2. 删除逃逸的空 <details> 块（Showdown 可能把它们拆到标签外面）
-    //    只删除 summary 文本匹配已知 SAO 模式的 details，避免误删合法内容
+    // 2. 删除逃逸的 <details> 块 — 只删除 mesText 的直接子节点（:scope > details）
+    //    Shadow host 内部的 <details> 不会被 :scope > 匹配到
     const saoSummaryPatterns = [
         /装备栏/, /等级和属性/, /技能/, /关系列表/, /任务日志/, /背包/,
         /公会状态栏/, /NPC状态栏/, /基本信息/
     ];
-    mesText.querySelectorAll('details').forEach(details => {
+    mesText.querySelectorAll(':scope > details').forEach(details => {
         const summary = details.querySelector('summary');
         if (summary && saoSummaryPatterns.some(p => p.test(summary.textContent))) {
-            // 检查这个 details 是否在 Shadow host 内部（不应删除）
-            const closestHost = details.closest('.sao-render-host');
-            if (!closestHost) {
-                details.remove();
-            }
+            details.remove();
         }
     });
     // 3. 删除 Showdown 生成的空 <p>/<br>/<hr>（自定义标签删除后留下的空壳）
+    //    只删除 mesText 的直接子节点中空白的元素
     mesText.querySelectorAll(':scope > p, :scope > br, :scope > hr').forEach(el => {
         const text = el.textContent.trim();
         const isOnlyBr = el.childNodes.length === 1 && el.firstChild.nodeName === 'BR';
