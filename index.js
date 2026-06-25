@@ -1704,11 +1704,12 @@ function disableCompatMode() {
 }
 
 /**
- * 运行时稳定化：剥离 SAO 卡战斗正则脚本 replaceString 外层的 markdown 代码围栏
- * 原因: '战斗1.30电脑'/'战斗1.30手机' 的 replaceString 以 ```text\n<!DOCTYPE html... 开头，
- * 以 ...</html>\n``` 结尾。SillyTavern 正则引擎原样注入后，二次渲染会把围栏内的
- * HTML/JS 暴露为裸文本。去掉外层围栏后 replaceString 就是纯 HTML，注入行为不变但安全。
- * 只做内存修改，不写磁盘/卡。
+ * 运行时稳定化：剥离 SAO 卡正则脚本 replaceString 外层的 markdown 代码围栏
+ * 原因: 部分正则脚本（如「快速回复」「开场白」；已迁移/删除的「战斗1.30」系列也曾如此）
+ * 的 replaceString 以 ```text\n<!DOCTYPE html... 开头、以 ...</html>\n``` 结尾。
+ * SillyTavern 正则引擎原样注入后，二次渲染会把围栏内的 HTML/JS 暴露为裸文本。
+ * 去掉外层围栏后 replaceString 就是纯 HTML，注入行为不变但安全。
+ * 只做内存修改，不写磁盘/卡。适用于卡中所有带代码围栏的正则脚本。
  */
 function stabilizeSaoRegexScripts() {
     try {
@@ -1719,7 +1720,6 @@ function stabilizeSaoRegexScripts() {
         let sanitized = 0;
 
         for (const script of scripts) {
-            if (!script.scriptName || !script.scriptName.includes('战斗1.30')) continue;
             if (typeof script.replaceString !== 'string') continue;
 
             let rs = script.replaceString;
@@ -1744,7 +1744,7 @@ function stabilizeSaoRegexScripts() {
         }
 
         if (sanitized > 0) {
-            log(`运行时正则稳定化: 共处理 ${sanitized} 个战斗脚本`);
+            log(`运行时正则稳定化: 共处理 ${sanitized} 个脚本`);
         }
     } catch (e) {
         log('正则稳定化失败: ' + e.message, 'warn');
@@ -1755,6 +1755,8 @@ function stabilizeSaoRegexScripts() {
 const REGEX_WHITELIST = new Set([
     '摘要',
     '公会状态栏',
+    // npc状态栏: keep on-card (disabled=false) like 公会状态栏 — replaceString is clean pure HTML, no Shadow DOM renderer needed
+    'npc状态栏',
     '快速回复', '开场白',
     // 注意: '战斗1.30手机' 有意不加入白名单。
     // 手机版是桌面端的窄屏适配，两者不应同时启用。
@@ -1881,10 +1883,8 @@ function hideSaoLightDomTags(messageEl) {
     styleEl.textContent = `
         .sao-tags-rendered calendar, .sao-tags-rendered user_status, .sao-tags-rendered equip,
         .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
-        .sao-tags-rendered npc_status,
         .sao-tags-rendered calendar *, .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
-        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
-        .sao-tags-rendered npc_status * {
+        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status * {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -2217,7 +2217,7 @@ function renderCalendar(messageEl, rawText) {
 }
 
 function renderAllTags(messageEl, rawText) {
-    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status|npc_status)\b/i.test(rawText || '')) {
+    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status)\b/i.test(rawText || '')) {
         hideSaoLightDomTags(messageEl)
     }
     renderCalendar(messageEl, rawText)
