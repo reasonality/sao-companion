@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.10 (运行时正则HTML结构稳定化)
+// 版本: 0.6.11 (修复战斗模块重复导出)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -3359,7 +3359,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.10 初始化中...');
+    console.log('[SAO Companion] v0.6.11 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');

@@ -8622,4 +8622,4 @@ export function restoreBattleState(saved) {
 }
 
 // 导出关键入口函数供渲染器调用
-export { initializeInterface, startBattle, setupSendDetection, initializeBattleInterface, initializeBattleDom, destroyBattleSideEffects };
+export { initializeInterface, startBattle, setupSendDetection, initializeBattleInterface, initializeBattleDom };
