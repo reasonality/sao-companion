@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.12 (恢复SAO标签美化并修复重复显示)
+// 版本: 0.6.13 (用原卡模板替换自写美化)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -283,79 +283,54 @@ function sanitizeInlineSaoHtml(html) {
     return out.innerHTML;
 }
 
-/**
- * 共享 details/summary 折叠卡片基础 CSS，按主题返回。
- * parchment: 米色羊皮纸（日期）
- * paper: 浅米色纸张（状态/地图）
- * dark: 深灰 Stardew/像素风（装备/剑技）
- */
-function saoSharedDetailsCSS(theme) {
-    switch (theme) {
-        case 'parchment':
-            return `
-                .sao-details { background: #f8f4ed; color: #5c4d3a; border: 1px solid #8c785d; border-left: 4px solid #8c785d; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.4), 0 3px 10px rgba(60,45,30,.15); font-family: "Georgia", "Times New Roman", "Microsoft YaHei", serif; }
-                .sao-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.85rem; font-weight: 700; font-size: 0.95rem; color: #4a3e2e; }
-                .sao-summary::-webkit-details-marker { display: none; }
-                .sao-summary::before { content: "▸"; color: #8c785d; font-size: 0.85rem; }
-                .sao-details[open] > .sao-summary::before { content: "▾"; }
-                .sao-details-body { padding: 0.6rem 0.9rem 0.85rem; border-top: 1px dashed rgba(140,120,93,.35); }
-            `;
-        case 'paper':
-            return `
-                .sao-details { background: rgba(235,225,210,.95); color: #3e3a32; border: 1px solid #c8bca8; border-left: 4px solid #4a90d9; border-radius: 10px; box-shadow: 0 4px 0 #b0a28e, 0 6px 14px rgba(60,50,35,.12); font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-                .sao-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.95rem; font-weight: 700; font-size: 0.95rem; color: #2b5384; }
-                .sao-summary::-webkit-details-marker { display: none; }
-                .sao-summary::before { content: "▸"; color: #4a90d9; font-size: 0.85rem; }
-                .sao-details[open] > .sao-summary::before { content: "▾"; }
-                .sao-details-body { padding: 0.65rem 1rem 0.9rem; border-top: 1px dashed rgba(74,144,217,.25); }
-                .sao-paper-tag { display: inline-block; background: linear-gradient(180deg, #fdfbf7, #e8e0d0); border: 1px solid #b0a28e; border-bottom: 3px solid #9c8f7a; border-radius: 6px; padding: 0.15rem 0.5rem; font-size: 0.75rem; font-weight: 700; color: #4a90d9; box-shadow: 0 2px 0 #d6cbb8; }
-            `;
-        case 'dark':
-            return `
-                .sao-details { background: rgba(40,40,40,.92); color: #e8e6e3; border: 2px solid #666; border-left: 4px solid #8fbc8f; border-radius: 4px; box-shadow: 4px 4px 0 rgba(0,0,0,.35); font-family: "Segoe UI", "Microsoft YaHei", "SimHei", sans-serif; }
-                .sao-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.8rem; font-weight: 800; font-size: 0.9rem; color: #f0e68c; text-transform: uppercase; letter-spacing: 0.03em; }
-                .sao-summary::-webkit-details-marker { display: none; }
-                .sao-summary::before { content: "▸"; color: #8fbc8f; font-size: 0.85rem; }
-                .sao-details[open] > .sao-summary::before { content: "▾"; }
-                .sao-details-body { padding: 0.55rem 0.85rem 0.8rem; border-top: 2px dashed #666; }
-                .sao-rich-content { line-height: 1.55; }
-                .sao-rich-content br { margin-bottom: 0.35rem; }
-            `;
-        default:
-            return '';
-    }
-}
 
 /**
- * 根据 year/month/current_day/days 生成 7 列日历网格 HTML。
+ * 根据 year/month/current_day/days 生成原卡日历网格 HTML。
+ * 使用原卡 class 名：day, day empty, day current-day, day-number, day-content, normal-text。
+ * Weekday 顺序：周一到周日。
  */
 function buildCalendarGrid(year, month, currentDay, days) {
     const y = Number(year), m = Number(month), cd = Number(currentDay);
     if (!y || !m || y < 1 || m < 1 || m > 12) return '';
-    const first = new Date(y, m - 1, 1).getDay();
-    const total = new Date(y, m, 0).getDate();
-    const map = new Map();
+    const firstDayOfWeek = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const dayContentMap = {};
     if (Array.isArray(days)) {
         for (const d of days) {
             const num = typeof d === 'object' ? (d.day ?? d.date) : Number(d);
-            if (num != null && !isNaN(num)) map.set(Number(num), d);
+            if (num != null && !isNaN(num)) {
+                const info = typeof d === 'object' ? d : { events: [String(d)] };
+                const events = Array.isArray(info.events) ? info.events : (info.label ? [info.label] : []);
+                if (events.length) dayContentMap[Number(num)] = events.slice(0, 10);
+            }
+        }
+    } else if (days && typeof days === 'object') {
+        for (const [k, v] of Object.entries(days)) {
+            const num = Number(k);
+            if (!isNaN(num)) {
+                const items = typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : [String(v)];
+                dayContentMap[num] = items.slice(0, 10);
+            }
         }
     }
-    const header = ['日', '一', '二', '三', '四', '五', '六'].map(d => `<div class="sao-cal-weekday">${d}</div>`).join('');
     let cells = '';
-    for (let i = 0; i < first; i++) {
-        cells += `<div class="sao-cal-cell sao-cal-empty"></div>`;
+    for (let i = 0; i < firstDayOfWeek; i++) {
+        cells += '<div class="day empty"></div>';
     }
-    for (let d = 1; d <= total; d++) {
-        const info = map.get(d);
-        const currentCls = (d === cd) ? 'sao-cal-current' : '';
-        const dot = info && Array.isArray(info.events) && info.events.length
-            ? `<span class="sao-cal-dot" title="${esc(info.events.join(', '))}"></span>`
-            : '';
-        const label = info && info.label ? `<div class="sao-cal-cell-label">${esc(String(info.label))}</div>` : '';
-        cells += `<div class="sao-cal-cell ${currentCls}"><span class="sao-cal-cell-num">${d}</span>${dot}${label}</div>`;
+    for (let day = 1; day <= daysInMonth; day++) {
+        const isCurrent = day === cd;
+        const cls = isCurrent ? 'day current-day' : 'day';
+        const numHtml = '<div class="day-number">' + day + '</div>';
+        const events = dayContentMap[day];
+        let contentHtml = '';
+        if (events && events.length) {
+            contentHtml = '<div class="day-content">' +
+                events.filter(t => t && t.length <= 100).map(t => '<div class="normal-text">' + esc(t) + '</div>').join('') +
+                '</div>';
+        }
+        cells += '<div class="' + cls + '">' + numHtml + contentHtml + '</div>';
     }
-    return `<div class="sao-cal-weekdays">${header}</div><div class="sao-cal-grid">${cells}</div>`;
+    return cells;
 }
 
 /**
@@ -1974,72 +1949,271 @@ function renderCalendar(messageEl, rawText) {
     const data = parseCalendarContent(calendarContent);
     const shadow = createSaoShadowHost(messageEl, 'calendar');
 
-    const dateLabel = (data.year && data.month ? `${data.year}年${data.month}月${data.current_day ? data.current_day + '日' : ''}` : null)
-        || data.date
-        || data.text
-        || '日期';
-    const floor = data.floor || data.level || data.layer || null;
-    const time = data.time || data.hour || null;
-    const era = data.era || null;
+    const year = Number(data.year) || 0;
+    const month = Number(data.month) || 0;
+    const currentDay = Number(data.current_day) || 0;
 
-    const floorHtml = floor
-        ? `<span class="sao-cal-floor">第 ${esc(String(floor))} 层</span>`
+    const summaryText = (year && month)
+        ? year + '\u5e74 ' + month + '\u6708 \u65e5\u5386'
+        : (data.text || data.date || '\u65e5\u5386');
+    const calendarTitle = (year && month) ? month + '\u6708' : '';
+    const calendarInfo = year ? '\u5e74\u4efd ' + year : '';
+    const gridCells = (year && month)
+        ? buildCalendarGrid(year, month, currentDay, data.days)
         : '';
-    const timeHtml = time
-        ? `<span class="sao-cal-time">${esc(String(time))}</span>`
-        : '';
-    const eraHtml = era
-        ? `<span class="sao-cal-era">${esc(String(era))}</span>`
-        : '';
-
-    const gridHtml = (data.year && data.month)
-        ? buildCalendarGrid(data.year, data.month, data.current_day, data.days)
-        : '';
-    const bodyText = data.text && !(data.year && data.month)
-        ? `<div class="sao-cal-text">${esc(data.text)}</div>`
-        : '';
-    const metaHtml = [timeHtml, eraHtml, floorHtml].filter(Boolean).join('')
-        ? `<div class="sao-cal-meta">${[timeHtml, eraHtml, floorHtml].filter(Boolean).join('')}</div>`
-        : '';
+    const weekdays = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
+        .map(d => '<div class="weekday">' + d + '</div>').join('');
 
     shadow.innerHTML = `
         <style>
-            :host {
-                display: block;
-                margin: 0.5rem 0;
-            }
-            ${saoSharedDetailsCSS('parchment')}
-            .sao-cal-summary .sao-summary-title { margin-right: 0.35rem; }
-            .sao-cal-summary .sao-summary-date { opacity: 0.75; font-size: 0.9em; }
-            .sao-cal-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-left: auto; align-items: center; }
-            .sao-cal-floor { font-size: 0.7rem; background: rgba(140,120,93,.15); border: 1px solid rgba(140,120,93,.35); border-radius: 999px; padding: 0.1rem 0.45rem; color: #6b5a45; }
-            .sao-cal-time, .sao-cal-era { font-size: 0.7rem; color: #6b5a45; }
-            .sao-cal-meta { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-            .sao-cal-text { font-size: 0.85rem; line-height: 1.5; color: #5c4d3a; }
-            .sao-cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.7rem; color: #8c785d; font-weight: 700; margin-bottom: 0.25rem; }
-            .sao-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 0.5rem; }
-            .sao-cal-cell { min-height: 2rem; background: rgba(140,120,93,.08); border-radius: 4px; padding: 0.25rem; font-size: 0.75rem; color: #5c4d3a; position: relative; }
-            .sao-cal-cell.sao-cal-empty { background: transparent; }
-            .sao-cal-cell.sao-cal-current { background: rgba(140,120,93,.28); font-weight: 700; box-shadow: inset 0 0 0 1px #8c785d; }
-            .sao-cal-cell-num { display: block; }
-            .sao-cal-dot { display: block; width: 5px; height: 5px; background: #8c785d; border-radius: 50%; margin-top: 2px; }
-            .sao-cal-cell-label { font-size: 0.65rem; color: #8c785d; margin-top: 0.1rem; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            :host { display: block; }
+            /* 移动优先设计 */
+                  * {
+                    box-sizing: border-box;
+                    margin: 0;
+                    padding: 0;
+                  }
+            
+                  body {
+                    margin: 0;
+                    padding: 0;
+                  }
+            
+                  /* 主容器样式 - 米色风格 */
+                  .calendar-wrapper {
+                    background-color: #f8f4ed;
+                    border: 1px solid #8c785d;
+                    border-radius: 6px;
+                    width: 100%;
+                    max-width: 800px;
+                    margin: 0 auto;
+                    padding: 2px;
+                    font-family: 'Microsoft YaHei', sans-serif;
+                    color: #5c4d3a;
+                    overflow: hidden; /* 防止内容溢出 */
+                  }
+            
+                  /* 日历折叠按钮容器 */
+                  .details-calendar-button {
+                    border: none;
+                    margin: 0;
+                    padding: 0;
+                    color: #5c4d3a;
+                    width: 100%;
+                  }
+            
+                  /* 折叠按钮基础样式 */
+                  .details-calendar-button > summary {
+                    display: flex;
+                    align-items: center;
+                    width: 100%;
+                    cursor: pointer;
+                    font-weight: bold;
+                    list-style: none;
+                    outline: none;
+                    transition: all 0.1s ease-in-out;
+                    position: relative;
+                  }
+            
+                  /* 移除默认标记 */
+                  .details-calendar-button > summary::-webkit-details-marker,
+                  .details-calendar-button > summary::marker {
+                    display: none;
+                    content: '';
+                  }
+            
+                  /* 图标样式 */
+                  .details-calendar-button > summary::before {
+                    content: '📅';
+                    display: inline-block;
+                    margin-right: 6px;
+                  }
+            
+                  /* 关闭时状态 */
+                  .details-calendar-button:not([open]) > summary {
+                    padding: 4px 8px;
+                    font-size: 16px;
+                    margin-top: -5px;
+                    background-color: #f0d9b5;
+                    border-radius: 5px;
+                    border: 1px solid #8c785d;
+                  }
+            
+                  /* 鼠标悬停效果 */
+                  .details-calendar-button:not([open]) > summary:hover {
+                    background-color: #e6ccaa;
+                  }
+            
+                  /* 打开时状态 */
+                  .details-calendar-button[open] > summary {
+                    padding: 8px 8px;
+                    font-size: 16px;
+                    margin-top: -5px;
+                    margin-bottom: 5px;
+                    border: 1px solid #8c785d;
+                    border-radius: 5px;
+                    background-color: #d9bda0;
+                  }
+            
+                  /* 日历内容区域 */
+                  .calendar-content {
+                    padding: 8px;
+                    background-color: #ede4d3;
+                    border-radius: 5px;
+                    border: 1px solid #bfae98;
+                    overflow-x: auto; /* 允许在小屏幕上滚动 */
+                  }
+            
+                  /* 日历标题区域 */
+                  .calendar-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                    padding-bottom: 4px;
+                    border-bottom: 1px solid #bfae98;
+                  }
+            
+                  .calendar-title {
+                    font-size: 16px;
+                    font-weight: bold;
+                    color: #5c4d3a;
+                  }
+            
+                  .calendar-info {
+                    font-size: 14px;
+                    color: #5c4d3a;
+                  }
+            
+                  /* 日历表格样式 */
+                  .calendar-grid {
+                    display: grid;
+                    grid-template-columns: repeat(7, minmax(40px, 1fr)); /* 确保每列至少40px宽 */
+                    gap: 1px;
+                    min-width: 280px; /* 最小宽度确保在小屏幕上也能看到所有列 */
+                  }
+            
+                  /* 星期标题 */
+                  .weekday {
+                    text-align: center;
+                    padding: 4px 2px;
+                    font-weight: bold;
+                    color: #5c4d3a;
+                    background-color: #d9c8b3;
+                    font-size: 13px; /* 更小的字体大小 */
+                  }
+            
+                  /* 日期单元格 */
+                  .day {
+                    min-height: 60px; /* 减小高度以适应移动设备 */
+                    padding: 2px;
+                    background-color: #f5f0e1;
+                    border: 1px solid #bfae98;
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                  }
+            
+                  /* 空白单元格 */
+                  .day.empty {
+                    background-color: #ede4d3;
+                    border: 1px solid #ede4d3;
+                  }
+            
+                  /* 日期数字 */
+                  .day-number {
+                    font-size: 12px;
+                    color: #8c785d;
+                    text-align: left;
+                    width: 100%;
+                    height: 16px;
+                  }
+            
+                  /* 当前日期高亮 */
+                  .current-day {
+                    background-color: #e6ccaa;
+                    border: 1px solid #8c785d;
+                  }
+            
+                  .current-day .day-number {
+                    color: #5c4d3a;
+                    font-weight: bold;
+                  }
+            
+                  /* 日期内容 */
+                  .day-content {
+                    flex-grow: 1;
+                    font-size: 10px; /* 更小的字体大小 */
+                    line-height: 1.2;
+                    overflow-y: auto;
+                    word-break: break-word; /* 允许单词在必要时断行 */
+                  }
+            
+                  /* 普通文本样式 */
+                  .normal-text {
+                    color: #5c4d3a;
+                    font-size: 10px; /* 更小的字体大小 */
+                    line-height: 1.2;
+                    margin-bottom: 2px;
+                  }
+            
+                  /* 适配更大屏幕的媒体查询 */
+                  @media (min-width: 500px) {
+                    .details-calendar-button[open] > summary {
+                      padding: 10px 8px;
+                      font-size: 18px;
+                    }
+            
+                    .calendar-content {
+                      padding: 10px;
+                    }
+            
+                    .calendar-title {
+                      font-size: 18px;
+                    }
+            
+                    .calendar-info {
+                      font-size: 16px;
+                    }
+            
+                    .weekday {
+                      padding: 5px;
+                      font-size: 14px;
+                    }
+            
+                    .day {
+                      min-height: 80px;
+                      padding: 5px;
+                    }
+            
+                    .day-number {
+                      font-size: 14px;
+                      height: 20px;
+                    }
+            
+                    .day-content,
+                    .normal-text {
+                      font-size: 12px;
+                      line-height: 1.3;
+                    }
+                  }
         </style>
-        <details class="sao-details" open>
-            <summary class="sao-summary sao-cal-summary">
-                📅 <span class="sao-summary-title">日期</span>
-                <span class="sao-summary-date">${esc(String(dateLabel))}</span>
-                <div class="sao-cal-badges">${floorHtml}</div>
-            </summary>
-            <div class="sao-details-body">
-                ${metaHtml}
-                ${gridHtml}
-                ${bodyText}
-            </div>
-        </details>
+        <div class="calendar-wrapper">
+            <details class="details-calendar-button" open>
+                <summary>${summaryText}</summary>
+                <div class="calendar-content">
+                    <div class="calendar-header">
+                        <div class="calendar-title">${calendarTitle}</div>
+                        <div class="calendar-info">${calendarInfo}</div>
+                    </div>
+                    <div class="calendar-grid">
+                        ${weekdays}
+                        ${gridCells}
+                    </div>
+                </div>
+            </details>
+        </div>
     `;
-
-    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
 }
 
 function renderAllTags(messageEl, rawText) {
@@ -2061,283 +2235,712 @@ function renderAllTags(messageEl, rawText) {
 function renderUserStatus(messageEl, rawText) {
     const content = extractTag(rawText, 'user_status')
     if (content === null) return
-
     const shadow = createSaoShadowHost(messageEl, 'user_status')
-    let data
-    try {
-        const parsed = parseUserStatus(content)
-        if (parsed && Object.keys(parsed).length > 0) data = parsed
-    } catch (e) {
-        // 结构化解析失败，回退到纯文本
-    }
-    if (!data) data = { _text: content.trim() }
-
-    const playerName = data.player_name || data.name || '玩家状态'
-    const hp = data.hp || 0
-    const maxHp = data.max_hp || 0
-    const mp = data.mp || 0
-    const maxMp = data.max_mp || 0
-    const level = data.level || data.lvl || null
-    const location = data.location || data.floor || data.area || null
-
-    const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0
-    const mpPct = maxMp > 0 ? Math.round((mp / maxMp) * 100) : 0
-
-    const statLabels = {
-        str: '力量',
-        agi: '敏捷',
-        int: '智力',
-        vit: '耐力',
-        cor: '珂尔',
-    }
-
-    const stats = []
-    for (const [k, v] of Object.entries(statLabels)) {
-        if (data[k] != null) stats.push({ key: v, val: data[k] })
-    }
-
-    const statGrid = stats.length > 0
-        ? `<div class="sao-status-stats">${stats.map(s => `<div class="sao-stat-item"><span class="sao-stat-key">${esc(s.key)}</span><span class="sao-stat-val">${esc(String(s.val))}</span></div>`).join('')}</div>`
-        : ''
-
-    const hpBar = maxHp > 0
-        ? `<div class="sao-bar-row"><span class="sao-bar-label">HP</span><div class="sao-bar-track"><div class="sao-bar-fill sao-hp" style="width: ${hpPct}%"></div></div><span class="sao-bar-value">${hp}/${maxHp}</span></div>`
-        : ''
-
-    const mpBar = maxMp > 0
-        ? `<div class="sao-bar-row"><span class="sao-bar-label">MP</span><div class="sao-bar-track"><div class="sao-bar-fill sao-mp" style="width: ${mpPct}%"></div></div><span class="sao-bar-value">${mp}/${maxMp}</span></div>`
-        : ''
-
-    const levelTag = level !== null ? `<span class="sao-paper-tag">Lv.${esc(String(level))}</span>` : ''
-    const locationTag = location !== null ? `<span class="sao-paper-tag">${esc(String(location))}</span>` : ''
-
-    const hasNumeric = hpBar || mpBar || statGrid
-    const bodyHtml = hasNumeric
-        ? `<div class="sao-bars">${hpBar}${mpBar}</div>${statGrid}`
-        : `<div class="sao-status-text">${sanitizeInlineSaoHtml(data._text || '')}</div>`
-
+    const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; }
-            ${saoSharedDetailsCSS('paper')}
-            .sao-status-summary .sao-summary-title { margin-right: 0.35rem; }
-            .sao-status-summary .sao-summary-name { margin-left: auto; font-size: 0.85em; opacity: 0.85; }
-            .sao-bars { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.55rem; }
-            .sao-bar-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
-            .sao-bar-label { width: 32px; font-weight: 800; color: #5a7ca8; }
-            .sao-bar-track { flex: 1; height: 10px; background: rgba(0,0,0,.08); border-radius: 999px; overflow: hidden; border: 1px solid rgba(0,0,0,.1); }
-            .sao-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
-            .sao-bar-fill.sao-hp { background: linear-gradient(90deg, #e57373, #ef5350); }
-            .sao-bar-fill.sao-mp { background: linear-gradient(90deg, #64b5f6, #42a5f5); }
-            .sao-bar-value { width: 52px; text-align: right; color: #5a7ca8; font-variant-numeric: tabular-nums; font-weight: 700; }
-            .sao-status-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem; }
-            .sao-stat-item { display: flex; justify-content: space-between; background: rgba(255,255,255,.35); border-radius: 6px; padding: 0.35rem 0.55rem; font-size: 0.8rem; border: 1px solid rgba(74,144,217,.12); }
-            .sao-stat-key { color: #5a7ca8; font-weight: 700; }
-            .sao-stat-val { color: #2b5384; font-weight: 800; }
-            .sao-status-text { font-size: 0.85rem; color: #3e3a32; line-height: 1.55; white-space: pre-wrap; }
+            :host { display: block; }
+            /* 主容器样式 */
+                .character-status-wrapper {
+                  background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
+                  border: 1px solid rgba(165, 145, 120, 0.5);
+                  border-radius: 6px;
+                  max-width: 861px;
+                  margin: 5px auto;
+                  padding: 0 5px 5px 5px;
+                  box-sizing: border-box;
+                  overflow: hidden;
+            
+                  /* 颜色变量 */
+                  --char-text-color: #4b3f34; /* 深灰褐色文本 */
+                  --char-content-border: rgba(165, 145, 120, 0.3);
+                  --char-button-bg: rgba(218, 198, 171, 0.95);
+                  --char-button-border: rgba(165, 145, 120, 0.8);
+                  --char-button-highlight: rgba(228, 208, 181, 0.95);
+                  --char-button-shadow: rgba(175, 155, 130, 0.85);
+                  --char-button-outer-shadow: rgba(150, 130, 105, 0.3);
+                  --char-icon-color: #5b99c9; /* 蓝色图标 */
+                  --char-content-bg: rgba(225, 215, 200, 0.95); /* 内容区背景 */
+                  --char-button-hover: rgba(225, 205, 178, 0.95); /* 悬停颜色 */
+                  --char-button-active: rgba(210, 190, 163, 0.95); /* 点击时颜色 */
+                }
+            
+                /* 定义标准字体栈 */
+                .character-status-wrapper {
+                  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif;
+                  color: var(--char-text-color); /* 应用默认文本颜色 */
+                }
+            
+                /* 全局禁用文本阴影 */
+                .character-status-wrapper,
+                .character-status-wrapper *,
+                .details-character-status,
+                .details-character-status *,
+                .details-character-status > summary,
+                .details-character-status > summary::before,
+                .details-character-status > div {
+                  text-shadow: none !important;
+                }
+            
+                /* 详情按钮样式 (使用新类名) */
+                .details-character-status {
+                  border: none;
+                  margin: 0;
+                  padding: 0;
+                  color: inherit; /* 继承 wrapper 的颜色 */
+                }
+            
+                /* 基础摘要样式 (使用新类名) */
+                .details-character-status > summary {
+                  display: flex;
+                  align-items: center;
+                  width: 100%;
+                  cursor: pointer;
+                  list-style: none;
+                  outline: none;
+                  image-rendering: auto;
+                  -webkit-font-smoothing: antialiased;
+                  -moz-osx-font-smoothing: grayscale;
+                  transition: all 0.1s ease-in-out;
+                  position: relative;
+                  top: 0;
+                  left: 0;
+                  box-sizing: border-box;
+                  font-weight: 600; /* 使用半粗体 (Semi-bold) 作为标题 */
+                  color: var(--char-text-color);
+                }
+            
+                /* 移除默认标记 (使用新类名) */
+                .details-character-status > summary::-webkit-details-marker,
+                .details-character-status > summary::marker {
+                  display: none;
+                  content: '';
+                }
+            
+                /* 基础图标样式 (使用新类名) */
+                .details-character-status > summary::before {
+                  content: '👤'; /* <<< 角色状态图标 */
+                  display: inline-block;
+                  line-height: 1;
+                  font-size: 1.1em;
+                  color: var(--char-icon-color);
+                  margin-right: 6px;
+                }
+            
+                /* 关闭时状态 (使用新类名) */
+                .details-character-status:not([open]) > summary {
+                  padding: 4px 8px 5px 8px;
+                  font-size: 16px;
+                  line-height: 1.2;
+                  margin-bottom: 0;
+                  background-color: var(--char-button-bg);
+                  border: 1px solid var(--char-button-border) !important;
+                  border-radius: 5px;
+                  box-shadow: 1px 1px 2px var(--char-button-outer-shadow) !important;
+                  filter: none;
+                  justify-content: flex-start;
+                }
+            
+                /* 鼠标悬停效果 (使用新类名) */
+                .details-character-status:not([open]) > summary:hover {
+                  background-color: var(--char-button-hover);
+                }
+            
+                /* 打开时状态 (使用新类名) */
+                .details-character-status[open] > summary {
+                  padding: 10px 8px;
+                  font-size: 18px;
+                  line-height: initial;
+                  margin-bottom: 5px;
+                  border: 1px solid var(--char-button-border);
+                  border-radius: 5px;
+                  background-color: var(--char-button-active);
+                  justify-content: flex-start;
+                  box-shadow: inset 1px 1px 0px 1px var(--char-button-highlight), inset -1px -1px 0px 1px var(--char-button-shadow);
+                  filter: drop-shadow(1px 1px 0px var(--char-button-outer-shadow));
+                  font-weight: 600; /* 保持半粗体 */
+                }
+            
+                /* 打开时图标样式 (使用新类名) */
+                .details-character-status[open] > summary::before {
+                  margin-right: 8px;
+                }
+            
+                /* 点击时反馈 (使用新类名) */
+                .details-character-status > summary:active {
+                  padding: 10px 8px;
+                  font-size: 18px;
+                  line-height: initial;
+                  background-color: var(--char-button-active);
+                  box-shadow: inset 1px 1px 0px 1px var(--char-button-highlight), inset -1px -1px 0px 1px var(--char-button-shadow);
+                  filter: drop-shadow(1px 1px 0px var(--char-button-outer-shadow));
+                  top: 1px;
+                  left: 1px;
+                  border: 1px solid var(--char-button-border);
+                  border-radius: 5px;
+                  justify-content: flex-start;
+                  margin-bottom: 5px;
+                  font-weight: 600; /* 保持半粗体 */
+                }
+            
+                /* 点击时图标样式 (使用新类名) */
+                .details-character-status > summary:active::before {
+                  margin-right: 8px;
+                }
+            
+                /* 打开时显示的内容 (使用新类名) */
+                .details-character-status > div {
+                  padding: 10px;
+                  margin: 0;
+                  font-size: 15px;
+                  line-height: 1.5;
+                  background-color: var(--char-content-bg);
+                  color: var(--char-text-color);
+                  border: 1px solid var(--char-content-border);
+                  border-radius: 4px;
+                  font-weight: normal; /* 内容使用普通字重 */
+                  white-space: pre-wrap;
+                  word-break: break-word;
+                }
         </style>
-        <details class="sao-details" open>
-            <summary class="sao-summary sao-status-summary">
-                📘 <span class="sao-summary-title">基本信息</span>
-                <span class="sao-summary-name">${esc(String(playerName))}</span>
-                ${levelTag}
-                ${locationTag}
-            </summary>
-            <div class="sao-details-body">${bodyHtml}</div>
-        </details>
+        <div class="character-status-wrapper">
+            <details class="details-character-status" open>
+                <summary>角色状态栏</summary>
+                <div>${safeContent}</div>
+            </details>
+        </div>
     `
-
-    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
 }
 
 function renderEquipment(messageEl, rawText) {
     const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
     if (matches.length === 0) return
-
     const shadow = createSaoShadowHost(messageEl, 'equip')
-    const sections = []
-    for (const m of matches) {
-        const content = m[1].trim()
-        if ((content.startsWith('{') || content.startsWith('[')) && content.length > 1) {
-            try {
-                const parsed = JSON.parse(content)
-                const arr = Array.isArray(parsed) ? parsed : [parsed]
-                for (const item of arr) sections.push({ type: 'json', data: item })
-                continue
-            } catch (e) { /* 忽略 JSON 解析错误 */ }
-        }
-        sections.push({ type: 'html', html: sanitizeInlineSaoHtml(content) })
-    }
-    if (sections.length === 0) return
-
-    const rarityStyleMap = {
-        'sao-rarity-common': '#e8e6e3',
-        'sao-rarity-uncommon': '#7ee787',
-        'sao-rarity-rare': '#4dabf7',
-        'sao-rarity-epic': '#da77f2',
-        'sao-rarity-legendary': '#ffa94d',
-    }
-
-    const itemsHtml = sections.map(section => {
-        if (section.type === 'html') {
-            return `<div class="sao-equip-card sao-equip-rich"><div class="sao-rich-content">${section.html}</div></div>`
-        }
-        const item = section.data
-        const name = item.name || '未知装备'
-        const type = item.type || item.slot || item.equipType || ''
-        const rarity = item.rarity || '白色'
-        const rClass = rarityClass(rarity)
-        const color = rarityStyleMap[rClass] || '#e8e6e3'
-        const itemLevel = item.item_level != null ? `Lv.${item.item_level}` : ''
-        const durability = item.durability ? `耐久 ${item.durability}` : ''
-
-        return `
-            <div class="sao-equip-card">
-                <div class="sao-equip-header">
-                    <span class="sao-equip-name">${esc(String(name))}</span>
-                    <span class="sao-equip-rarity" style="color: ${color}">${esc(String(rarity))}</span>
-                </div>
-                <div class="sao-equip-meta">
-                    ${type ? `<span class="sao-equip-type">${esc(String(type))}</span>` : ''}
-                    ${itemLevel ? `<span class="sao-equip-level">${esc(itemLevel)}</span>` : ''}
-                    ${durability ? `<span class="sao-equip-dur">${esc(durability)}</span>` : ''}
-                </div>
-            </div>
-        `
-    }).join('')
-
+    const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; }
-            ${saoSharedDetailsCSS('dark')}
-            .sao-equip-summary .sao-summary-title { margin-right: 0.35rem; }
-            .sao-equip-list { display: flex; flex-direction: column; gap: 0.5rem; }
-            .sao-equip-card { background: rgba(50,50,50,.8); border: 1px solid #666; border-left: 3px solid #8fbc8f; border-radius: 4px; padding: 0.55rem 0.75rem; }
-            .sao-equip-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem; }
-            .sao-equip-name { font-size: 0.95rem; font-weight: 800; color: #f0e68c; letter-spacing: 0.02em; }
-            .sao-equip-rarity { font-size: 0.7rem; font-weight: 800; }
-            .sao-equip-meta { display: flex; gap: 0.45rem; flex-wrap: wrap; }
-            .sao-equip-meta span { font-size: 0.7rem; color: #ccc; background: rgba(255,255,255,.06); border-radius: 3px; padding: 0.1rem 0.4rem; }
-            .sao-equip-level { color: #8fbc8f !important; }
-            .sao-equip-rich .sao-rich-content { font-size: 0.85rem; color: #e8e6e3; line-height: 1.55; }
+            :host { display: block; }
+            /* Define the custom font */
+                    @font-face {
+                        font-family: 'NotoSansCJKsc-Bold';
+                        src: url('https://files.catbox.moe/tisct7.otf') format('opentype');
+                        font-style: normal;
+                        font-weight: bold;
+                        font-display: swap;
+                    }
+            
+                    /* Main container style (Unchanged) */
+                    .stardew-text-wrapper {
+                        background-color: rgba(40, 40, 40, 0.85);
+                        border: 1px solid #666;
+                        border-radius: 6px;
+                        max-width: 861px;
+                        margin: 5px auto;
+                        padding: 0 5px 5px 5px;
+                        box-sizing: border-box;
+                        overflow: hidden;
+            
+                        /* --- Color Variables (Unchanged) --- */
+                        --stardew-header-text: #FFFFFF;
+                        --stardew-content-border: rgba(255, 255, 255, 0.15);
+                        --stardew-pressed-bg: rgba(40, 40, 40, 0.85); /* This is our target dark grey */
+                        --stardew-pressed-border: #666;
+                        --stardew-pressed-highlight: rgba(80, 80, 80, 0.85);
+                        --stardew-pressed-shadow: rgba(20, 20, 20, 0.85);
+                        --stardew-pressed-text: #DDDDDD;
+                        --stardew-pressed-outer-shadow-color: rgba(50, 50, 50, 0.3);
+                    }
+            
+                    /* --- Styles SPECIFICALLY for the Character Bar Button --- */
+                    .details-character-bar {
+                        border: none;
+                        margin: 0;
+                        padding: 0;
+                        color: #CCCCCC;
+                        font-family: 'NotoSansCJKsc-Bold', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    }
+            
+                    /* Base Summary Styling (Unchanged) */
+                    .details-character-bar > summary {
+                        display: flex;
+                        align-items: center;
+                        width: 100%;
+                        cursor: pointer;
+                        font-weight: bold;
+                        list-style: none;
+                        outline: none;
+                        image-rendering: pixelated;
+                        -webkit-font-smoothing: none;
+                        -moz-osx-font-smoothing: grayscale;
+                        transition: all 0.1s ease-in-out;
+                        position: relative;
+                        top: 0; left: 0;
+                        box-sizing: border-box;
+                    }
+            
+                    /* Remove default marker (Unchanged) */
+                    .details-character-bar > summary::-webkit-details-marker,
+                    .details-character-bar > summary::marker {
+                         display: none;
+                         content: '';
+                    }
+            
+                    /* Base Character Icon Styling (Unchanged) */
+                    .details-character-bar > summary::before {
+                        content: '🎒';
+                        display: inline-block;
+                        line-height: 1;
+                        font-size: 1.1em;
+                    }
+            
+                    /* State when CLOSED (Unchanged) */
+                    .details-character-bar:not([open]) > summary {
+                        padding: 4px 8px 5px 8px;
+                        font-size: 16px;
+                        line-height: 1.2;
+                        margin-bottom: 0;
+                        background-color: transparent;
+                        border: none !important;
+                        border-radius: 0;
+                        box-shadow: none !important;
+                        filter: none;
+                        justify-content: flex-start;
+                        color: var(--stardew-header-text);
+                        border-bottom: 1px solid var(--stardew-content-border);
+                    }
+                    /* Icon color and margin when closed (Unchanged) */
+                    .details-character-bar:not([open]) > summary::before {
+                         color: var(--stardew-header-text);
+                         margin-right: 6px;
+                    }
+            
+                    /* State when OPEN (Summary unchanged) */
+                    .details-character-bar[open] > summary {
+                        padding: 10px 8px;
+                        font-size: 18px;
+                        line-height: initial;
+                        margin-bottom: 5px;
+                        border: 2px solid var(--stardew-pressed-border);
+                        border-radius: 5px;
+                        background-color: var(--stardew-pressed-bg); /* Summary background */
+                        justify-content: flex-start;
+                        color: var(--stardew-pressed-text);
+                        border-bottom: none;
+                        box-shadow:
+                            inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
+                            inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
+                        filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
+                        top: 1px;
+                        left: 1px;
+                    }
+                     /* Icon style when open (Unchanged) */
+                    .details-character-bar[open] > summary::before {
+                        color: var(--stardew-pressed-text);
+                        margin-right: 8px;
+                    }
+            
+                    /* Instant feedback WHILE clicking (:active) (Unchanged) */
+                    .details-character-bar > summary:active {
+                         padding: 10px 8px;
+                         font-size: 18px;
+                         line-height: initial;
+                         background-color: var(--stardew-pressed-bg);
+                         color: var(--stardew-pressed-text);
+                         box-shadow:
+                             inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
+                             inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
+                         filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
+                         top: 1px;
+                         left: 1px;
+                         border: 2px solid var(--stardew-pressed-border);
+                         border-radius: 5px;
+                         justify-content: flex-start;
+                         margin-bottom: 5px;
+                         border-bottom: none;
+                    }
+                     /* Icon style when active (Unchanged) */
+                    .details-character-bar > summary:active::before {
+                        color: var(--stardew-pressed-text);
+                        margin-right: 8px;
+                    }
+            
+                    /* Content revealed when details is open - Added explicit background */
+                    .details-character-bar > div {
+                        padding: 5px 0 0 0;
+                        margin: 0;
+                        font-size: 15px;
+                        line-height: 1.4;
+                        background-color: rgba(40, 40, 40, 0.85); /* Ensure content area matches */
+                        color: #CCCCCC; /* Ensure text color is set */
+                    }
         </style>
-        <details class="sao-details" open>
-            <summary class="sao-summary sao-equip-summary">🎒 <span class="sao-summary-title">装备</span></summary>
-            <div class="sao-details-body">
-                <div class="sao-equip-list">${itemsHtml}</div>
-            </div>
-        </details>
+        <div class="stardew-text-wrapper">
+            <details class="details-character-bar" open>
+                <summary>新装备</summary>
+                <div>${itemsHtml}</div>
+            </details>
+        </div>
     `
-
-    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
 }
 
 function renderSwordSkill(messageEl, rawText) {
     const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
     if (matches.length === 0) return
-
     const shadow = createSaoShadowHost(messageEl, 'swordskill')
-    const sections = []
-    for (const m of matches) {
-        const content = m[1].trim()
-        if ((content.startsWith('{') || content.startsWith('[')) && content.length > 1) {
-            try {
-                const parsed = JSON.parse(content)
-                const arr = Array.isArray(parsed) ? parsed : [parsed]
-                for (const skill of arr) sections.push({ type: 'json', data: skill })
-                continue
-            } catch (e) { /* 忽略 JSON 解析错误 */ }
-        }
-        sections.push({ type: 'html', html: sanitizeInlineSaoHtml(content) })
-    }
-    if (sections.length === 0) return
-
-    const itemsHtml = sections.map(section => {
-        if (section.type === 'html') {
-            return `<div class="sao-skill-card sao-skill-rich"><div class="sao-rich-content">${section.html}</div></div>`
-        }
-        const skill = section.data
-        const name = skill.name || '未知剑技'
-        const level = skill.skill_level || skill.level || ''
-        const type = skill.type || skill.skillType || skill.core_code || ''
-        const desc = skill.description || ''
-
-        return `
-            <div class="sao-skill-card">
-                <div class="sao-skill-header">
-                    <span class="sao-skill-name">${esc(String(name))}</span>
-                    ${level ? `<span class="sao-skill-level">Lv.${esc(String(level))}</span>` : ''}
-                </div>
-                ${type ? `<div class="sao-skill-type">${esc(String(type))}</div>` : ''}
-                ${desc ? `<div class="sao-skill-desc">${esc(String(desc))}</div>` : ''}
-            </div>
-        `
-    }).join('')
-
+    const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; }
-            ${saoSharedDetailsCSS('dark')}
-            .sao-skill-summary .sao-summary-title { margin-right: 0.35rem; }
-            .sao-skill-list { display: flex; flex-direction: column; gap: 0.5rem; }
-            .sao-skill-card { background: rgba(50,50,50,.8); border: 1px solid #666; border-left: 3px solid #f0a030; border-radius: 4px; padding: 0.55rem 0.75rem; }
-            .sao-skill-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem; }
-            .sao-skill-name { font-size: 0.95rem; font-weight: 800; color: #f0e68c; letter-spacing: 0.02em; }
-            .sao-skill-level { font-size: 0.7rem; font-weight: 800; color: #f0a030; background: rgba(240,160,48,.12); border: 1px solid rgba(240,160,48,.3); border-radius: 999px; padding: 0.05rem 0.4rem; }
-            .sao-skill-type { font-size: 0.75rem; color: #8fbc8f; font-weight: 800; margin-bottom: 0.2rem; }
-            .sao-skill-desc { font-size: 0.75rem; color: #ccc; line-height: 1.4; }
-            .sao-skill-rich .sao-rich-content { font-size: 0.85rem; color: #e8e6e3; line-height: 1.55; }
+            :host { display: block; }
+            /* Define the custom font */
+                    @font-face {
+                        font-family: 'NotoSansCJKsc-Bold';
+                        src: url('https://files.catbox.moe/tisct7.otf') format('opentype');
+                        font-style: normal;
+                        font-weight: bold;
+                        font-display: swap;
+                    }
+            
+                    /* Main container style (MATCHES CHARACTER BAR) */
+                    .stardew-text-wrapper {
+                        background-color: rgba(40, 40, 40, 0.85); /* Dark grey background */
+                        border: 1px solid #666;
+                        border-radius: 6px;
+                        max-width: 861px; /* Target width */
+                        margin: 5px auto; /* Centering */
+                        padding: 0 5px 5px 5px; /* Padding: Top 0, R 5, B 5, L 5 */
+                        box-sizing: border-box;
+                        overflow: hidden;
+            
+                        /* --- Color Variables (MATCHES CHARACTER BAR THEME) --- */
+                        --stardew-header-text: #FFFFFF;
+                        --stardew-content-border: rgba(255, 255, 255, 0.15);
+                        --stardew-pressed-bg: rgba(40, 40, 40, 0.85);
+                        --stardew-pressed-border: #666;
+                        --stardew-pressed-highlight: rgba(80, 80, 80, 0.85);
+                        --stardew-pressed-shadow: rgba(20, 20, 20, 0.85);
+                        --stardew-pressed-text: #DDDDDD;
+                        --stardew-pressed-outer-shadow-color: rgba(50, 50, 50, 0.3);
+                        --stardew-heart-icon-color: #ff6b6b; /* Specific heart color */
+                    }
+            
+                    /* REMOVED .stardew-text-content styles */
+            
+                    /* --- Styles SPECIFICALLY for the Affinity Button (Placed directly in wrapper) --- */
+            
+                    .details-affinity-button { /* Target the specific details element */
+                        border: none;
+                        margin: 0;
+                        padding: 0;
+                        color: #CCCCCC; /* Default text color */
+                        font-family: 'NotoSansCJKsc-Bold', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    }
+            
+                    /* Base Summary Styling (MATCHES CHARACTER BAR) */
+                    .details-affinity-button > summary {
+                        display: flex;
+                        align-items: center;
+                        width: 100%;
+                        cursor: pointer;
+                        font-weight: bold;
+                        list-style: none;
+                        outline: none;
+                        image-rendering: pixelated;
+                        -webkit-font-smoothing: none;
+                        -moz-osx-font-smoothing: grayscale;
+                        transition: all 0.1s ease-in-out;
+                        position: relative;
+                        top: 0; left: 0;
+                        box-sizing: border-box;
+                         /* Font size set by state */
+                    }
+            
+                    /* Remove default marker */
+                    .details-affinity-button > summary::-webkit-details-marker,
+                    .details-affinity-button > summary::marker {
+                         display: none;
+                         content: '';
+                    }
+            
+                    /* Base Heart Icon Styling */
+                    .details-affinity-button > summary::before {
+                        content: '✨'; /* AFFINITY ICON */
+                        display: inline-block;
+                        line-height: 1;
+                        font-size: 1.1em; /* MATCHES CHARACTER BAR */
+                        color: var(--stardew-heart-icon-color);
+                        /* Margin set by state */
+                    }
+            
+                    /* State when CLOSED (MATCHES CHARACTER BAR) */
+                    .details-affinity-button:not([open]) > summary {
+                        padding: 4px 8px 5px 8px; /* Adjusted padding for larger size */
+                        font-size: 16px; /* Increased closed font size */
+                        line-height: 1.2;
+                        margin-bottom: 0;
+                        background-color: transparent;
+                        border: none !important;
+                        border-radius: 0;
+                        box-shadow: none !important;
+                        filter: none;
+                        justify-content: flex-start;
+                        color: var(--stardew-header-text);
+                        border-bottom: 1px solid var(--stardew-content-border);
+                    }
+                    /* Icon margin when closed */
+                    .details-affinity-button:not([open]) > summary::before {
+                         margin-right: 6px; /* MATCHES CHARACTER BAR */
+                         color: var(--stardew-heart-icon-color); /* Keep heart color */
+                    }
+            
+                    /* State when OPEN (MATCHES CHARACTER BAR) */
+                    .details-affinity-button[open] > summary {
+                        padding: 10px 8px;
+                        font-size: 18px;
+                        line-height: initial;
+                        margin-bottom: 5px;
+                        border: 2px solid var(--stardew-pressed-border);
+                        border-radius: 5px;
+                        background-color: var(--stardew-pressed-bg);
+                        justify-content: flex-start;
+                        color: var(--stardew-pressed-text);
+                        border-bottom: none;
+                        box-shadow:
+                            inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
+                            inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
+                        filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
+                        top: 1px;
+                        left: 1px;
+                    }
+                     /* Icon style when open */
+                    .details-affinity-button[open] > summary::before {
+                        margin-right: 8px; /* MATCHES CHARACTER BAR */
+                        color: var(--stardew-heart-icon-color); /* Keep heart color */
+                        /* font-size: 1.1em; Already set */
+                    }
+            
+                    /* Instant feedback WHILE clicking (:active) (MATCHES CHARACTER BAR) */
+                    .details-affinity-button > summary:active {
+                         padding: 10px 8px;
+                         font-size: 18px;
+                         line-height: initial;
+                         background-color: var(--stardew-pressed-bg);
+                         color: var(--stardew-pressed-text);
+                         box-shadow:
+                             inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
+                             inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
+                         filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
+                         top: 1px;
+                         left: 1px;
+                         border: 2px solid var(--stardew-pressed-border);
+                         border-radius: 5px;
+                         justify-content: flex-start;
+                         margin-bottom: 5px;
+                         border-bottom: none;
+                    }
+                     /* Icon style when active */
+                    .details-affinity-button > summary:active::before {
+                        margin-right: 8px; /* MATCHES CHARACTER BAR */
+                        color: var(--stardew-heart-icon-color); /* Keep heart color */
+                        /* font-size: 1.1em; Already set */
+                    }
+            
+                    /* Content revealed when details is open (Added background color) */
+                    .details-affinity-button > div {
+                        padding: 5px 0 0 0;
+                        margin: 0;
+                        font-size: 15px;
+                        line-height: 1.4;
+                        background-color: rgba(40, 40, 40, 0.85); /* Ensure content area matches background */
+                        color: #CCCCCC;
+                    }
         </style>
-        <details class="sao-details" open>
-            <summary class="sao-summary sao-skill-summary">✨ <span class="sao-summary-title">剑技</span></summary>
-            <div class="sao-details-body">
-                <div class="sao-skill-list">${itemsHtml}</div>
-            </div>
-        </details>
+        <div class="stardew-text-wrapper">
+            <details class="details-affinity-button" open>
+                <summary>新剑技</summary>
+                <div>${itemsHtml}</div>
+            </details>
+        </div>
     `
-
-    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
 }
 
 function renderMap(messageEl, rawText) {
     const content = extractTag(rawText, 'map')
     if (content === null) return
-
     const shadow = createSaoShadowHost(messageEl, 'map')
-    let data
-    try {
-        const trimmed = content.trim()
-        if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && trimmed.length > 1) {
-            data = JSON.parse(trimmed)
-        }
-    } catch (e) { /* 忽略 JSON 解析错误 */ }
-    if (!data) data = { text: content.trim() }
-
-    const title = data.title || data.name || '当前位置'
-    const description = data.description || data.text || data.location || data.path || ''
-    const bodyHtml = typeof description === 'string'
-        ? (description.trim() ? `<div class="sao-map-text">${sanitizeInlineSaoHtml(description)}</div>` : '')
-        : `<div class="sao-map-text"><pre>${esc(JSON.stringify(description, null, 2))}</pre></div>`
-
+    const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; }
-            ${saoSharedDetailsCSS('paper')}
-            .sao-map-summary .sao-summary-title { margin-right: 0.35rem; }
-            .sao-map-summary .sao-summary-loc { margin-left: auto; font-size: 0.85em; opacity: 0.85; }
-            .sao-map-text { font-size: 0.85rem; color: #3e3a32; line-height: 1.55; white-space: pre-wrap; }
-            .sao-map-text pre { white-space: pre-wrap; font-family: inherit; }
+            :host { display: block; }
+            /* 主容器样式 */
+                .map-status-wrapper {
+                  background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
+                  border: 1px solid rgba(165, 145, 120, 0.5);
+                  border-radius: 6px;
+                  max-width: 861px;
+                  margin: 5px auto;
+                  padding: 0 5px 5px 5px;
+                  box-sizing: border-box;
+                  overflow: hidden;
+            
+                  /* 颜色变量 */
+                  --map-text-color: #4b3f34; /* 深灰褐色文本 */
+                  --map-content-border: rgba(165, 145, 120, 0.3);
+                  --map-button-bg: rgba(218, 198, 171, 0.95);
+                  --map-button-border: rgba(165, 145, 120, 0.8);
+                  --map-button-highlight: rgba(228, 208, 181, 0.95);
+                  --map-button-shadow: rgba(175, 155, 130, 0.85);
+                  --map-button-outer-shadow: rgba(150, 130, 105, 0.3);
+                  --map-icon-color: #5b99c9; /* 蓝色图标 */
+                  --map-content-bg: rgba(225, 215, 200, 0.95); /* 内容区背景 */
+                  --map-button-hover: rgba(225, 205, 178, 0.95); /* 悬停颜色 */
+                  --map-button-active: rgba(210, 190, 163, 0.95); /* 点击时颜色 */
+                }
+            
+                /* 定义标准字体栈 */
+                .map-status-wrapper {
+                  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif;
+                  color: var(--map-text-color); /* 应用默认文本颜色 */
+                }
+            
+                /* 全局禁用文本阴影 */
+                .map-status-wrapper,
+                .map-status-wrapper *,
+                .details-map-status,
+                .details-map-status *,
+                .details-map-status > summary,
+                .details-map-status > summary::before,
+                .details-map-status > div {
+                  text-shadow: none !important;
+                }
+            
+                /* 详情按钮样式 (使用新类名) */
+                .details-map-status {
+                  border: none;
+                  margin: 0;
+                  padding: 0;
+                  color: inherit; /* 继承 wrapper 的颜色 */
+                }
+            
+                /* 基础摘要样式 (使用新类名) */
+                .details-map-status > summary {
+                  display: flex;
+                  align-items: center;
+                  width: 100%;
+                  cursor: pointer;
+                  list-style: none;
+                  outline: none;
+                  image-rendering: auto;
+                  -webkit-font-smoothing: antialiased;
+                  -moz-osx-font-smoothing: grayscale;
+                  transition: all 0.1s ease-in-out;
+                  position: relative;
+                  top: 0;
+                  left: 0;
+                  box-sizing: border-box;
+                  font-weight: 600; /* 使用半粗体 (Semi-bold) 作为标题 */
+                  color: var(--map-text-color);
+                }
+            
+                /* 移除默认标记 (使用新类名) */
+                .details-map-status > summary::-webkit-details-marker,
+                .details-map-status > summary::marker {
+                  display: none;
+                  content: '';
+                }
+            
+                /* 基础图标样式 (使用新类名) */
+                .details-map-status > summary::before {
+                  content: '🗺️'; /* <<< 地图状态图标 */
+                  display: inline-block;
+                  line-height: 1;
+                  font-size: 1.1em;
+                  color: var(--map-icon-color);
+                  margin-right: 6px;
+                }
+            
+                /* 关闭时状态 (使用新类名) */
+                .details-map-status:not([open]) > summary {
+                  padding: 4px 8px 5px 8px;
+                  font-size: 16px;
+                  line-height: 1.2;
+                  margin-bottom: 0;
+                  background-color: var(--map-button-bg);
+                  border: 1px solid var(--map-button-border) !important;
+                  border-radius: 5px;
+                  box-shadow: 1px 1px 2px var(--map-button-outer-shadow) !important;
+                  filter: none;
+                  justify-content: flex-start;
+                }
+            
+                /* 鼠标悬停效果 (使用新类名) */
+                .details-map-status:not([open]) > summary:hover {
+                  background-color: var(--map-button-hover);
+                }
+            
+                /* 打开时状态 (使用新类名) */
+                .details-map-status[open] > summary {
+                  padding: 10px 8px;
+                  font-size: 18px;
+                  line-height: initial;
+                  margin-bottom: 5px;
+                  border: 1px solid var(--map-button-border);
+                  border-radius: 5px;
+                  background-color: var(--map-button-active);
+                  justify-content: flex-start;
+                  box-shadow: inset 1px 1px 0px 1px var(--map-button-highlight), inset -1px -1px 0px 1px var(--map-button-shadow);
+                  filter: drop-shadow(1px 1px 0px var(--map-button-outer-shadow));
+                  font-weight: 600; /* 保持半粗体 */
+                }
+            
+                /* 打开时图标样式 (使用新类名) */
+                .details-map-status[open] > summary::before {
+                  margin-right: 8px;
+                }
+            
+                /* 点击时反馈 (使用新类名) */
+                .details-map-status > summary:active {
+                  padding: 10px 8px;
+                  font-size: 18px;
+                  line-height: initial;
+                  background-color: var(--map-button-active);
+                  box-shadow: inset 1px 1px 0px 1px var(--map-button-highlight), inset -1px -1px 0px 1px var(--map-button-shadow);
+                  filter: drop-shadow(1px 1px 0px var(--map-button-outer-shadow));
+                  top: 1px;
+                  left: 1px;
+                  border: 1px solid var(--map-button-border);
+                  border-radius: 5px;
+                  justify-content: flex-start;
+                  margin-bottom: 5px;
+                  font-weight: 600; /* 保持半粗体 */
+                }
+            
+                /* 点击时图标样式 (使用新类名) */
+                .details-map-status > summary:active::before {
+                  margin-right: 8px;
+                }
+            
+                /* 打开时显示的内容 (使用新类名) */
+                .details-map-status > div {
+                  padding: 10px;
+                  margin: 0;
+                  font-size: 15px;
+                  line-height: 1.5;
+                  background-color: var(--map-content-bg);
+                  color: var(--map-text-color);
+                  border: 1px solid var(--map-content-border);
+                  border-radius: 4px;
+                  font-weight: normal; /* 内容使用普通字重 */
+                  white-space: pre-wrap;
+                  word-break: break-word;
+                }
         </style>
-        <details class="sao-details" open>
-            <summary class="sao-summary sao-map-summary">
-                🗺 <span class="sao-summary-title">当前位置</span>
-                <span class="sao-summary-loc">${esc(String(title))}</span>
-            </summary>
-            <div class="sao-details-body">${bodyHtml}</div>
-        </details>
+        <div class="map-status-wrapper">
+            <details class="details-map-status" open>
+                <summary>地图</summary>
+                <div>${safeContent}</div>
+            </details>
+        </div>
     `
-
-    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
 }
 
 
@@ -3419,7 +4022,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.12 初始化中...');
+    console.log('[SAO Companion] v0.6.13 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
