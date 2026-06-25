@@ -1818,9 +1818,11 @@ const REGEX_WHITELIST = new Set([
 ]);
 
 // 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
-// Phase 1 (显示类): 日期, 角色状态栏, 装备栏, 剑技栏, 地图2 — 已由 injectDisplayScripts() 运行时注入（disabled=false），
-//                    不再需要 force-disable。它们的 replaceString 将自定义标签转换为合法 HTML，
-//                    让 ST messageFormatting 在 DOMPurify 前完成处理，Shadow DOM 渲染器不再调用。
+// Phase 1 (显示类):
+//   - 日期: 由 Shadow DOM 渲染器 renderCalendar() 处理（replaceString 含 <script> 块，DOMPurify 会剥离）
+//   - 装备栏/剑技栏/角色状态栏/地图2: 由 injectDisplayScripts() 运行时注入（disabled=false），
+//     replaceString 将自定义标签转换为合法 HTML，ST messageFormatting 在 DOMPurify 前完成处理。
+//   以上 5 个均不在 MIGRATED_SCRIPTS 中（不 force-disable）。
 // Phase 2 (战斗): 战斗1.30电脑
 // Phase 3 (promptOnly): 隐藏摘要, 隐藏npc, 隐藏日历, 隐藏战斗, 隐藏状态栏,
 //                        隐藏地图, 隐藏骰子, 隐藏npc思维链, 隐藏公会状态栏, 隐藏回复, 隐藏预告
@@ -1940,6 +1942,7 @@ function hideSaoLightDomTags(messageEl) {
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
     styleEl.textContent = `
+        .sao-tags-rendered calendar, .sao-tags-rendered calendar *,
         .sao-tags-rendered zd_status, .sao-tags-rendered zd_status * {
             display: none !important;
             visibility: hidden !important;
@@ -2277,9 +2280,10 @@ function renderCalendar(messageEl, rawText) {
 }
 
 function renderAllTags(messageEl, rawText) {
-    if (/<zd_status\b/i.test(rawText || '')) {
+    if (/<(?:calendar|zd_status)\b/i.test(rawText || '')) {
         hideSaoLightDomTags(messageEl)
     }
+    renderCalendar(messageEl, rawText)
     renderBattlePanel(messageEl, rawText)
     // 渲染战斗面板后检查是否需要恢复战斗状态
     if (rawText.includes('<zd_status>')) {
