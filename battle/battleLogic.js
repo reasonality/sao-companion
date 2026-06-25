@@ -6561,28 +6561,36 @@ function setupDetailsAnimation() {
   const detailsElement = domRoot.getElementById('preparation-details');
   const content = detailsElement.querySelector('#preparation-screen');
   
-  let contentHeight;
-  
-  const calculateHeight = () => {
+  // Calculate and apply initial state
+  const recalculateHeight = () => {
+    // Temporarily remove max-height to measure actual content height
+    const prevMaxHeight = content.style.maxHeight;
     content.style.maxHeight = 'none';
-    contentHeight = content.offsetHeight + 'px';
-    content.style.maxHeight = detailsElement.open ? contentHeight : '0';
+    const height = content.offsetHeight + 'px';
+    content.style.maxHeight = prevMaxHeight;
+    return height;
   };
   
-  calculateHeight();
+  // Set initial state (closed)
+  content.style.maxHeight = '0';
+  
   // 移除旧的 resize handler 再添加新的，防止重复注册
   if (sideEffectsState.resizeHandler) {
     window.removeEventListener('resize', sideEffectsState.resizeHandler);
   }
-  sideEffectsState.resizeHandler = calculateHeight;
-  window.addEventListener('resize', calculateHeight);
+  sideEffectsState.resizeHandler = () => {
+    if (detailsElement.open) {
+      content.style.maxHeight = recalculateHeight();
+    }
+  };
+  window.addEventListener('resize', sideEffectsState.resizeHandler);
   
   detailsElement.addEventListener('toggle', () => {
     if (detailsElement.open) {
-      
-      content.style.maxHeight = contentHeight;
+      // Recalculate height on open — content may have been lazily rendered
+      // after this handler was set up (e.g. by setupLazyRendering's toggle handler)
+      content.style.maxHeight = recalculateHeight();
     } else {
-      
       content.style.maxHeight = '0';
     }
   });

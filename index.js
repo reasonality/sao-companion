@@ -1819,7 +1819,8 @@ const REGEX_WHITELIST = new Set([
 
 // 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
 // Phase 1 (显示类):
-//   - 日期: 由 Shadow DOM 渲染器 renderCalendar() 处理（replaceString 含 <script> 块，DOMPurify 会剥离）
+//   - 日期: 由 injectDisplayScripts() 运行时注入简化 div 包装脚本（不含 <script>），
+//     renderCalendar() Shadow DOM 渲染器从 .sao-calendar-data 隐藏 div 读取数据。
 //   - 装备栏/剑技栏/角色状态栏/地图2: 由 injectDisplayScripts() 运行时注入（disabled=false），
 //     replaceString 将自定义标签转换为合法 HTML，ST messageFormatting 在 DOMPurify 前完成处理。
 //   以上 5 个均不在 MIGRATED_SCRIPTS 中（不 force-disable）。
@@ -1942,7 +1943,6 @@ function hideSaoLightDomTags(messageEl) {
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
     styleEl.textContent = `
-        .sao-tags-rendered calendar, .sao-tags-rendered calendar *,
         .sao-tags-rendered zd_status, .sao-tags-rendered zd_status * {
             display: none !important;
             visibility: hidden !important;
@@ -2004,12 +2004,17 @@ function parseCalendarContent(rawContent) {
  * 只读：不修改 msg.mes，仅操作已渲染的 DOM
  */
 function renderCalendar(messageEl, rawText) {
-    const calendarContent = extractTag(rawText, 'calendar');
+    // 优先从 DOM 数据容器读取（DOMPurify 会剥离 <calendar> 标签，
+    // 但注入的日期正则会把内容包在 .sao-calendar-data 隐藏 div 中）
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const dataDiv = mesText.querySelector('.sao-calendar-data');
+    const calendarContent = (dataDiv && dataDiv.textContent.trim())
+        ? dataDiv.textContent
+        : extractTag(rawText, 'calendar');
     if (calendarContent === null) return;
 
     const data = parseCalendarContent(calendarContent);
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('calendar');
+    const refNode = dataDiv || mesText.querySelector('calendar');
     const shadow = createSaoShadowHost(messageEl, 'calendar', refNode);
 
     const year = Number(data.year) || 0;
@@ -2280,7 +2285,7 @@ function renderCalendar(messageEl, rawText) {
 }
 
 function renderAllTags(messageEl, rawText) {
-    if (/<(?:calendar|zd_status)\b/i.test(rawText || '')) {
+    if (/<zd_status\b/i.test(rawText || '')) {
         hideSaoLightDomTags(messageEl)
     }
     renderCalendar(messageEl, rawText)
