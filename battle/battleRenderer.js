@@ -83,9 +83,12 @@ export function renderBattlePanel(messageEl, rawText) {
         console.error('[BattleRenderer] initializeBattleInterface 失败:', e);
     }
 
-    // 追加到消息 DOM
-    const mesText = messageEl.querySelector('.mes_text');
-    if (mesText) {
+    // 追加到消息 DOM（位置优先：插入到原 <zd_status> 标签处）
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('zd_status');
+    if (refNode && refNode.parentNode) {
+        refNode.parentNode.insertBefore(host, refNode);
+    } else if (mesText) {
         mesText.appendChild(host);
     } else {
         messageEl.appendChild(host);

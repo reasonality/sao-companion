@@ -1753,7 +1753,6 @@ function stabilizeSaoRegexScripts() {
 
 // 白名单：插件应管理的正则脚本（排除4个不应自动启用的脚本）
 const REGEX_WHITELIST = new Set([
-    '摘要',
     '公会状态栏',
     // npc状态栏: keep on-card (disabled=false) like 公会状态栏 — replaceString is clean pure HTML, no Shadow DOM renderer needed
     'npc状态栏',
@@ -1774,7 +1773,7 @@ const REGEX_WHITELIST = new Set([
     // 在 prompt 组装前统一清理 SAO 标签，不再需要正则脚本逐个处理。
     // 移除的正则: '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
     //            '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告'
-    // 保留: '摘要' (promptOnly=true, replaceLen=0, 仅提取摘要不产生显示，谨慎保留 fallback)
+    // 保留: '摘要' 已迁移至插件 (extractAll 解析 digest + SAO_PROMPT_STRIP_TAGS 清理)，从白名单移除
 ]);
 
 // 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
@@ -1782,10 +1781,12 @@ const REGEX_WHITELIST = new Set([
 // Phase 2 (战斗): 战斗1.30电脑
 // Phase 3 (promptOnly): 隐藏摘要, 隐藏npc, 隐藏日历, 隐藏战斗, 隐藏状态栏,
 //                        隐藏地图, 隐藏骰子, 隐藏npc思维链, 隐藏公会状态栏, 隐藏回复, 隐藏预告
+// Phase 4 (摘要): 摘要 (extractAll + SAO_PROMPT_STRIP_TAGS 已接管 digest 解析和 prompt 清理)
 // 注意: '战斗1.30手机' 有意不在列表中（用户手动控制，见 §12.3）。
 const MIGRATED_SCRIPTS = new Set([
     '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
     '战斗1.30电脑',
+    '摘要',
     '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
     '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告',
 ]);
@@ -1864,6 +1865,22 @@ function getMessageElement(messageId) {
 }
 
 /**
+ * 延迟轮询渲染：等待 .mes_text 就绪后渲染标签（解决首条消息 DOM 未就绪问题）
+ */
+function renderMessageWhenReady(messageId, rawText, attempts = 0) {
+    const el = getMessageElement(messageId);
+    if (el && el.querySelector('.mes_text')) {
+        if (!el.querySelector('.sao-render-host')) {
+            renderAllTags(el, rawText);
+        }
+        return;
+    }
+    if (attempts < 20) {
+        setTimeout(() => renderMessageWhenReady(messageId, rawText, attempts + 1), 80);
+    }
+}
+
+/**
  * 通用标签提取
  */
 function extractTag(rawText, tagName) {
@@ -1898,20 +1915,22 @@ function hideSaoLightDomTags(messageEl) {
 /**
  * 创建 Shadow DOM 容器
  */
-function createSaoShadowHost(messageEl, tagName) {
+function createSaoShadowHost(messageEl, tagName, refNode) {
     // 避免重复注入
     const existing = messageEl.querySelector(`.sao-render-host[data-sao-tag="${tagName}"]`);
     if (existing) return existing.shadowRoot;
     const host = document.createElement('div');
     host.className = 'sao-render-host';
     host.dataset.saoTag = tagName;
-    const mesText = messageEl.querySelector('.mes_text');
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
     const shadow = host.attachShadow({ mode: 'open' });
 
     // 统一隐藏 light DOM 中的 SAO 自定义标签，避免与 Shadow DOM 渲染器双重渲染
     hideSaoLightDomTags(messageEl);
 
-    if (mesText) {
+    if (refNode && refNode.parentNode) {
+        refNode.parentNode.insertBefore(host, refNode);
+    } else if (mesText) {
         mesText.appendChild(host);
     } else {
         messageEl.appendChild(host);
@@ -1947,7 +1966,9 @@ function renderCalendar(messageEl, rawText) {
     if (calendarContent === null) return;
 
     const data = parseCalendarContent(calendarContent);
-    const shadow = createSaoShadowHost(messageEl, 'calendar');
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('calendar');
+    const shadow = createSaoShadowHost(messageEl, 'calendar', refNode);
 
     const year = Number(data.year) || 0;
     const month = Number(data.month) || 0;
@@ -2235,7 +2256,9 @@ function renderAllTags(messageEl, rawText) {
 function renderUserStatus(messageEl, rawText) {
     const content = extractTag(rawText, 'user_status')
     if (content === null) return
-    const shadow = createSaoShadowHost(messageEl, 'user_status')
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('user_status');
+    const shadow = createSaoShadowHost(messageEl, 'user_status', refNode)
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
@@ -2415,7 +2438,9 @@ function renderUserStatus(messageEl, rawText) {
 function renderEquipment(messageEl, rawText) {
     const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
     if (matches.length === 0) return
-    const shadow = createSaoShadowHost(messageEl, 'equip')
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('equip');
+    const shadow = createSaoShadowHost(messageEl, 'equip', refNode)
     const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
@@ -2586,7 +2611,9 @@ function renderEquipment(messageEl, rawText) {
 function renderSwordSkill(messageEl, rawText) {
     const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
     if (matches.length === 0) return
-    const shadow = createSaoShadowHost(messageEl, 'swordskill')
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('swordskill');
+    const shadow = createSaoShadowHost(messageEl, 'swordskill', refNode)
     const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
@@ -2766,7 +2793,9 @@ function renderSwordSkill(messageEl, rawText) {
 function renderMap(messageEl, rawText) {
     const content = extractTag(rawText, 'map')
     if (content === null) return
-    const shadow = createSaoShadowHost(messageEl, 'map')
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('map');
+    const shadow = createSaoShadowHost(messageEl, 'map', refNode)
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
@@ -2971,16 +3000,14 @@ function bindEvents() {
                         renderAllTags(histEl, msg.mes || '');
                     }
                 });
-                // 延迟重试未渲染的消息（DOM 可能尚未就绪）
-                setTimeout(() => {
-                    chatCtx.chat.forEach((msg, idx) => {
-                        if (!msg || msg.is_user) return;
-                        const histEl = getMessageElement(idx);
-                        if (histEl && !histEl.querySelector('.sao-render-host')) {
-                            renderAllTags(histEl, msg.mes || '');
-                        }
-                    });
-                }, 100);
+                // 延迟轮询未渲染的消息（DOM 可能尚未就绪）
+                chatCtx.chat.forEach((msg, idx) => {
+                    if (!msg || msg.is_user) return;
+                    const histEl = getMessageElement(idx);
+                    if (histEl && !histEl.querySelector('.sao-render-host')) {
+                        renderMessageWhenReady(idx, msg.mes || '');
+                    }
+                });
             }
         } else {
             // 切出 SAO 卡，恢复设置（destroyBattleSideEffects 已移到上面）

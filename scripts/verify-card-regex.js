@@ -170,6 +170,7 @@ function main() {
     const DELETED_SCRIPTS = [
         '战斗1.30电脑', '战斗1.30手机',
         '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
+        '摘要',
         '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
         '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏',
         '隐藏回复', '隐藏预告', '去除用户消息',
@@ -189,13 +190,12 @@ function main() {
         }
     }
 
-    // 7. Check remaining 8 scripts exist with correct disabled state
+    // 7. Check remaining 7 scripts exist with correct disabled state
     const EXPECTED_SCRIPTS = [
         { name: 'npc状态栏', disabled: true },
         { name: '如果想玩桐子开这个正则，不是不开', disabled: true },
         { name: '去除前导空白', disabled: false },
         { name: '清理显示标签', disabled: false },
-        { name: '摘要', disabled: false },
         { name: '公会状态栏', disabled: false },
         { name: '快速回复', disabled: false },
         { name: '开场白', disabled: false },
