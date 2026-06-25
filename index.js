@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.11 (修复战斗模块重复导出)
+// 版本: 0.6.12 (恢复SAO标签美化并修复重复显示)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -217,6 +217,199 @@ function esc(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+/**
+ * 白名单清洗内联 HTML，仅保留 SAO 卡中常见的安全标签与属性。
+ * 允许：br, font[color], span[style|color], b, strong, i, em
+ * 移除：script/style/事件属性/data-/javascript: 等。
+ */
+function sanitizeInlineSaoHtml(html) {
+    if (!html) return '';
+    const allowed = {
+        br: {},
+        font: { color: true },
+        span: { style: true, color: true },
+        b: {},
+        strong: {},
+        i: {},
+        em: {},
+    };
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const root = doc.body.firstChild;
+    function walk(node) {
+        if (node.nodeType === 3) return document.createTextNode(node.data);
+        if (node.nodeType !== 1) return null;
+        const tag = node.nodeName.toLowerCase();
+        if (!allowed[tag]) {
+            if (tag === 'script' || tag === 'style' || tag === 'template') return null;
+            const frag = document.createDocumentFragment();
+            for (const child of Array.from(node.childNodes)) {
+                const n = walk(child);
+                if (n) frag.appendChild(n);
+            }
+            return frag;
+        }
+        const spec = allowed[tag];
+        const el = document.createElement(tag);
+        for (const attr of Array.from(node.attributes)) {
+            const aname = attr.name.toLowerCase();
+            if (aname.startsWith('on')) continue;
+            if (/^data-/i.test(aname)) continue;
+            if (aname === 'style') {
+                const styleVal = attr.value.toLowerCase();
+                if (/javascript\s*:|expression\s*\(|behavior\s*:|url\s*\(\s*['"]?\s*(?:javascript|data)\s*:/i.test(styleVal)) continue;
+                const safeStyle = styleVal.split(';').every(part => {
+                    const [prop] = part.split(':');
+                    const name = (prop || '').trim();
+                    return !name || ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration'].includes(name);
+                });
+                if (!safeStyle) continue;
+            }
+            if (spec[aname]) el.setAttribute(attr.name, attr.value);
+        }
+        for (const child of Array.from(node.childNodes)) {
+            const n = walk(child);
+            if (n) el.appendChild(n);
+        }
+        return el;
+    }
+    const out = document.createElement('div');
+    for (const child of Array.from(root.childNodes)) {
+        const n = walk(child);
+        if (n) out.appendChild(n);
+    }
+    return out.innerHTML;
+}
+
+/**
+ * 共享 details/summary 折叠卡片基础 CSS，按主题返回。
+ * parchment: 米色羊皮纸（日期）
+ * paper: 浅米色纸张（状态/地图）
+ * dark: 深灰 Stardew/像素风（装备/剑技）
+ */
+function saoSharedDetailsCSS(theme) {
+    switch (theme) {
+        case 'parchment':
+            return `
+                .sao-details { background: #f8f4ed; color: #5c4d3a; border: 1px solid #8c785d; border-left: 4px solid #8c785d; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.4), 0 3px 10px rgba(60,45,30,.15); font-family: "Georgia", "Times New Roman", "Microsoft YaHei", serif; }
+                .sao-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.85rem; font-weight: 700; font-size: 0.95rem; color: #4a3e2e; }
+                .sao-summary::-webkit-details-marker { display: none; }
+                .sao-summary::before { content: "▸"; color: #8c785d; font-size: 0.85rem; }
+                .sao-details[open] > .sao-summary::before { content: "▾"; }
+                .sao-details-body { padding: 0.6rem 0.9rem 0.85rem; border-top: 1px dashed rgba(140,120,93,.35); }
+            `;
+        case 'paper':
+            return `
+                .sao-details { background: rgba(235,225,210,.95); color: #3e3a32; border: 1px solid #c8bca8; border-left: 4px solid #4a90d9; border-radius: 10px; box-shadow: 0 4px 0 #b0a28e, 0 6px 14px rgba(60,50,35,.12); font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+                .sao-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.95rem; font-weight: 700; font-size: 0.95rem; color: #2b5384; }
+                .sao-summary::-webkit-details-marker { display: none; }
+                .sao-summary::before { content: "▸"; color: #4a90d9; font-size: 0.85rem; }
+                .sao-details[open] > .sao-summary::before { content: "▾"; }
+                .sao-details-body { padding: 0.65rem 1rem 0.9rem; border-top: 1px dashed rgba(74,144,217,.25); }
+                .sao-paper-tag { display: inline-block; background: linear-gradient(180deg, #fdfbf7, #e8e0d0); border: 1px solid #b0a28e; border-bottom: 3px solid #9c8f7a; border-radius: 6px; padding: 0.15rem 0.5rem; font-size: 0.75rem; font-weight: 700; color: #4a90d9; box-shadow: 0 2px 0 #d6cbb8; }
+            `;
+        case 'dark':
+            return `
+                .sao-details { background: rgba(40,40,40,.92); color: #e8e6e3; border: 2px solid #666; border-left: 4px solid #8fbc8f; border-radius: 4px; box-shadow: 4px 4px 0 rgba(0,0,0,.35); font-family: "Segoe UI", "Microsoft YaHei", "SimHei", sans-serif; }
+                .sao-summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.8rem; font-weight: 800; font-size: 0.9rem; color: #f0e68c; text-transform: uppercase; letter-spacing: 0.03em; }
+                .sao-summary::-webkit-details-marker { display: none; }
+                .sao-summary::before { content: "▸"; color: #8fbc8f; font-size: 0.85rem; }
+                .sao-details[open] > .sao-summary::before { content: "▾"; }
+                .sao-details-body { padding: 0.55rem 0.85rem 0.8rem; border-top: 2px dashed #666; }
+                .sao-rich-content { line-height: 1.55; }
+                .sao-rich-content br { margin-bottom: 0.35rem; }
+            `;
+        default:
+            return '';
+    }
+}
+
+/**
+ * 根据 year/month/current_day/days 生成 7 列日历网格 HTML。
+ */
+function buildCalendarGrid(year, month, currentDay, days) {
+    const y = Number(year), m = Number(month), cd = Number(currentDay);
+    if (!y || !m || y < 1 || m < 1 || m > 12) return '';
+    const first = new Date(y, m - 1, 1).getDay();
+    const total = new Date(y, m, 0).getDate();
+    const map = new Map();
+    if (Array.isArray(days)) {
+        for (const d of days) {
+            const num = typeof d === 'object' ? (d.day ?? d.date) : Number(d);
+            if (num != null && !isNaN(num)) map.set(Number(num), d);
+        }
+    }
+    const header = ['日', '一', '二', '三', '四', '五', '六'].map(d => `<div class="sao-cal-weekday">${d}</div>`).join('');
+    let cells = '';
+    for (let i = 0; i < first; i++) {
+        cells += `<div class="sao-cal-cell sao-cal-empty"></div>`;
+    }
+    for (let d = 1; d <= total; d++) {
+        const info = map.get(d);
+        const currentCls = (d === cd) ? 'sao-cal-current' : '';
+        const dot = info && Array.isArray(info.events) && info.events.length
+            ? `<span class="sao-cal-dot" title="${esc(info.events.join(', '))}"></span>`
+            : '';
+        const label = info && info.label ? `<div class="sao-cal-cell-label">${esc(String(info.label))}</div>` : '';
+        cells += `<div class="sao-cal-cell ${currentCls}"><span class="sao-cal-cell-num">${d}</span>${dot}${label}</div>`;
+    }
+    return `<div class="sao-cal-weekdays">${header}</div><div class="sao-cal-grid">${cells}</div>`;
+}
+
+/**
+ * 解析旧正则常见的 key: value 日历文本，例如：
+ * year: 2022\nmonth: 11\ncurrent_day: 6\ndays: ...
+ */
+function parseCalendarKeyValueText(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const data = {};
+    let currentKey = null;
+    let matched = 0;
+    for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const m = line.match(/^\s*([A-Za-z_][\w-]*)\s*[:：]\s*(.*)$/);
+        if (m) {
+            currentKey = m[1].toLowerCase();
+            data[currentKey] = m[2].trim();
+            matched += 1;
+        } else if (currentKey && line.trim()) {
+            data[currentKey] += `${data[currentKey] ? '\n' : ''}${line.trim()}`;
+        }
+    }
+    if (!matched || !(data.year || data.month || data.current_day || data.days)) return null;
+
+    data.text = text.trim();
+
+    if (data.days && typeof data.days === 'string') {
+        data.day_events = data.days;
+        const parsedDays = [];
+        let current = null;
+        for (const rawLine of data.days.split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            const dayM = line.match(/^(?:day\s*)?(\d{1,2})\s*[:：\-]\s*(.*)$/i);
+            if (dayM) {
+                current = { day: Number(dayM[1]), events: [] };
+                if (dayM[2].trim()) current.events.push(dayM[2].trim());
+                parsedDays.push(current);
+            } else if (current) {
+                current.events.push(line.replace(/^[-*•]\s*/, ''));
+            }
+        }
+        if (parsedDays.length) {
+            data.days = parsedDays.map(day => {
+                const firstEvent = day.events.find(Boolean) || '';
+                return {
+                    day: day.day,
+                    label: firstEvent.slice(0, 18),
+                    events: day.events,
+                };
+            });
+        }
+    }
+    return data;
 }
 
 function wrapAsync(fn) {
@@ -1702,6 +1895,31 @@ function extractTag(rawText, tagName) {
     return m ? m[1] : null;
 }
 
+function hideSaoLightDomTags(messageEl) {
+    const mesText = messageEl.querySelector('.mes_text');
+    const target = mesText || messageEl;
+    target.classList.add('sao-tags-rendered');
+    const styleId = 'sao-hide-custom-tags';
+    if (target.querySelector(`#${styleId}`)) return;
+    const styleEl = document.createElement('style');
+    styleEl.id = styleId;
+    styleEl.textContent = `
+        .sao-tags-rendered calendar, .sao-tags-rendered user_status, .sao-tags-rendered equip,
+        .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
+        .sao-tags-rendered npc_status,
+        .sao-tags-rendered calendar *, .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
+        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
+        .sao-tags-rendered npc_status * {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
+        }
+    `;
+    target.prepend(styleEl);
+}
+
 /**
  * 创建 Shadow DOM 容器
  */
@@ -1712,23 +1930,12 @@ function createSaoShadowHost(messageEl, tagName) {
     const host = document.createElement('div');
     host.className = 'sao-render-host';
     host.dataset.saoTag = tagName;
+    const mesText = messageEl.querySelector('.mes_text');
     const shadow = host.attachShadow({ mode: 'open' });
 
     // 统一隐藏 light DOM 中的 SAO 自定义标签，避免与 Shadow DOM 渲染器双重渲染
-    const styleId = 'sao-hide-custom-tags';
-    if (!messageEl.querySelector(`#${styleId}`)) {
-        const styleEl = document.createElement('style');
-        styleEl.id = styleId;
-        styleEl.textContent = 'calendar, user_status, equip, swordskill, map, zd_status { display: none !important; }';
-        const mesText = messageEl.querySelector('.mes_text');
-        if (mesText) {
-            mesText.prepend(styleEl);
-        } else {
-            messageEl.prepend(styleEl);
-        }
-    }
+    hideSaoLightDomTags(messageEl);
 
-    const mesText = messageEl.querySelector('.mes_text');
     if (mesText) {
         mesText.appendChild(host);
     } else {
@@ -1751,6 +1958,8 @@ function parseCalendarContent(rawContent) {
             // 非 JSON，按普通文本处理
         }
     }
+    const kvData = parseCalendarKeyValueText(trimmed);
+    if (kvData) return kvData;
     return { text: trimmed };
 }
 
@@ -1765,10 +1974,13 @@ function renderCalendar(messageEl, rawText) {
     const data = parseCalendarContent(calendarContent);
     const shadow = createSaoShadowHost(messageEl, 'calendar');
 
-    const date = data.date || data.text || '未知日期';
+    const dateLabel = (data.year && data.month ? `${data.year}年${data.month}月${data.current_day ? data.current_day + '日' : ''}` : null)
+        || data.date
+        || data.text
+        || '日期';
     const floor = data.floor || data.level || data.layer || null;
     const time = data.time || data.hour || null;
-    const era = data.era || data.year || null;
+    const era = data.era || null;
 
     const floorHtml = floor
         ? `<span class="sao-cal-floor">第 ${esc(String(floor))} 层</span>`
@@ -1780,78 +1992,60 @@ function renderCalendar(messageEl, rawText) {
         ? `<span class="sao-cal-era">${esc(String(era))}</span>`
         : '';
 
+    const gridHtml = (data.year && data.month)
+        ? buildCalendarGrid(data.year, data.month, data.current_day, data.days)
+        : '';
+    const bodyText = data.text && !(data.year && data.month)
+        ? `<div class="sao-cal-text">${esc(data.text)}</div>`
+        : '';
+    const metaHtml = [timeHtml, eraHtml, floorHtml].filter(Boolean).join('')
+        ? `<div class="sao-cal-meta">${[timeHtml, eraHtml, floorHtml].filter(Boolean).join('')}</div>`
+        : '';
+
     shadow.innerHTML = `
         <style>
             :host {
                 display: block;
                 margin: 0.5rem 0;
-                font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
             }
-            .sao-calendar {
-                background: rgba(16, 24, 40, 0.92);
-                border: 1px solid rgba(78, 205, 196, 0.35);
-                border-left: 4px solid #4ecdc4;
-                border-radius: 10px;
-                padding: 0.75rem 1rem;
-                color: #e8eef6;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-                max-width: 320px;
-                backdrop-filter: blur(4px);
-            }
-            .sao-cal-header {
-                display: flex;
-                align-items: baseline;
-                gap: 0.5rem;
-                margin-bottom: 0.35rem;
-                flex-wrap: wrap;
-            }
-            .sao-cal-date {
-                font-size: 1.35rem;
-                font-weight: 700;
-                color: #4ecdc4;
-                letter-spacing: 0.02em;
-            }
-            .sao-cal-floor {
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: #ffd166;
-                background: rgba(255, 209, 102, 0.12);
-                border: 1px solid rgba(255, 209, 102, 0.25);
-                border-radius: 999px;
-                padding: 0.15rem 0.5rem;
-            }
-            .sao-cal-meta {
-                display: flex;
-                gap: 0.75rem;
-                font-size: 0.8rem;
-                color: #9fb3c8;
-                flex-wrap: wrap;
-            }
-            .sao-cal-time::before {
-                content: "◷ ";
-                color: #4ecdc4;
-            }
-            .sao-cal-era::before {
-                content: "◈ ";
-                color: #4ecdc4;
-            }
+            ${saoSharedDetailsCSS('parchment')}
+            .sao-cal-summary .sao-summary-title { margin-right: 0.35rem; }
+            .sao-cal-summary .sao-summary-date { opacity: 0.75; font-size: 0.9em; }
+            .sao-cal-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-left: auto; align-items: center; }
+            .sao-cal-floor { font-size: 0.7rem; background: rgba(140,120,93,.15); border: 1px solid rgba(140,120,93,.35); border-radius: 999px; padding: 0.1rem 0.45rem; color: #6b5a45; }
+            .sao-cal-time, .sao-cal-era { font-size: 0.7rem; color: #6b5a45; }
+            .sao-cal-meta { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+            .sao-cal-text { font-size: 0.85rem; line-height: 1.5; color: #5c4d3a; }
+            .sao-cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.7rem; color: #8c785d; font-weight: 700; margin-bottom: 0.25rem; }
+            .sao-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 0.5rem; }
+            .sao-cal-cell { min-height: 2rem; background: rgba(140,120,93,.08); border-radius: 4px; padding: 0.25rem; font-size: 0.75rem; color: #5c4d3a; position: relative; }
+            .sao-cal-cell.sao-cal-empty { background: transparent; }
+            .sao-cal-cell.sao-cal-current { background: rgba(140,120,93,.28); font-weight: 700; box-shadow: inset 0 0 0 1px #8c785d; }
+            .sao-cal-cell-num { display: block; }
+            .sao-cal-dot { display: block; width: 5px; height: 5px; background: #8c785d; border-radius: 50%; margin-top: 2px; }
+            .sao-cal-cell-label { font-size: 0.65rem; color: #8c785d; margin-top: 0.1rem; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         </style>
-        <div class="sao-calendar">
-            <div class="sao-cal-header">
-                <span class="sao-cal-date">${esc(String(date))}</span>
-                ${floorHtml}
+        <details class="sao-details" open>
+            <summary class="sao-summary sao-cal-summary">
+                📅 <span class="sao-summary-title">日期</span>
+                <span class="sao-summary-date">${esc(String(dateLabel))}</span>
+                <div class="sao-cal-badges">${floorHtml}</div>
+            </summary>
+            <div class="sao-details-body">
+                ${metaHtml}
+                ${gridHtml}
+                ${bodyText}
             </div>
-            <div class="sao-cal-meta">
-                ${timeHtml}
-                ${eraHtml}
-            </div>
-        </div>
+        </details>
     `;
 
     // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
 }
 
 function renderAllTags(messageEl, rawText) {
+    if (/<(?:calendar|user_status|equip|swordskill|map|zd_status|npc_status)\b/i.test(rawText || '')) {
+        hideSaoLightDomTags(messageEl)
+    }
     renderCalendar(messageEl, rawText)
     renderUserStatus(messageEl, rawText)
     renderEquipment(messageEl, rawText)
@@ -1876,7 +2070,7 @@ function renderUserStatus(messageEl, rawText) {
     } catch (e) {
         // 结构化解析失败，回退到纯文本
     }
-    if (!data) data = { text: content.trim() }
+    if (!data) data = { _text: content.trim() }
 
     const playerName = data.player_name || data.name || '玩家状态'
     const hp = data.hp || 0
@@ -1914,87 +2108,43 @@ function renderUserStatus(messageEl, rawText) {
         ? `<div class="sao-bar-row"><span class="sao-bar-label">MP</span><div class="sao-bar-track"><div class="sao-bar-fill sao-mp" style="width: ${mpPct}%"></div></div><span class="sao-bar-value">${mp}/${maxMp}</span></div>`
         : ''
 
-    const levelTag = level !== null ? `<span class="sao-tag sao-tag-level">Lv.${esc(String(level))}</span>` : ''
-    const locationTag = location !== null ? `<span class="sao-tag sao-tag-location">${esc(String(location))}</span>` : ''
+    const levelTag = level !== null ? `<span class="sao-paper-tag">Lv.${esc(String(level))}</span>` : ''
+    const locationTag = location !== null ? `<span class="sao-paper-tag">${esc(String(location))}</span>` : ''
 
     const hasNumeric = hpBar || mpBar || statGrid
     const bodyHtml = hasNumeric
         ? `<div class="sao-bars">${hpBar}${mpBar}</div>${statGrid}`
-        : `<div class="sao-status-text">${esc(data.text || '')}</div>`
+        : `<div class="sao-status-text">${sanitizeInlineSaoHtml(data._text || '')}</div>`
 
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-            .sao-status-card {
-                background: rgba(26, 26, 46, 0.92);
-                border: 1px solid rgba(78, 205, 196, 0.35);
-                border-left: 4px solid #4ecdc4;
-                border-radius: 10px;
-                padding: 0.75rem 1rem;
-                color: #e8eef6;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-                max-width: 380px;
-                backdrop-filter: blur(4px);
-            }
-            .sao-status-header {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                margin-bottom: 0.5rem;
-                flex-wrap: wrap;
-            }
-            .sao-status-name {
-                font-size: 1.1rem;
-                font-weight: 700;
-                color: #ffd700;
-                letter-spacing: 0.02em;
-            }
-            .sao-tag {
-                font-size: 0.7rem;
-                font-weight: 600;
-                border-radius: 999px;
-                padding: 0.1rem 0.45rem;
-            }
-            .sao-tag-level { color: #4ecdc4; background: rgba(78, 205, 196, 0.12); border: 1px solid rgba(78, 205, 196, 0.25); }
-            .sao-tag-location { color: #ffd166; background: rgba(255, 209, 102, 0.12); border: 1px solid rgba(255, 209, 102, 0.25); }
-            .sao-bars { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+            :host { display: block; margin: 0.5rem 0; }
+            ${saoSharedDetailsCSS('paper')}
+            .sao-status-summary .sao-summary-title { margin-right: 0.35rem; }
+            .sao-status-summary .sao-summary-name { margin-left: auto; font-size: 0.85em; opacity: 0.85; }
+            .sao-bars { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.55rem; }
             .sao-bar-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
-            .sao-bar-label { width: 28px; font-weight: 700; color: #9fb3c8; }
-            .sao-bar-track { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 999px; overflow: hidden; }
+            .sao-bar-label { width: 32px; font-weight: 800; color: #5a7ca8; }
+            .sao-bar-track { flex: 1; height: 10px; background: rgba(0,0,0,.08); border-radius: 999px; overflow: hidden; border: 1px solid rgba(0,0,0,.1); }
             .sao-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
-            .sao-bar-fill.sao-hp { background: linear-gradient(90deg, #ef476f, #ff6b6b); }
-            .sao-bar-fill.sao-mp { background: linear-gradient(90deg, #4ecdc4, #45b7d1); }
-            .sao-bar-value { width: 48px; text-align: right; color: #9fb3c8; font-variant-numeric: tabular-nums; }
-            .sao-status-stats {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 0.35rem;
-            }
-            .sao-stat-item {
-                display: flex;
-                justify-content: space-between;
-                background: rgba(255, 255, 255, 0.04);
-                border-radius: 6px;
-                padding: 0.35rem 0.5rem;
-                font-size: 0.8rem;
-            }
-            .sao-stat-key { color: #9fb3c8; }
-            .sao-stat-val { color: #4ecdc4; font-weight: 700; }
-            .sao-status-text {
-                font-size: 0.85rem;
-                color: #c8d6e5;
-                line-height: 1.5;
-                white-space: pre-wrap;
-            }
+            .sao-bar-fill.sao-hp { background: linear-gradient(90deg, #e57373, #ef5350); }
+            .sao-bar-fill.sao-mp { background: linear-gradient(90deg, #64b5f6, #42a5f5); }
+            .sao-bar-value { width: 52px; text-align: right; color: #5a7ca8; font-variant-numeric: tabular-nums; font-weight: 700; }
+            .sao-status-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem; }
+            .sao-stat-item { display: flex; justify-content: space-between; background: rgba(255,255,255,.35); border-radius: 6px; padding: 0.35rem 0.55rem; font-size: 0.8rem; border: 1px solid rgba(74,144,217,.12); }
+            .sao-stat-key { color: #5a7ca8; font-weight: 700; }
+            .sao-stat-val { color: #2b5384; font-weight: 800; }
+            .sao-status-text { font-size: 0.85rem; color: #3e3a32; line-height: 1.55; white-space: pre-wrap; }
         </style>
-        <div class="sao-status-card">
-            <div class="sao-status-header">
-                <span class="sao-status-name">${esc(String(playerName))}</span>
+        <details class="sao-details" open>
+            <summary class="sao-summary sao-status-summary">
+                📘 <span class="sao-summary-title">基本信息</span>
+                <span class="sao-summary-name">${esc(String(playerName))}</span>
                 ${levelTag}
                 ${locationTag}
-            </div>
-            ${bodyHtml}
-        </div>
+            </summary>
+            <div class="sao-details-body">${bodyHtml}</div>
+        </details>
     `
 
     // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
@@ -2005,39 +2155,39 @@ function renderEquipment(messageEl, rawText) {
     if (matches.length === 0) return
 
     const shadow = createSaoShadowHost(messageEl, 'equip')
-    const items = matches.map(m => {
+    const sections = []
+    for (const m of matches) {
         const content = m[1].trim()
         if ((content.startsWith('{') || content.startsWith('[')) && content.length > 1) {
             try {
                 const parsed = JSON.parse(content)
-                if (Array.isArray(parsed)) return parsed
-                return parsed
+                const arr = Array.isArray(parsed) ? parsed : [parsed]
+                for (const item of arr) sections.push({ type: 'json', data: item })
+                continue
             } catch (e) { /* 忽略 JSON 解析错误 */ }
         }
-        return { name: content }
-    })
-
-    const flatItems = []
-    for (const item of items) {
-        if (Array.isArray(item)) flatItems.push(...item)
-        else flatItems.push(item)
+        sections.push({ type: 'html', html: sanitizeInlineSaoHtml(content) })
     }
-    if (flatItems.length === 0) return
+    if (sections.length === 0) return
 
     const rarityStyleMap = {
-        'sao-rarity-common': '#e8eef6',
+        'sao-rarity-common': '#e8e6e3',
         'sao-rarity-uncommon': '#7ee787',
         'sao-rarity-rare': '#4dabf7',
         'sao-rarity-epic': '#da77f2',
         'sao-rarity-legendary': '#ffa94d',
     }
 
-    const cards = flatItems.map(item => {
+    const itemsHtml = sections.map(section => {
+        if (section.type === 'html') {
+            return `<div class="sao-equip-card sao-equip-rich"><div class="sao-rich-content">${section.html}</div></div>`
+        }
+        const item = section.data
         const name = item.name || '未知装备'
         const type = item.type || item.slot || item.equipType || ''
         const rarity = item.rarity || '白色'
         const rClass = rarityClass(rarity)
-        const color = rarityStyleMap[rClass] || '#e8eef6'
+        const color = rarityStyleMap[rClass] || '#e8e6e3'
         const itemLevel = item.item_level != null ? `Lv.${item.item_level}` : ''
         const durability = item.durability ? `耐久 ${item.durability}` : ''
 
@@ -2058,54 +2208,25 @@ function renderEquipment(messageEl, rawText) {
 
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-            .sao-equip-list {
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-                max-width: 360px;
-            }
-            .sao-equip-card {
-                background: rgba(26, 26, 46, 0.92);
-                border: 1px solid rgba(78, 205, 196, 0.25);
-                border-left: 3px solid #4ecdc4;
-                border-radius: 8px;
-                padding: 0.6rem 0.85rem;
-                color: #e8eef6;
-                box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
-                backdrop-filter: blur(4px);
-            }
-            .sao-equip-header {
-                display: flex;
-                align-items: baseline;
-                justify-content: space-between;
-                gap: 0.5rem;
-                margin-bottom: 0.25rem;
-            }
-            .sao-equip-name {
-                font-size: 0.95rem;
-                font-weight: 700;
-                color: #ffd700;
-            }
-            .sao-equip-rarity {
-                font-size: 0.7rem;
-                font-weight: 700;
-            }
-            .sao-equip-meta {
-                display: flex;
-                gap: 0.45rem;
-                flex-wrap: wrap;
-            }
-            .sao-equip-meta span {
-                font-size: 0.7rem;
-                color: #9fb3c8;
-                background: rgba(255, 255, 255, 0.06);
-                border-radius: 4px;
-                padding: 0.1rem 0.4rem;
-            }
-            .sao-equip-level { color: #4ecdc4 !important; }
+            :host { display: block; margin: 0.5rem 0; }
+            ${saoSharedDetailsCSS('dark')}
+            .sao-equip-summary .sao-summary-title { margin-right: 0.35rem; }
+            .sao-equip-list { display: flex; flex-direction: column; gap: 0.5rem; }
+            .sao-equip-card { background: rgba(50,50,50,.8); border: 1px solid #666; border-left: 3px solid #8fbc8f; border-radius: 4px; padding: 0.55rem 0.75rem; }
+            .sao-equip-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem; }
+            .sao-equip-name { font-size: 0.95rem; font-weight: 800; color: #f0e68c; letter-spacing: 0.02em; }
+            .sao-equip-rarity { font-size: 0.7rem; font-weight: 800; }
+            .sao-equip-meta { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+            .sao-equip-meta span { font-size: 0.7rem; color: #ccc; background: rgba(255,255,255,.06); border-radius: 3px; padding: 0.1rem 0.4rem; }
+            .sao-equip-level { color: #8fbc8f !important; }
+            .sao-equip-rich .sao-rich-content { font-size: 0.85rem; color: #e8e6e3; line-height: 1.55; }
         </style>
-        <div class="sao-equip-list">${cards}</div>
+        <details class="sao-details" open>
+            <summary class="sao-summary sao-equip-summary">🎒 <span class="sao-summary-title">装备</span></summary>
+            <div class="sao-details-body">
+                <div class="sao-equip-list">${itemsHtml}</div>
+            </div>
+        </details>
     `
 
     // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
@@ -2116,34 +2237,26 @@ function renderSwordSkill(messageEl, rawText) {
     if (matches.length === 0) return
 
     const shadow = createSaoShadowHost(messageEl, 'swordskill')
-    const skills = matches.map(m => {
+    const sections = []
+    for (const m of matches) {
         const content = m[1].trim()
         if ((content.startsWith('{') || content.startsWith('[')) && content.length > 1) {
             try {
                 const parsed = JSON.parse(content)
-                if (Array.isArray(parsed)) return parsed
-                return parsed
+                const arr = Array.isArray(parsed) ? parsed : [parsed]
+                for (const skill of arr) sections.push({ type: 'json', data: skill })
+                continue
             } catch (e) { /* 忽略 JSON 解析错误 */ }
         }
-        const simpleMatch = content.match(/^(.+?)(?:\s+Lv\.?(\d+))?(?:\s*\(([^)]+)\))?$/)
-        if (simpleMatch) {
-            return {
-                name: simpleMatch[1].trim(),
-                skill_level: simpleMatch[2] || '',
-                type: simpleMatch[3] || '',
-            }
-        }
-        return { name: content }
-    })
-
-    const flatSkills = []
-    for (const skill of skills) {
-        if (Array.isArray(skill)) flatSkills.push(...skill)
-        else flatSkills.push(skill)
+        sections.push({ type: 'html', html: sanitizeInlineSaoHtml(content) })
     }
-    if (flatSkills.length === 0) return
+    if (sections.length === 0) return
 
-    const cards = flatSkills.map(skill => {
+    const itemsHtml = sections.map(section => {
+        if (section.type === 'html') {
+            return `<div class="sao-skill-card sao-skill-rich"><div class="sao-rich-content">${section.html}</div></div>`
+        }
+        const skill = section.data
         const name = skill.name || '未知剑技'
         const level = skill.skill_level || skill.level || ''
         const type = skill.type || skill.skillType || skill.core_code || ''
@@ -2163,58 +2276,24 @@ function renderSwordSkill(messageEl, rawText) {
 
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-            .sao-skill-list {
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-                max-width: 360px;
-            }
-            .sao-skill-card {
-                background: rgba(26, 26, 46, 0.92);
-                border: 1px solid rgba(78, 205, 196, 0.25);
-                border-left: 3px solid #ffd700;
-                border-radius: 8px;
-                padding: 0.6rem 0.85rem;
-                color: #e8eef6;
-                box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
-                backdrop-filter: blur(4px);
-            }
-            .sao-skill-header {
-                display: flex;
-                align-items: baseline;
-                justify-content: space-between;
-                gap: 0.5rem;
-                margin-bottom: 0.25rem;
-            }
-            .sao-skill-name {
-                font-size: 0.95rem;
-                font-weight: 700;
-                color: #4ecdc4;
-                letter-spacing: 0.02em;
-            }
-            .sao-skill-level {
-                font-size: 0.75rem;
-                font-weight: 700;
-                color: #ffd700;
-                background: rgba(255, 215, 0, 0.1);
-                border: 1px solid rgba(255, 215, 0, 0.25);
-                border-radius: 999px;
-                padding: 0.05rem 0.4rem;
-            }
-            .sao-skill-type {
-                font-size: 0.75rem;
-                color: #ffd166;
-                font-weight: 600;
-                margin-bottom: 0.2rem;
-            }
-            .sao-skill-desc {
-                font-size: 0.75rem;
-                color: #9fb3c8;
-                line-height: 1.4;
-            }
+            :host { display: block; margin: 0.5rem 0; }
+            ${saoSharedDetailsCSS('dark')}
+            .sao-skill-summary .sao-summary-title { margin-right: 0.35rem; }
+            .sao-skill-list { display: flex; flex-direction: column; gap: 0.5rem; }
+            .sao-skill-card { background: rgba(50,50,50,.8); border: 1px solid #666; border-left: 3px solid #f0a030; border-radius: 4px; padding: 0.55rem 0.75rem; }
+            .sao-skill-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem; }
+            .sao-skill-name { font-size: 0.95rem; font-weight: 800; color: #f0e68c; letter-spacing: 0.02em; }
+            .sao-skill-level { font-size: 0.7rem; font-weight: 800; color: #f0a030; background: rgba(240,160,48,.12); border: 1px solid rgba(240,160,48,.3); border-radius: 999px; padding: 0.05rem 0.4rem; }
+            .sao-skill-type { font-size: 0.75rem; color: #8fbc8f; font-weight: 800; margin-bottom: 0.2rem; }
+            .sao-skill-desc { font-size: 0.75rem; color: #ccc; line-height: 1.4; }
+            .sao-skill-rich .sao-rich-content { font-size: 0.85rem; color: #e8e6e3; line-height: 1.55; }
         </style>
-        <div class="sao-skill-list">${cards}</div>
+        <details class="sao-details" open>
+            <summary class="sao-summary sao-skill-summary">✨ <span class="sao-summary-title">剑技</span></summary>
+            <div class="sao-details-body">
+                <div class="sao-skill-list">${itemsHtml}</div>
+            </div>
+        </details>
     `
 
     // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
@@ -2235,46 +2314,27 @@ function renderMap(messageEl, rawText) {
     if (!data) data = { text: content.trim() }
 
     const title = data.title || data.name || '当前位置'
-    const description = data.description || data.text || data.location || data.path || content.trim()
+    const description = data.description || data.text || data.location || data.path || ''
+    const bodyHtml = typeof description === 'string'
+        ? (description.trim() ? `<div class="sao-map-text">${sanitizeInlineSaoHtml(description)}</div>` : '')
+        : `<div class="sao-map-text"><pre>${esc(JSON.stringify(description, null, 2))}</pre></div>`
 
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-            .sao-map-card {
-                background: rgba(26, 26, 46, 0.92);
-                border: 1px solid rgba(78, 205, 196, 0.35);
-                border-left: 4px solid #ffd700;
-                border-radius: 10px;
-                padding: 0.75rem 1rem;
-                color: #e8eef6;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-                max-width: 340px;
-                backdrop-filter: blur(4px);
-            }
-            .sao-map-header {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                margin-bottom: 0.4rem;
-                font-size: 0.9rem;
-                font-weight: 700;
-                color: #ffd700;
-            }
-            .sao-map-header::before {
-                content: "◈ ";
-                color: #4ecdc4;
-            }
-            .sao-map-text {
-                font-size: 0.85rem;
-                color: #c8d6e5;
-                line-height: 1.5;
-                white-space: pre-wrap;
-            }
+            :host { display: block; margin: 0.5rem 0; }
+            ${saoSharedDetailsCSS('paper')}
+            .sao-map-summary .sao-summary-title { margin-right: 0.35rem; }
+            .sao-map-summary .sao-summary-loc { margin-left: auto; font-size: 0.85em; opacity: 0.85; }
+            .sao-map-text { font-size: 0.85rem; color: #3e3a32; line-height: 1.55; white-space: pre-wrap; }
+            .sao-map-text pre { white-space: pre-wrap; font-family: inherit; }
         </style>
-        <div class="sao-map-card">
-            <div class="sao-map-header">${esc(String(title))}</div>
-            <div class="sao-map-text">${esc(String(description))}</div>
-        </div>
+        <details class="sao-details" open>
+            <summary class="sao-summary sao-map-summary">
+                🗺 <span class="sao-summary-title">当前位置</span>
+                <span class="sao-summary-loc">${esc(String(title))}</span>
+            </summary>
+            <div class="sao-details-body">${bodyHtml}</div>
+        </details>
     `
 
     // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
@@ -3359,7 +3419,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.11 初始化中...');
+    console.log('[SAO Companion] v0.6.12 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
         console.log('[SAO Companion] loadSettingsPanel 完成');
