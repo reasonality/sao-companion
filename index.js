@@ -1,5 +1,5 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.13 (用原卡模板替换自写美化)
+// 版本: 0.6.14 (用原卡模板替换自写美化)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -1246,13 +1246,6 @@ async function applyExtractedData(extracted) {
     await saveSaoDataNow();
 }
 
-// 保留旧函数名兼容（内部调用 extractAll）
-async function extractState(aiMessage) {
-    const extracted = await extractAll(aiMessage);
-    await applyExtractedData(extracted);
-    return extracted?.state || null;
-}
-
 async function calculateCombat(combatContext) {
     const settings = getSettings();
     if (!settings.enabled) return null;
@@ -1974,11 +1967,16 @@ function createSaoShadowHost(messageEl, tagName, refNode) {
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
     const shadow = host.attachShadow({ mode: 'open' });
 
-    // 统一隐藏 light DOM 中的 SAO 自定义标签，避免与 Shadow DOM 渲染器双重渲染
-    hideSaoLightDomTags(messageEl);
-
     if (refNode && refNode.parentNode) {
         refNode.parentNode.insertBefore(host, refNode);
+        // 如果 host 被插入到 <p> 内部（Showdown 会把自定义标签包在 <p> 里），
+        // 将 host 提升到 <p> 外部，避免 cleanup 删除空 <p> 时误删 host
+        if (host.parentNode && host.parentNode.nodeName === 'P') {
+            const p = host.parentNode;
+            if (p.parentNode) {
+                p.parentNode.insertBefore(host, p);
+            }
+        }
     } else if (mesText) {
         mesText.appendChild(host);
     } else {
@@ -2288,7 +2286,6 @@ function renderCalendar(messageEl, rawText) {
 
 function renderAllTags(messageEl, rawText) {
     const hasTags = /<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
-    console.log('[SAO Companion] renderAllTags: hasTags=' + hasTags + ' len=' + (rawText||'').length);
     if (hasTags) {
         hideSaoLightDomTags(messageEl)
     }
@@ -2298,10 +2295,8 @@ function renderAllTags(messageEl, rawText) {
     try { renderSwordSkill(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderSwordSkill ERROR:', e.message, e.stack); }
     try { renderMap(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderMap ERROR:', e.message, e.stack); }
     try { renderBattlePanel(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
-    console.log('[SAO Companion] renderAllTags done, shadow hosts:', messageEl.querySelectorAll('.sao-render-host').length);
     if (hasTags) {
         cleanupSaoLightDom(messageEl)
-        console.log('[SAO Companion] after cleanup, shadow hosts:', messageEl.querySelectorAll('.sao-render-host').length);
     }
     if (rawText.includes('<zd_status>')) {
         restoreBattleIfPending()
@@ -2336,6 +2331,8 @@ function cleanupSaoLightDom(messageEl) {
     // 3. 删除 Showdown 生成的空 <p>/<br>/<hr>（自定义标签删除后留下的空壳）
     //    只删除 mesText 的直接子节点中空白的元素
     mesText.querySelectorAll(':scope > p, :scope > br, :scope > hr').forEach(el => {
+        // 保护包含 Shadow host 的容器
+        if (el.querySelector('.sao-render-host')) return;
         const text = el.textContent.trim();
         const isOnlyBr = el.childNodes.length === 1 && el.firstChild.nodeName === 'BR';
         if (!text || isOnlyBr) {
@@ -2513,7 +2510,7 @@ function renderUserStatus(messageEl, rawText) {
                   border: 1px solid var(--char-content-border);
                   border-radius: 4px;
                   font-weight: normal; /* 内容使用普通字重 */
-                  white-space: normal;
+                  white-space: pre-wrap;
                   word-break: break-word;
                 }
         </style>
@@ -3084,8 +3081,20 @@ function bindEvents() {
             // 注意：DOM 可能尚未完全就绪，此处做最佳努力尝试；未来可改为 MutationObserver 或延迟轮询
             const chatCtx = getContext();
             if (chatCtx.chat && chatCtx.chat.length > 0) {
+                // 找到最后一条 AI 消息的 index
+                let lastAiIdx = -1;
+                if (event_types.CHARACTER_MESSAGE_RENDERED) {
+                    for (let i = chatCtx.chat.length - 1; i >= 0; i--) {
+                        if (chatCtx.chat[i] && !chatCtx.chat[i].is_user) {
+                            lastAiIdx = i;
+                            break;
+                        }
+                    }
+                }
                 chatCtx.chat.forEach((msg, idx) => {
                     if (!msg || msg.is_user) return;
+                    // 如果 CHARACTER_MESSAGE_RENDERED 可用，跳过最后一条 AI 消息（由该事件处理）
+                    if (idx === lastAiIdx) return;
                     const histEl = getMessageElement(idx);
                     if (histEl) {
                         renderAllTags(histEl, msg.mes || '');
@@ -3094,6 +3103,8 @@ function bindEvents() {
                 // 延迟轮询未渲染的消息（DOM 可能尚未就绪）
                 chatCtx.chat.forEach((msg, idx) => {
                     if (!msg || msg.is_user) return;
+                    // 同样跳过最后一条 AI 消息
+                    if (idx === lastAiIdx) return;
                     const histEl = getMessageElement(idx);
                     if (histEl && !histEl.querySelector('.sao-render-host')) {
                         renderMessageWhenReady(idx, msg.mes || '');
@@ -4094,15 +4105,11 @@ async function loadSettingsPanel() {
     // 绑定"打开控制台"按钮
     $('#sao_open_panel').on('click', async () => {
         try {
-            console.log('[SAO Companion] 按钮点击：开始 loadPanelHTML');
             await loadPanelHTML();
-            console.log('[SAO Companion] loadPanelHTML 完成，panelLoaded=', panelLoaded);
             if (!window.SaoPanel) {
-                console.log('[SAO Companion] SaoPanel 不存在，调用 initPanelLogic');
                 initPanelLogic();
             }
             window.SaoPanel.open();
-            console.log('[SAO Companion] SaoPanel.open 调用完成');
         } catch (e) {
             console.error('[SAO Companion] 打开控制台失败:', e);
             alert('[SAO Companion] 打开控制台失败: ' + e.message + '\n请检查浏览器控制台获取详细信息。');
@@ -4141,23 +4148,9 @@ export function init() {
         return;
     }
     console.log('[SAO Companion] v0.6.14 初始化中...');
-    console.log('[SAO Companion] DOMPurify hook fix active — commit 6380a4d+');
     registerSaoDompurifyHook();
-    // 验证钩子是否真的注册了
-    console.log('[SAO Companion] DOMPurify hook registered:', saoDompurifyHookRegistered);
-    window.__SAO_INIT_CALLED = true;
-    loadSettingsPanel().then(() => {
-        console.log('[SAO Companion] loadSettingsPanel 完成');
-        window.__SAO_SETTINGS_LOADED = true;
-        const btn = document.getElementById('sao_open_panel');
-        console.log('[SAO Companion] #sao_open_panel exists:', !!btn);
-        if (btn) {
-            const events = $._data(btn, 'events');
-            console.log('[SAO Companion] click events bound:', events?.click?.length || 0);
-        }
-    }).catch(e => {
+    loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);
-        window.__SAO_SETTINGS_ERROR = e.message;
     });
     bindEvents();
     // 设置战斗状态持久化回调
