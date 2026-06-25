@@ -5,6 +5,7 @@
 import { saveSettingsDebounced } from '../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
+import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
 import { serializeBattleState, restoreBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 // memory.js 已移除
@@ -22,7 +23,10 @@ const SAO_CUSTOM_TAGS = ['calendar', 'user_status', 'equip', 'swordskill', 'map'
 let saoDompurifyHookRegistered = false;
 function registerSaoDompurifyHook() {
     if (saoDompurifyHookRegistered) return;
-    if (typeof DOMPurify === 'undefined' || !DOMPurify.addHook) return;
+    if (!DOMPurify || !DOMPurify.addHook) {
+        console.warn('[SAO Companion] DOMPurify 不可用，无法注册钩子');
+        return;
+    }
     DOMPurify.addHook('uponSanitizeElement', (node, data, config) => {
         if (!data || !data.tagName || !data.allowedTags) return;
         if (SAO_CUSTOM_TAGS.includes(data.tagName.toLowerCase())) {
