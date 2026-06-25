@@ -50,6 +50,14 @@ function getCharInfo(json) {
     return { name, id };
 }
 
+function getRegexScripts(json) {
+    return json?.data?.extensions?.regex_scripts ||
+           json?.data?.extensions?.regexScripts ||
+           json?.extensions?.regex_scripts ||
+           json?.extensions?.regexScripts ||
+           [];
+}
+
 function main() {
     const results = [];
     let failures = 0;
@@ -69,9 +77,12 @@ function main() {
 
     let charaJson = null;
     let ccv3Json = null;
+    let charaRawBase64 = null;
+    let ccv3RawBase64 = null;
 
     // Decode chara
     if (charaChunk) {
+        charaRawBase64 = charaChunk.text;
         try {
             charaJson = decodeBase64Json(charaChunk.text);
             const info = getCharInfo(charaJson);
@@ -90,6 +101,7 @@ function main() {
 
     // Decode ccv3
     if (ccv3Chunk) {
+        ccv3RawBase64 = ccv3Chunk.text;
         try {
             ccv3Json = decodeBase64Json(ccv3Chunk.text);
             const info = getCharInfo(ccv3Json);
@@ -138,89 +150,99 @@ function main() {
         failures++;
     }
 
-    // 5. Check regex scripts with scriptName containing "战斗1.30"
+    // 5. Check 战斗1.30 regex scripts should NOT exist (deleted)
     const jsonForRegex = charaJson || fileJson;
     if (jsonForRegex) {
-        const regexScripts = jsonForRegex.data?.extensions?.regex_scripts ||
-                             jsonForRegex.data?.extensions?.regexScripts ||
-                             jsonForRegex.extensions?.regex_scripts ||
-                             jsonForRegex.extensions?.regexScripts ||
-                             [];
-        const targetScripts = regexScripts.filter(s => 
+        const regexScripts = getRegexScripts(jsonForRegex);
+        const battleScripts = regexScripts.filter(s =>
             s.scriptName && s.scriptName.includes('战斗1.30')
         );
-        for (const script of targetScripts) {
-            const replaceStr = script.replaceString || '';
-            const len = replaceStr.length;
-            const startsFence = replaceStr.startsWith('```');
-            const endsFence = replaceStr.endsWith('```');
-            // premature: </head></html> followed by <body>
-            const premature = /<\/head><\/html>\s*<body>/i.test(replaceStr);
-            console.log(`${script.scriptName} len ${len} startsFence ${startsFence} endsFence ${endsFence} premature ${premature}`);
-            const ok = !premature; // we consider it a failure if premature is true
-            results.push({ name: script.scriptName, ok });
+        for (const name of ['战斗1.30电脑', '战斗1.30手机']) {
+            const found = battleScripts.find(s => s.scriptName === name);
+            const ok = !found;
+            console.log(`${name} deleted ${ok} ${ok ? 'PASS' : 'FAIL'}`);
+            results.push({ name: `${name}_deleted`, ok });
             if (!ok) failures++;
         }
-        if (targetScripts.length === 0) {
-            console.log('No regex scripts with "战斗1.30" found');
-        }
-    } else {
-        console.log('No JSON available to check regex scripts');
     }
 
-    // 6. Check migrated scripts are disabled (Phase 1/2/3 migration)
-    const MIGRATED_SCRIPTS = [
-        // Phase 1 display (5)
+    // 6. Check migrated scripts should NOT exist (deleted)
+    const DELETED_SCRIPTS = [
+        '战斗1.30电脑', '战斗1.30手机',
         '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
-        // Phase 2 battle (1)
-        '战斗1.30电脑',
-        // Phase 3 promptOnly (11)
         '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
-        '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告',
+        '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏',
+        '隐藏回复', '隐藏预告', '去除用户消息',
     ];
-    // Scripts that should STAY enabled (whitelist)
-    const WHITELIST_SCRIPTS = ['摘要', '公会状态栏', '快速回复', '开场白'];
+
     if (jsonForRegex) {
-        const regexScripts2 = jsonForRegex.data?.extensions?.regex_scripts || [];
+        const regexScripts2 = getRegexScripts(jsonForRegex);
         const byName = {};
         for (const s of regexScripts2) byName[s.scriptName] = s;
 
-        // 6a. Migrated scripts must be disabled:true
-        for (const name of MIGRATED_SCRIPTS) {
+        for (const name of DELETED_SCRIPTS) {
             const s = byName[name];
-            if (!s) {
-                console.log(`${name} not_found`);
-                results.push({ name: `${name}_disabled`, ok: false });
-                failures++;
-            } else {
-                const ok = s.disabled === true;
-                console.log(`${name} disabled ${s.disabled} ${ok ? 'PASS' : 'FAIL'}`);
-                results.push({ name: `${name}_disabled`, ok });
-                if (!ok) failures++;
-            }
-        }
-        // 6b. 战斗1.30手机 must stay disabled:true (user-manual)
-        const mobile = byName['战斗1.30手机'];
-        if (mobile) {
-            const ok = mobile.disabled === true;
-            console.log(`战斗1.30手机 disabled ${mobile.disabled} ${ok ? 'PASS' : 'FAIL'}`);
-            results.push({ name: '战斗1.30手机_disabled', ok });
+            const ok = !s;
+            console.log(`${name} deleted ${ok} ${ok ? 'PASS' : 'FAIL'}`);
+            results.push({ name: `${name}_deleted`, ok });
             if (!ok) failures++;
         }
-        // 6c. Whitelist scripts must stay enabled (disabled:false)
-        for (const name of WHITELIST_SCRIPTS) {
-            const s = byName[name];
-            if (s) {
-                const ok = s.disabled === false;
-                console.log(`${name} disabled ${s.disabled} ${ok ? 'PASS' : 'FAIL'}`);
-                results.push({ name: `${name}_enabled`, ok });
+    }
+
+    // 7. Check remaining 8 scripts exist with correct disabled state
+    const EXPECTED_SCRIPTS = [
+        { name: 'npc状态栏', disabled: true },
+        { name: '如果想玩桐子开这个正则，不是不开', disabled: true },
+        { name: '去除前导空白', disabled: false },
+        { name: '清理显示标签', disabled: false },
+        { name: '摘要', disabled: false },
+        { name: '公会状态栏', disabled: false },
+        { name: '快速回复', disabled: false },
+        { name: '开场白', disabled: false },
+    ];
+
+    if (jsonForRegex) {
+        const regexScripts3 = getRegexScripts(jsonForRegex);
+        const byName2 = {};
+        for (const s of regexScripts3) byName2[s.scriptName] = s;
+
+        console.log(`\nregex_scripts 总数: ${regexScripts3.length}`);
+        for (const expected of EXPECTED_SCRIPTS) {
+            const s = byName2[expected.name];
+            if (!s) {
+                console.log(`${expected.name} not_found FAIL`);
+                results.push({ name: `${expected.name}_kept`, ok: false });
+                failures++;
+            } else {
+                const ok = s.disabled === expected.disabled;
+                console.log(`${expected.name} disabled=${s.disabled} ${ok ? 'PASS' : 'FAIL'}`);
+                results.push({ name: `${expected.name}_kept`, ok });
                 if (!ok) failures++;
             }
         }
     }
 
-    // 7. Summary
-    console.log('=== 验收结果 ===');
+    // 8. Check JSON compact format (from base64 decoded content)
+    if (charaRawBase64) {
+        try {
+            const decodedJson = Buffer.from(charaRawBase64, 'base64').toString('utf8');
+            // Compact JSON: after first { the next char should be " (not \n + spaces)
+            const isCompact = decodedJson.length > 1 && decodedJson[1] === '"';
+            console.log(`json_compact_format ${isCompact} ${isCompact ? 'PASS' : 'FAIL'}`);
+            results.push({ name: 'json_compact_format', ok: isCompact });
+            if (!isCompact) failures++;
+        } catch (e) {
+            console.log('json_compact_format FAIL (decode error)');
+            results.push({ name: 'json_compact_format', ok: false });
+            failures++;
+        }
+    }
+
+    // Summary
+    console.log('\n=== 验收结果 ===');
+    const passed = results.filter(r => r.ok).length;
+    const total = results.length;
+    console.log(`通过: ${passed}/${total}`);
     if (failures === 0) {
         console.log('全部通过');
     } else {
