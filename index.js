@@ -2288,18 +2288,8 @@ function renderCalendar(messageEl, rawText) {
 
 function renderAllTags(messageEl, rawText) {
     const hasTags = /<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
-    console.log('[SAO Companion] renderAllTags called, hasTags:', hasTags, 'rawText length:', (rawText||'').length);
     if (hasTags) {
         hideSaoLightDomTags(messageEl)
-        // 诊断：检查 DOM 中是否有自定义标签元素
-        const mesText = messageEl.querySelector('.mes_text');
-        if (mesText) {
-            const found = ['equip','swordskill','user_status','calendar','zd_status','digest'].map(t => {
-                const el = mesText.querySelector(t);
-                return t + ':' + (!!el);
-            });
-            console.log('[SAO Companion] DOM tags found:', found.join(', '));
-        }
     }
     renderCalendar(messageEl, rawText)
     renderUserStatus(messageEl, rawText)
@@ -2307,10 +2297,47 @@ function renderAllTags(messageEl, rawText) {
     renderSwordSkill(messageEl, rawText)
     renderMap(messageEl, rawText)
     renderBattlePanel(messageEl, rawText)
+    // 渲染完成后，彻底删除 light DOM 中的自定义标签元素
+    // （Showdown 可能把 <details> 等子元素拆到标签容器外面，
+    //   仅靠 display:none 无法隐藏这些逃逸的子元素）
+    if (hasTags) {
+        cleanupSaoLightDom(messageEl)
+    }
     // 渲染战斗面板后检查是否需要恢复战斗状态
     if (rawText.includes('<zd_status>')) {
         restoreBattleIfPending()
     }
+}
+
+/**
+ * 彻底删除 light DOM 中的 SAO 自定义标签元素及其逃逸的子元素。
+ * Showdown (markdown→HTML) 可能破坏未知标签的容器结构，把 <details>/<summary>
+ * 等子元素拆到标签外面。仅靠 display:none 无法隐藏这些逃逸的子元素。
+ * Shadow DOM 渲染器已经从 rawText 提取了内容并渲染，light DOM 是冗余的。
+ */
+function cleanupSaoLightDom(messageEl) {
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    // 1. 删除所有自定义标签元素（及其子元素）
+    const tagsToRemove = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
+    for (const tag of tagsToRemove) {
+        mesText.querySelectorAll(tag).forEach(el => el.remove());
+    }
+    // 2. 删除逃逸的空 <details> 块（Showdown 可能把它们拆到标签外面）
+    //    只删除 summary 文本匹配已知 SAO 模式的 details，避免误删合法内容
+    const saoSummaryPatterns = [
+        /装备栏/, /等级和属性/, /技能/, /关系列表/, /任务日志/, /背包/,
+        /公会状态栏/, /NPC状态栏/, /基本信息/
+    ];
+    mesText.querySelectorAll('details').forEach(details => {
+        const summary = details.querySelector('summary');
+        if (summary && saoSummaryPatterns.some(p => p.test(summary.textContent))) {
+            // 检查这个 details 是否在 Shadow host 内部（不应删除）
+            const closestHost = details.closest('.sao-render-host');
+            if (!closestHost) {
+                details.remove();
+            }
+        }
+    });
 }
 
 function renderUserStatus(messageEl, rawText) {
