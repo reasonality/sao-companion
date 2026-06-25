@@ -10,8 +10,9 @@
     "version": "0.6.10",
     "homePage": "https://github.com/reasonality/sao-companion",
     "auto_update": true,
-    "minimum_client_version": "1.11.0",
+    "minimum_client_version": "1.17.0",
     "hooks": {
         "activate": "init"
-    }
+    },
+    "generate_interceptor": "saoPromptCleanerInterceptor"
 }

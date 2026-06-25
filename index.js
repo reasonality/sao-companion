@@ -5,6 +5,8 @@
 import { saveSettingsDebounced } from '../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
+import { renderBattlePanel } from './battle/battleRenderer.js';
+import { serializeBattleState, restoreBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 // memory.js 已移除
 
 // ============================================================
@@ -243,6 +245,52 @@ function withProcessingLock(key, fn) {
     return next;
 }
 
+// ============================================================
+// Phase 3: Prompt 清理 / 替代 promptOnly 正则
+// ============================================================
+
+/**
+ * 需要从 prompt 中删除的 SAO 标签
+ * 
+ * 注意：此列表与 createSaoShadowHost 中的 CSS 隐藏列表不同：
+ * - CSS 隐藏列表（calendar, user_status, equip, swordskill, map, zd_status）：
+ *   只隐藏有 Shadow DOM 渲染器的标签，避免双重渲染
+ * - Prompt 清理列表（本列表，12 个标签）：
+ *   清理所有不应进入模型上下文的大块标签，无论是否有渲染器
+ * - 差异：equip/swordskill 在 CSS 中隐藏但不从 prompt 清理（模型需要装备/技能数据）
+ *         digest/guild/npc_status 等在 prompt 中清理但不 CSS 隐藏（无渲染器，不需要隐藏）
+ */
+const SAO_PROMPT_STRIP_TAGS = [
+    'zd_status',
+    'user_status',
+    'calendar',
+    'map',
+    'digest',
+    'guild',
+    'npc_status',
+    'npc_thoughts',
+    'dice',
+    'action',
+    'preview',
+    'output_instruction',
+];
+
+/**
+ * 从文本中删除 SAO 标签块
+ * @param {string} text - 原始文本
+ * @returns {string} 清理后的文本
+ */
+function cleanSaoPromptText(text) {
+    if (!text || typeof text !== 'string') return text;
+    let out = text;
+    for (const tag of SAO_PROMPT_STRIP_TAGS) {
+        const re = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi');
+        out = out.replace(re, '');
+    }
+    // 清理多余空行
+    return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function getCurrentCharacter() {
     const ctx = getContext();
     if (ctx.characterId === undefined || ctx.characterId === null) return null;
@@ -293,6 +341,68 @@ async function saveSaoDataNow() {
     const ctx = getContext();
     if (ctx.saveMetadata) {
         await ctx.saveMetadata();
+    }
+}
+
+// ============================================================
+// 战斗状态持久化
+// ============================================================
+
+let _battleSaveTimer = null;
+
+/**
+ * 节流保存战斗状态到 chatMetadata（2秒节流）
+ */
+function saveBattleStateThrottled() {
+    if (_battleSaveTimer) return;
+    _battleSaveTimer = setTimeout(() => {
+        _battleSaveTimer = null;
+        try {
+            const data = getSaoData();
+            if (!data) return;
+            const snapshot = serializeBattleState();
+            if (snapshot) {
+                if (!data.battle) data.battle = {};
+                data.battle = snapshot;
+                saveSaoDataNow();
+            }
+        } catch (e) {
+            log('保存战斗状态失败: ' + e.message, 'warn');
+        }
+    }, 2000);
+}
+
+/**
+ * 清除战斗状态（战斗结束时调用）
+ */
+function clearBattleState() {
+    try {
+        const data = getSaoData();
+        if (data && data.battle) {
+            data.battle = null;
+            saveSaoDataNow();
+        }
+    } catch (e) {
+        log('清除战斗状态失败: ' + e.message, 'warn');
+    }
+}
+
+/**
+ * 检查是否有待恢复的战斗状态
+ * 在 renderBattlePanel 渲染后调用
+ */
+function restoreBattleIfPending() {
+    try {
+        const data = getSaoData();
+        if (!data || !data.battle || !data.battle.isActive) return false;
+        const restored = restoreBattleState(data.battle);
+        if (restored) {
+            log('战斗状态已恢复');
+        }
+        return restored;
+    } catch (e) {
+        log('恢复战斗状态失败: ' + e.message, 'warn');
+        return false;
     }
 }
 
@@ -1306,344 +1416,20 @@ function injectMemoryAndState() {
 }
 
 // ============================================================
-// 标签扫描与即时填充
-// ============================================================
-
-/**
- * 扫描 <equip> <swordskill> 标签，调用子代理填充数值
- * 兼容两种格式：
- * 1. JSON 格式：`<equip>{"name":"铁剑",...}</equip>`
- * 2. 纯文本格式：`<equip>...名称：铁剑...类型：武器...稀有度：蓝色...物品等级：5...</equip>`
- */
-async function fillGenTags(messageId, text) {
-    const ctx = getContext();
-    let modified = false;
-
-    // === <equip> 标签处理 ===
-    // 匹配 <equip> 内的任意内容（非贪婪）
-    const equipRegex = /<equip>([\s\S]*?)<\/equip>/g;
-    const equipMatches = [...text.matchAll(equipRegex)];
-    if (equipMatches.length > 0) {
-        log(`检测到 ${equipMatches.length} 个 <equip> 标签`);
-        const equipResults = await Promise.allSettled(
-            equipMatches.map(m => {
-                const content = m[1].trim();
-                let basic = {};
-                // 尝试 JSON 格式
-                try {
-                    basic = JSON.parse(content);
-                } catch {
-                    // 纯文本格式：用正则提取基本信息
-                    const nameMatch = content.match(/名称[：:]\s*<font[^>]*>([^<]+)<\/font>/i) || content.match(/名称[：:]\s*(\S+)/i);
-                    const typeMatch = content.match(/类型[：:]\s*(\S+)/i);
-                    const rarityMatch = content.match(/稀有度[：:]\s*<font[^>]*>([^<]+)<\/font>/i) || content.match(/稀有度[：:]\s*(\S+)/i);
-                    const levelMatch = content.match(/物品等级[：:]\s*(\d+)/i) || content.match(/等级[：:]\s*(\d+)/i);
-                    if (nameMatch) basic.name = nameMatch[1].trim();
-                    if (typeMatch) basic.type = typeMatch[1].trim();
-                    if (rarityMatch) basic.rarity = rarityMatch[1].trim();
-                    if (levelMatch) basic.item_level = parseInt(levelMatch[1]);
-                }
-                return generateEquipment({
-                    playerLevel: getSaoData()?.state?.level || 1,
-                    floor: getSaoData()?.state?.floor || 1,
-                    type: basic.type,
-                    rarity: basic.rarity,
-                    name: basic.name,
-                }).then(result => ({ result, originalMatch: m, basic }));
-            })
-        );
-        equipResults.forEach((r) => {
-            if (r.status === 'fulfilled' && r.value?.result) {
-                const { result, originalMatch, basic } = r.value;
-                const origContent = originalMatch[1].trim();
-                let isJson = false;
-                try { JSON.parse(origContent); isJson = true; } catch {}
-
-                if (isJson) {
-                    // JSON 格式：合并数值
-                    const fullData = { ...basic, ...result };
-                    const newTag = `<equip>${JSON.stringify(fullData)}</equip>`;
-                    text = text.replace(originalMatch[0], newTag);
-                } else {
-                    // 纯文本格式：追加 <sao_data> JSON 块，保留原始内容
-                    const saoData = JSON.stringify(result);
-                    const newTag = `<equip>${origContent}\n<sao_data>${saoData}</sao_data></equip>`;
-                    text = text.replace(originalMatch[0], newTag);
-                }
-                modified = true;
-                log(`装备填充完成: ${result.name}`);
-            }
-        });
-    }
-
-    // === <swordskill> 标签处理 ===
-    const skillRegex = /<swordskill>([\s\S]*?)<\/swordskill>/g;
-    const skillMatches = [...text.matchAll(skillRegex)];
-    if (skillMatches.length > 0) {
-        log(`检测到 ${skillMatches.length} 个 <swordskill> 标签`);
-        const skillResults = await Promise.allSettled(
-            skillMatches.map(m => {
-                const content = m[1].trim();
-                let basic = {};
-                try {
-                    basic = JSON.parse(content);
-                } catch {
-                    const nameMatch = content.match(/名称[：:]\s*<font[^>]*>([^<]+)<\/font>/i) || content.match(/名称[：:]\s*(\S+)/i);
-                    const typeMatch = content.match(/武器类型[：:]\s*(\S+)/i) || content.match(/类型[：:]\s*(\S+)/i);
-                    const levelMatch = content.match(/技能等级[：:]\s*(\d+)/i) || content.match(/等级[：:]\s*(\d+)/i);
-                    if (nameMatch) basic.name = nameMatch[1].trim();
-                    if (typeMatch) basic.weapon_type = typeMatch[1].trim();
-                    if (levelMatch) basic.skill_level = parseInt(levelMatch[1]);
-                }
-                return generateSkill({
-                    weaponType: basic.weapon_type || '单手直剑',
-                    skillLevel: basic.skill_level || 1,
-                    playerLevel: getSaoData()?.state?.level || 1,
-                }).then(result => ({ result, originalMatch: m, basic }));
-            })
-        );
-        skillResults.forEach((r) => {
-            if (r.status === 'fulfilled' && r.value?.result) {
-                const { result, originalMatch, basic } = r.value;
-                const origContent = originalMatch[1].trim();
-                let isJson = false;
-                try { JSON.parse(origContent); isJson = true; } catch {}
-
-                if (isJson) {
-                    const fullData = { ...basic, ...result };
-                    const newTag = `<swordskill>${JSON.stringify(fullData)}</swordskill>`;
-                    text = text.replace(originalMatch[0], newTag);
-                } else {
-                    const saoData = JSON.stringify(result);
-                    const newTag = `<swordskill>${origContent}\n<sao_data>${saoData}</sao_data></swordskill>`;
-                    text = text.replace(originalMatch[0], newTag);
-                }
-                modified = true;
-                log(`剑技填充完成: ${result.name}`);
-            }
-        });
-    }
-
-    // 如果有修改，更新消息
-    if (modified) {
-        const msg = ctx.chat?.[messageId];
-        if (msg) {
-            msg.mes = text;
-            log(`消息 #${messageId} 标签填充完成`);
-        }
-    }
-}
-
-/**
- * 检测 <zd_status> 含战斗场景，调用战斗结算 (FIX 2: 解析真实敌人数据)
- */
-async function processCombatIfNeeded(messageId, text) {
-    const zdMatch = text.match(/<zd_status>([\s\S]*?)<\/zd_status>/);
-    if (!zdMatch) return;
-
-    // 检查是否有敌人数据（ENN 标记）
-    if (!zdMatch[1].includes('ENN:')) return;
-
-    log('检测到战斗场景，调用战斗结算');
-
-    // 使用 parseZdStatus 获取真实数据
-    let zd;
-    try {
-        zd = parseZdStatus(zdMatch[1]);
-    } catch (e) {
-        log('战斗结算: zd_status 解析失败: ' + e.message, 'warn');
-        return;
-    }
-
-    if (!zd.player || !zd.player.str) {
-        log('战斗结算: 玩家数据不完整', 'warn');
-        return;
-    }
-    if (!zd.enemies || zd.enemies.length === 0) return;
-
-    // 检测玩家行动：扫描文本中的剑技名称
-    let action = '\u666E\u901A\u653B\u51FB';
-    for (const sk of zd.skills) {
-        if (sk.name && text.includes(sk.name)) {
-            action = '\u4F7F\u7528\u5251\u6280\u300C' + sk.name + '\u300D';
-            break;
-        }
-    }
-
-    // 对每个敌人计算战斗
-    const zdOriginal = zdMatch[1];
-    let zdModified = zdOriginal;
-    const state = getSaoData()?.state;
-
-    for (const enemy of zd.enemies) {
-        if (enemy.hp <= 0) continue; // 已击败的跳过
-
-        try {
-            const result = await calculateCombat({
-                player: {
-                    hp: zd.player.hp, max_hp: zd.player.max_hp,
-                    str: zd.player.str, agi: zd.player.agi,
-                    int: zd.player.int, vit: zd.player.vit,
-                },
-                enemy: {
-                    name: enemy.name, hp: enemy.hp, max_hp: enemy.max_hp,
-                    str: enemy.str, agi: enemy.agi,
-                    int: enemy.int, vit: enemy.vit,
-                },
-                action,
-            });
-
-            if (result) {
-                log(`战斗结算完成 [${enemy.name}]: \u4F24\u5BB3=${result.damage} \u66B4\u51FB=${result.is_crit}`);
-
-                // 更新 zd_status 中的 HP 值
-                // 修改玩家 HP: [HP:old/max] -> [HP:new/max]
-                const oldPlayerHP = `${zd.player.hp}/${zd.player.max_hp}`;
-                const newPlayerHP = `${result.player_hp_after}/${zd.player.max_hp}`;
-                zdModified = zdModified.replace(
-                    new RegExp(`HP:${oldPlayerHP.replace('/', '\\/')}`, 'g'),
-                    `HP:${newPlayerHP}`
-                );
-
-                // 修改敌人 HP: [ENHP:old/max] -> [ENHP:new/max]
-                const oldEnemyHP = `${enemy.hp}/${enemy.max_hp}`;
-                const newEnemyHP = `${result.enemy_hp_after}/${enemy.max_hp}`;
-                zdModified = zdModified.replace(
-                    `ENHP:${oldEnemyHP}`,
-                    `ENHP:${newEnemyHP}`
-                );
-
-                // 如果敌人被击败，标记 HP 为 0
-                if (result.enemy_defeated) {
-                    zdModified = zdModified.replace(
-                        `ENHP:${newEnemyHP}`,
-                        `ENHP:0/${enemy.max_hp}`
-                    );
-                    log(`\u654C\u4EBA ${enemy.name} \u5DF2\u8D25\u5317`);
-                }
-
-                // 更新存储的状态 HP
-                if (state) {
-                    state.hp = result.player_hp_after;
-                    if (state._zd_parsed?.player) {
-                        state._zd_parsed.player.hp = result.player_hp_after;
-                    }
-                }
-            }
-        } catch (e) {
-            log(`\u6218\u6597\u7ED3\u7B97\u5931\u8D25 [${enemy.name}]: ` + e.message, 'warn');
-        }
-    }
-
-    // 将修改后的 zd_status 写回消息
-    if (zdModified !== zdOriginal) {
-        const ctx = getContext();
-        const msg = ctx.chat?.[messageId];
-        if (msg) {
-            msg.mes = text.replace(
-                /<zd_status>([\s\S]*?)<\/zd_status>/,
-                `<zd_status>${zdModified}</zd_status>`
-            );
-            log('\u6218\u6597\u7ED3\u679C\u5DF2\u6CE8\u5165 zd_status');
-        }
-    }
-
-    // 保存更新后的状态
-    if (state) await saveSaoDataNow();
-}
-
-/**
- * 检测敌人击败，生成战利品 (FIX 2: 使用真实敌人等级，注入结果)
- */
-async function processLootIfNeeded(messageId, text) {
-    // 检查是否有"击败"/"掉落"等关键词
-    const lootKeywords = ['\u51FB\u8D25\u4E86', '\u5316\u4E3A\u4E86\u788E\u7247', '\u83B7\u5F97\u7ECF\u9A8C', '\u6389\u843D', '\u6218\u5229\u54C1'];
-    const hasLoot = lootKeywords.some(k => text.includes(k));
-    if (!hasLoot) return;
-
-    log('\u68C0\u6D4B\u5230\u6218\u5229\u54C1\u573A\u666F');
-
-    // 从 zd_status 获取真实敌人等级
-    let enemyLevel = getSaoData()?.state?.level || 1;
-    let enemyType = '\u602A\u7269';
-    const zdMatch = text.match(/<zd_status>([\s\S]*?)<\/zd_status>/);
-    if (zdMatch) {
-        try {
-            const zd = parseZdStatus(zdMatch[1]);
-            if (zd.enemies && zd.enemies.length > 0) {
-                // 用最后一个敌人的等级
-                const lastEnemy = zd.enemies[zd.enemies.length - 1];
-                enemyLevel = lastEnemy.level || enemyLevel;
-                enemyType = lastEnemy.name || enemyType;
-            }
-        } catch (e) { /* ignore */ }
-    }
-
-    // 也从文本中尝试提取击败的敌人名
-    const defeatMatch = text.match(/\u51FB\u8D25\u4E86(.+?)(?:\u3002|\uFF0C|\uFF01|,)/);
-    if (defeatMatch) enemyType = defeatMatch[1].trim();
-
-    const state = getSaoData()?.state;
-
-    try {
-        const result = await generateLoot({
-            enemyLevel,
-            floor: state?.floor || 1,
-            enemyType,
-        });
-        if (result && result.loot && result.loot.length > 0) {
-            log(`\u6218\u5229\u54C1\u751F\u6210\u5B8C\u6210: ${result.loot.length} \u4EF6\u7269\u54C1 + ${result.cor || 0} Cor`);
-
-            // 注入战利品到消息末尾 (在 </content> 前或消息尾部)
-            let lootText = '\n\n<digest>\n\u2694\uFE0F \u6218\u5229\u54C1:\n';
-            for (const item of result.loot) {
-                lootText += `- ${item.name} x${item.qty || 1}`;
-                if (item.rarity) lootText += ` [${item.rarity}]`;
-                lootText += '\n';
-            }
-            if (result.cor) lootText += `- \u73C2\u5C14 +${result.cor}\n`;
-            if (result.exp) lootText += `- \u7ECF\u9A8C +${result.exp}\n`;
-            lootText += '</digest>';
-
-            // 追加到消息
-            const ctx = getContext();
-            const msg = ctx.chat?.[messageId];
-            if (msg) {
-                msg.mes = msg.mes + lootText;
-                log('\u6218\u5229\u54C1\u5DF2\u6CE8\u5165\u6D88\u606F');
-            }
-
-            // 更新存储状态
-            if (state) {
-                if (result.cor) state.cor = (state.cor || 0) + result.cor;
-                if (result.exp) state.exp = (state.exp || 0) + result.exp;
-                // 将装备类物品加入背包
-                if (!state.inventory) state.inventory = [];
-                for (const item of result.loot) {
-                    const existing = state.inventory.find(i => i.name === item.name);
-                    if (existing) {
-                        existing.qty += (item.qty || 1);
-                    } else {
-                        state.inventory.push({ name: item.name, qty: item.qty || 1, type: item.type, rarity: item.rarity });
-                    }
-                }
-                await saveSaoDataNow();
-            }
-        }
-    } catch (e) {
-        log('\u6218\u5229\u54C1\u751F\u6210\u5931\u8D25: ' + e.message, 'warn');
-    }
-}
-
-
-// ============================================================
 // SAO 卡兼容模式（替代 TavernHelper 脚本）
 // ============================================================
 
 /**
  * 启用 SAO 卡兼容模式
- * 1. 关闭不兼容的酒馆设置
+ * 1. 关闭不兼容的酒馆设置（修改全局 window.power_user）
  * 2. 启用角色卡局部正则
+ *
+ * 全局设置副作用（有保存/恢复机制，见 disableCompatMode）：
+ * - auto_fix_generated_markdown → false
+ * - encode_tags → false
+ * - trim_sentences → false
+ * - forbid_external_media → true
+ * 风险: 若插件异常退出未执行 disableCompatMode，用户全局设置可能残留。
  */
 function enableCompatMode() {
     const settings = getSettings();
@@ -1653,15 +1439,13 @@ function enableCompatMode() {
     try {
         const power_user = window.power_user;
         if (power_user) {
-            // 保存原始值（持久化到 extension_settings，防止切卡丢失）
-            if (!settings._savedPowerUser) {
-                settings._savedPowerUser = {
-                    auto_fix_generated_markdown: power_user.auto_fix_generated_markdown,
-                    encode_tags: power_user.encode_tags,
-                    trim_sentences: power_user.trim_sentences,
-                    forbid_external_media: power_user.forbid_external_media,
-                };
-            }
+            // 保存原始值（始终覆盖，确保崩溃后恢复最新基线）
+            settings._savedPowerUser = {
+                auto_fix_generated_markdown: power_user.auto_fix_generated_markdown,
+                encode_tags: power_user.encode_tags,
+                trim_sentences: power_user.trim_sentences,
+                forbid_external_media: power_user.forbid_external_media,
+            };
 
             // 关闭不兼容选项
             power_user.auto_fix_generated_markdown = false;
@@ -1773,7 +1557,7 @@ function stabilizeSaoRegexScripts() {
             let rs = script.replaceString;
 
             // 剥离开头 ```text 或 ```html 围栏
-            const fenceHeadMatch = rs.match(/^```(?:text|html)?\s*/);
+            const fenceHeadMatch = rs.match(/^```(?:[a-zA-Z]*)?\s*/);
             // 剥离结尾 ``` 围栏（允许尾部空白/换行）
             const fenceTailMatch = rs.match(/\s*```\s*$/);
 
@@ -1801,11 +1585,39 @@ function stabilizeSaoRegexScripts() {
 
 // 白名单：插件应管理的正则脚本（排除4个不应自动启用的脚本）
 const REGEX_WHITELIST = new Set([
-    '摘要', '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗',
-    '隐藏状态栏', '隐藏地图', '隐藏骰子', '隐藏npc思维链',
-    '隐藏公会状态栏', '隐藏回复', '隐藏预告',
-    '剑技栏', '装备栏', '角色状态栏', '公会状态栏',
-    '日期', '快速回复', '地图2', '开场白', '战斗1.30电脑',
+    '摘要',
+    '公会状态栏',
+    '快速回复', '开场白',
+    // 注意: '战斗1.30手机' 有意不加入白名单。
+    // 手机版是桌面端的窄屏适配，两者不应同时启用。
+    // 插件无法可靠检测设备类型，因此手机版由用户手动启用/禁用。
+
+    // Phase 1: 以下显示类正则已由插件 Shadow DOM 渲染器替代，从白名单移除。
+    // 它们保持 disabled=true，避免与插件渲染产生双重渲染。
+    // 移除的正则: '日期', '角色状态栏', '装备栏', '剑技栏', '地图2'
+
+    // Phase 2: '战斗1.30电脑' 已由插件 battle/battleRenderer.js 迁移，从白名单移除。
+    // 移除的正则: '战斗1.30电脑'
+
+    // Phase 3: 以下 promptOnly 隐藏正则已由插件 saoPromptCleanerInterceptor 替代，从白名单移除。
+    // 插件通过 generate_interceptor + CHAT_COMPLETION_PROMPT_READY + GENERATE_AFTER_COMBINE_PROMPTS
+    // 在 prompt 组装前统一清理 SAO 标签，不再需要正则脚本逐个处理。
+    // 移除的正则: '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
+    //            '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告'
+    // 保留: '摘要' (promptOnly=true, replaceLen=0, 仅提取摘要不产生显示，谨慎保留 fallback)
+]);
+
+// 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
+// Phase 1 (显示类): 日期, 角色状态栏, 装备栏, 剑技栏, 地图2
+// Phase 2 (战斗): 战斗1.30电脑
+// Phase 3 (promptOnly): 隐藏摘要, 隐藏npc, 隐藏日历, 隐藏战斗, 隐藏状态栏,
+//                        隐藏地图, 隐藏骰子, 隐藏npc思维链, 隐藏公会状态栏, 隐藏回复, 隐藏预告
+// 注意: '战斗1.30手机' 有意不在列表中（用户手动控制，见 §12.3）。
+const MIGRATED_SCRIPTS = new Set([
+    '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
+    '战斗1.30电脑',
+    '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
+    '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告',
 ]);
 
 /**
@@ -1827,7 +1639,12 @@ function enableCardRegex() {
             if (s.disabled === true && REGEX_WHITELIST.has(s.scriptName)) {
                 // 记录原始 disabled 状态，供 disableCompatMode 恢复
                 if (!settings._savedRegexState) settings._savedRegexState = [];
-                settings._savedRegexState.push({ scriptName: s.scriptName, disabled: true });
+                const existingIdx = settings._savedRegexState.findIndex(e => e.scriptName === s.scriptName);
+                if (existingIdx >= 0) {
+                    settings._savedRegexState[existingIdx] = { scriptName: s.scriptName, disabled: true };
+                } else {
+                    settings._savedRegexState.push({ scriptName: s.scriptName, disabled: true });
+                }
                 s.disabled = false;
                 enabled++;
             } else if (s.disabled === true) {
@@ -1835,7 +1652,26 @@ function enableCardRegex() {
             }
         });
 
-        if (enabled > 0) {
+        // 主动禁用已迁移脚本（避免与插件渲染/prompt清理产生双重处理）
+        let forceDisabled = 0;
+        scripts.forEach(s => {
+            if (s.disabled === false && MIGRATED_SCRIPTS.has(s.scriptName)) {
+                if (!settings._savedRegexState) settings._savedRegexState = [];
+                const existingIdx = settings._savedRegexState.findIndex(e => e.scriptName === s.scriptName);
+                if (existingIdx >= 0) {
+                    settings._savedRegexState[existingIdx] = { scriptName: s.scriptName, disabled: false };
+                } else {
+                    settings._savedRegexState.push({ scriptName: s.scriptName, disabled: false });
+                }
+                s.disabled = true;
+                forceDisabled++;
+            }
+        });
+        if (forceDisabled > 0) {
+            log(`主动禁用 ${forceDisabled} 个已迁移脚本（原状态已保存，切卡时恢复）`);
+        }
+
+        if (enabled > 0 || forceDisabled > 0) {
             log(`已启用 ${enabled} 个角色卡正则脚本（共 ${scripts.length} 个）`);
             saveSettings();
         }
@@ -1844,11 +1680,613 @@ function enableCardRegex() {
     }
 }
 
+// ============================================================
+// Phase 1 PoC: Shadow DOM 标签渲染
+// ============================================================
+
+/**
+ * 定位消息 DOM 元素（SillyTavern 使用 mesid 属性标识消息）
+ * @param {string|number} messageId - 消息 ID
+ * @returns {HTMLElement|null}
+ */
+function getMessageElement(messageId) {
+    return document.querySelector(`[mesid="${messageId}"]`);
+}
+
+/**
+ * 通用标签提取
+ */
+function extractTag(rawText, tagName) {
+    const re = new RegExp(`<${tagName}>\\s*([\\s\\S]*?)\\s*<\\/${tagName}>`, 'i');
+    const m = rawText.match(re);
+    return m ? m[1] : null;
+}
+
+/**
+ * 创建 Shadow DOM 容器
+ */
+function createSaoShadowHost(messageEl, tagName) {
+    // 避免重复注入
+    const existing = messageEl.querySelector(`.sao-render-host[data-sao-tag="${tagName}"]`);
+    if (existing) return existing.shadowRoot;
+    const host = document.createElement('div');
+    host.className = 'sao-render-host';
+    host.dataset.saoTag = tagName;
+    const shadow = host.attachShadow({ mode: 'open' });
+
+    // 统一隐藏 light DOM 中的 SAO 自定义标签，避免与 Shadow DOM 渲染器双重渲染
+    const styleId = 'sao-hide-custom-tags';
+    if (!messageEl.querySelector(`#${styleId}`)) {
+        const styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.textContent = 'calendar, user_status, equip, swordskill, map, zd_status { display: none !important; }';
+        const mesText = messageEl.querySelector('.mes_text');
+        if (mesText) {
+            mesText.prepend(styleEl);
+        } else {
+            messageEl.prepend(styleEl);
+        }
+    }
+
+    const mesText = messageEl.querySelector('.mes_text');
+    if (mesText) {
+        mesText.appendChild(host);
+    } else {
+        messageEl.appendChild(host);
+    }
+    return shadow;
+}
+
+/**
+ * 解析日历标签内容（优先 JSON，失败则作文本）
+ */
+function parseCalendarContent(rawContent) {
+    if (!rawContent) return { text: '' };
+    const trimmed = rawContent.trim();
+    if (!trimmed) return { text: '' };
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+            return JSON.parse(trimmed);
+        } catch (e) {
+            // 非 JSON，按普通文本处理
+        }
+    }
+    return { text: trimmed };
+}
+
+/**
+ * 在消息 Shadow DOM 中渲染 <calendar> 标签
+ * 只读：不修改 msg.mes，仅操作已渲染的 DOM
+ */
+function renderCalendar(messageEl, rawText) {
+    const calendarContent = extractTag(rawText, 'calendar');
+    if (calendarContent === null) return;
+
+    const data = parseCalendarContent(calendarContent);
+    const shadow = createSaoShadowHost(messageEl, 'calendar');
+
+    const date = data.date || data.text || '未知日期';
+    const floor = data.floor || data.level || data.layer || null;
+    const time = data.time || data.hour || null;
+    const era = data.era || data.year || null;
+
+    const floorHtml = floor
+        ? `<span class="sao-cal-floor">第 ${esc(String(floor))} 层</span>`
+        : '';
+    const timeHtml = time
+        ? `<span class="sao-cal-time">${esc(String(time))}</span>`
+        : '';
+    const eraHtml = era
+        ? `<span class="sao-cal-era">${esc(String(era))}</span>`
+        : '';
+
+    shadow.innerHTML = `
+        <style>
+            :host {
+                display: block;
+                margin: 0.5rem 0;
+                font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            }
+            .sao-calendar {
+                background: rgba(16, 24, 40, 0.92);
+                border: 1px solid rgba(78, 205, 196, 0.35);
+                border-left: 4px solid #4ecdc4;
+                border-radius: 10px;
+                padding: 0.75rem 1rem;
+                color: #e8eef6;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+                max-width: 320px;
+                backdrop-filter: blur(4px);
+            }
+            .sao-cal-header {
+                display: flex;
+                align-items: baseline;
+                gap: 0.5rem;
+                margin-bottom: 0.35rem;
+                flex-wrap: wrap;
+            }
+            .sao-cal-date {
+                font-size: 1.35rem;
+                font-weight: 700;
+                color: #4ecdc4;
+                letter-spacing: 0.02em;
+            }
+            .sao-cal-floor {
+                font-size: 0.75rem;
+                font-weight: 600;
+                color: #ffd166;
+                background: rgba(255, 209, 102, 0.12);
+                border: 1px solid rgba(255, 209, 102, 0.25);
+                border-radius: 999px;
+                padding: 0.15rem 0.5rem;
+            }
+            .sao-cal-meta {
+                display: flex;
+                gap: 0.75rem;
+                font-size: 0.8rem;
+                color: #9fb3c8;
+                flex-wrap: wrap;
+            }
+            .sao-cal-time::before {
+                content: "◷ ";
+                color: #4ecdc4;
+            }
+            .sao-cal-era::before {
+                content: "◈ ";
+                color: #4ecdc4;
+            }
+        </style>
+        <div class="sao-calendar">
+            <div class="sao-cal-header">
+                <span class="sao-cal-date">${esc(String(date))}</span>
+                ${floorHtml}
+            </div>
+            <div class="sao-cal-meta">
+                ${timeHtml}
+                ${eraHtml}
+            </div>
+        </div>
+    `;
+
+    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
+}
+
+function renderAllTags(messageEl, rawText) {
+    renderCalendar(messageEl, rawText)
+    renderUserStatus(messageEl, rawText)
+    renderEquipment(messageEl, rawText)
+    renderSwordSkill(messageEl, rawText)
+    renderMap(messageEl, rawText)
+    renderBattlePanel(messageEl, rawText)
+    // 渲染战斗面板后检查是否需要恢复战斗状态
+    if (rawText.includes('<zd_status>')) {
+        restoreBattleIfPending()
+    }
+}
+
+function renderUserStatus(messageEl, rawText) {
+    const content = extractTag(rawText, 'user_status')
+    if (content === null) return
+
+    const shadow = createSaoShadowHost(messageEl, 'user_status')
+    let data
+    try {
+        const parsed = parseUserStatus(content)
+        if (parsed && Object.keys(parsed).length > 0) data = parsed
+    } catch (e) {
+        // 结构化解析失败，回退到纯文本
+    }
+    if (!data) data = { text: content.trim() }
+
+    const playerName = data.player_name || data.name || '玩家状态'
+    const hp = data.hp || 0
+    const maxHp = data.max_hp || 0
+    const mp = data.mp || 0
+    const maxMp = data.max_mp || 0
+    const level = data.level || data.lvl || null
+    const location = data.location || data.floor || data.area || null
+
+    const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0
+    const mpPct = maxMp > 0 ? Math.round((mp / maxMp) * 100) : 0
+
+    const statLabels = {
+        str: '力量',
+        agi: '敏捷',
+        int: '智力',
+        vit: '耐力',
+        cor: '珂尔',
+    }
+
+    const stats = []
+    for (const [k, v] of Object.entries(statLabels)) {
+        if (data[k] != null) stats.push({ key: v, val: data[k] })
+    }
+
+    const statGrid = stats.length > 0
+        ? `<div class="sao-status-stats">${stats.map(s => `<div class="sao-stat-item"><span class="sao-stat-key">${esc(s.key)}</span><span class="sao-stat-val">${esc(String(s.val))}</span></div>`).join('')}</div>`
+        : ''
+
+    const hpBar = maxHp > 0
+        ? `<div class="sao-bar-row"><span class="sao-bar-label">HP</span><div class="sao-bar-track"><div class="sao-bar-fill sao-hp" style="width: ${hpPct}%"></div></div><span class="sao-bar-value">${hp}/${maxHp}</span></div>`
+        : ''
+
+    const mpBar = maxMp > 0
+        ? `<div class="sao-bar-row"><span class="sao-bar-label">MP</span><div class="sao-bar-track"><div class="sao-bar-fill sao-mp" style="width: ${mpPct}%"></div></div><span class="sao-bar-value">${mp}/${maxMp}</span></div>`
+        : ''
+
+    const levelTag = level !== null ? `<span class="sao-tag sao-tag-level">Lv.${esc(String(level))}</span>` : ''
+    const locationTag = location !== null ? `<span class="sao-tag sao-tag-location">${esc(String(location))}</span>` : ''
+
+    const hasNumeric = hpBar || mpBar || statGrid
+    const bodyHtml = hasNumeric
+        ? `<div class="sao-bars">${hpBar}${mpBar}</div>${statGrid}`
+        : `<div class="sao-status-text">${esc(data.text || '')}</div>`
+
+    shadow.innerHTML = `
+        <style>
+            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+            .sao-status-card {
+                background: rgba(26, 26, 46, 0.92);
+                border: 1px solid rgba(78, 205, 196, 0.35);
+                border-left: 4px solid #4ecdc4;
+                border-radius: 10px;
+                padding: 0.75rem 1rem;
+                color: #e8eef6;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+                max-width: 380px;
+                backdrop-filter: blur(4px);
+            }
+            .sao-status-header {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.5rem;
+                flex-wrap: wrap;
+            }
+            .sao-status-name {
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: #ffd700;
+                letter-spacing: 0.02em;
+            }
+            .sao-tag {
+                font-size: 0.7rem;
+                font-weight: 600;
+                border-radius: 999px;
+                padding: 0.1rem 0.45rem;
+            }
+            .sao-tag-level { color: #4ecdc4; background: rgba(78, 205, 196, 0.12); border: 1px solid rgba(78, 205, 196, 0.25); }
+            .sao-tag-location { color: #ffd166; background: rgba(255, 209, 102, 0.12); border: 1px solid rgba(255, 209, 102, 0.25); }
+            .sao-bars { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+            .sao-bar-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+            .sao-bar-label { width: 28px; font-weight: 700; color: #9fb3c8; }
+            .sao-bar-track { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 999px; overflow: hidden; }
+            .sao-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+            .sao-bar-fill.sao-hp { background: linear-gradient(90deg, #ef476f, #ff6b6b); }
+            .sao-bar-fill.sao-mp { background: linear-gradient(90deg, #4ecdc4, #45b7d1); }
+            .sao-bar-value { width: 48px; text-align: right; color: #9fb3c8; font-variant-numeric: tabular-nums; }
+            .sao-status-stats {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 0.35rem;
+            }
+            .sao-stat-item {
+                display: flex;
+                justify-content: space-between;
+                background: rgba(255, 255, 255, 0.04);
+                border-radius: 6px;
+                padding: 0.35rem 0.5rem;
+                font-size: 0.8rem;
+            }
+            .sao-stat-key { color: #9fb3c8; }
+            .sao-stat-val { color: #4ecdc4; font-weight: 700; }
+            .sao-status-text {
+                font-size: 0.85rem;
+                color: #c8d6e5;
+                line-height: 1.5;
+                white-space: pre-wrap;
+            }
+        </style>
+        <div class="sao-status-card">
+            <div class="sao-status-header">
+                <span class="sao-status-name">${esc(String(playerName))}</span>
+                ${levelTag}
+                ${locationTag}
+            </div>
+            ${bodyHtml}
+        </div>
+    `
+
+    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
+}
+
+function renderEquipment(messageEl, rawText) {
+    const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
+    if (matches.length === 0) return
+
+    const shadow = createSaoShadowHost(messageEl, 'equip')
+    const items = matches.map(m => {
+        const content = m[1].trim()
+        if ((content.startsWith('{') || content.startsWith('[')) && content.length > 1) {
+            try {
+                const parsed = JSON.parse(content)
+                if (Array.isArray(parsed)) return parsed
+                return parsed
+            } catch (e) { /* 忽略 JSON 解析错误 */ }
+        }
+        return { name: content }
+    })
+
+    const flatItems = []
+    for (const item of items) {
+        if (Array.isArray(item)) flatItems.push(...item)
+        else flatItems.push(item)
+    }
+    if (flatItems.length === 0) return
+
+    const rarityStyleMap = {
+        'sao-rarity-common': '#e8eef6',
+        'sao-rarity-uncommon': '#7ee787',
+        'sao-rarity-rare': '#4dabf7',
+        'sao-rarity-epic': '#da77f2',
+        'sao-rarity-legendary': '#ffa94d',
+    }
+
+    const cards = flatItems.map(item => {
+        const name = item.name || '未知装备'
+        const type = item.type || item.slot || item.equipType || ''
+        const rarity = item.rarity || '白色'
+        const rClass = rarityClass(rarity)
+        const color = rarityStyleMap[rClass] || '#e8eef6'
+        const itemLevel = item.item_level != null ? `Lv.${item.item_level}` : ''
+        const durability = item.durability ? `耐久 ${item.durability}` : ''
+
+        return `
+            <div class="sao-equip-card">
+                <div class="sao-equip-header">
+                    <span class="sao-equip-name">${esc(String(name))}</span>
+                    <span class="sao-equip-rarity" style="color: ${color}">${esc(String(rarity))}</span>
+                </div>
+                <div class="sao-equip-meta">
+                    ${type ? `<span class="sao-equip-type">${esc(String(type))}</span>` : ''}
+                    ${itemLevel ? `<span class="sao-equip-level">${esc(itemLevel)}</span>` : ''}
+                    ${durability ? `<span class="sao-equip-dur">${esc(durability)}</span>` : ''}
+                </div>
+            </div>
+        `
+    }).join('')
+
+    shadow.innerHTML = `
+        <style>
+            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+            .sao-equip-list {
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+                max-width: 360px;
+            }
+            .sao-equip-card {
+                background: rgba(26, 26, 46, 0.92);
+                border: 1px solid rgba(78, 205, 196, 0.25);
+                border-left: 3px solid #4ecdc4;
+                border-radius: 8px;
+                padding: 0.6rem 0.85rem;
+                color: #e8eef6;
+                box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+                backdrop-filter: blur(4px);
+            }
+            .sao-equip-header {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 0.5rem;
+                margin-bottom: 0.25rem;
+            }
+            .sao-equip-name {
+                font-size: 0.95rem;
+                font-weight: 700;
+                color: #ffd700;
+            }
+            .sao-equip-rarity {
+                font-size: 0.7rem;
+                font-weight: 700;
+            }
+            .sao-equip-meta {
+                display: flex;
+                gap: 0.45rem;
+                flex-wrap: wrap;
+            }
+            .sao-equip-meta span {
+                font-size: 0.7rem;
+                color: #9fb3c8;
+                background: rgba(255, 255, 255, 0.06);
+                border-radius: 4px;
+                padding: 0.1rem 0.4rem;
+            }
+            .sao-equip-level { color: #4ecdc4 !important; }
+        </style>
+        <div class="sao-equip-list">${cards}</div>
+    `
+
+    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
+}
+
+function renderSwordSkill(messageEl, rawText) {
+    const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
+    if (matches.length === 0) return
+
+    const shadow = createSaoShadowHost(messageEl, 'swordskill')
+    const skills = matches.map(m => {
+        const content = m[1].trim()
+        if ((content.startsWith('{') || content.startsWith('[')) && content.length > 1) {
+            try {
+                const parsed = JSON.parse(content)
+                if (Array.isArray(parsed)) return parsed
+                return parsed
+            } catch (e) { /* 忽略 JSON 解析错误 */ }
+        }
+        const simpleMatch = content.match(/^(.+?)(?:\s+Lv\.?(\d+))?(?:\s*\(([^)]+)\))?$/)
+        if (simpleMatch) {
+            return {
+                name: simpleMatch[1].trim(),
+                skill_level: simpleMatch[2] || '',
+                type: simpleMatch[3] || '',
+            }
+        }
+        return { name: content }
+    })
+
+    const flatSkills = []
+    for (const skill of skills) {
+        if (Array.isArray(skill)) flatSkills.push(...skill)
+        else flatSkills.push(skill)
+    }
+    if (flatSkills.length === 0) return
+
+    const cards = flatSkills.map(skill => {
+        const name = skill.name || '未知剑技'
+        const level = skill.skill_level || skill.level || ''
+        const type = skill.type || skill.skillType || skill.core_code || ''
+        const desc = skill.description || ''
+
+        return `
+            <div class="sao-skill-card">
+                <div class="sao-skill-header">
+                    <span class="sao-skill-name">${esc(String(name))}</span>
+                    ${level ? `<span class="sao-skill-level">Lv.${esc(String(level))}</span>` : ''}
+                </div>
+                ${type ? `<div class="sao-skill-type">${esc(String(type))}</div>` : ''}
+                ${desc ? `<div class="sao-skill-desc">${esc(String(desc))}</div>` : ''}
+            </div>
+        `
+    }).join('')
+
+    shadow.innerHTML = `
+        <style>
+            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+            .sao-skill-list {
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+                max-width: 360px;
+            }
+            .sao-skill-card {
+                background: rgba(26, 26, 46, 0.92);
+                border: 1px solid rgba(78, 205, 196, 0.25);
+                border-left: 3px solid #ffd700;
+                border-radius: 8px;
+                padding: 0.6rem 0.85rem;
+                color: #e8eef6;
+                box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+                backdrop-filter: blur(4px);
+            }
+            .sao-skill-header {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 0.5rem;
+                margin-bottom: 0.25rem;
+            }
+            .sao-skill-name {
+                font-size: 0.95rem;
+                font-weight: 700;
+                color: #4ecdc4;
+                letter-spacing: 0.02em;
+            }
+            .sao-skill-level {
+                font-size: 0.75rem;
+                font-weight: 700;
+                color: #ffd700;
+                background: rgba(255, 215, 0, 0.1);
+                border: 1px solid rgba(255, 215, 0, 0.25);
+                border-radius: 999px;
+                padding: 0.05rem 0.4rem;
+            }
+            .sao-skill-type {
+                font-size: 0.75rem;
+                color: #ffd166;
+                font-weight: 600;
+                margin-bottom: 0.2rem;
+            }
+            .sao-skill-desc {
+                font-size: 0.75rem;
+                color: #9fb3c8;
+                line-height: 1.4;
+            }
+        </style>
+        <div class="sao-skill-list">${cards}</div>
+    `
+
+    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
+}
+
+function renderMap(messageEl, rawText) {
+    const content = extractTag(rawText, 'map')
+    if (content === null) return
+
+    const shadow = createSaoShadowHost(messageEl, 'map')
+    let data
+    try {
+        const trimmed = content.trim()
+        if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && trimmed.length > 1) {
+            data = JSON.parse(trimmed)
+        }
+    } catch (e) { /* 忽略 JSON 解析错误 */ }
+    if (!data) data = { text: content.trim() }
+
+    const title = data.title || data.name || '当前位置'
+    const description = data.description || data.text || data.location || data.path || content.trim()
+
+    shadow.innerHTML = `
+        <style>
+            :host { display: block; margin: 0.5rem 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+            .sao-map-card {
+                background: rgba(26, 26, 46, 0.92);
+                border: 1px solid rgba(78, 205, 196, 0.35);
+                border-left: 4px solid #ffd700;
+                border-radius: 10px;
+                padding: 0.75rem 1rem;
+                color: #e8eef6;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+                max-width: 340px;
+                backdrop-filter: blur(4px);
+            }
+            .sao-map-header {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.4rem;
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: #ffd700;
+            }
+            .sao-map-header::before {
+                content: "◈ ";
+                color: #4ecdc4;
+            }
+            .sao-map-text {
+                font-size: 0.85rem;
+                color: #c8d6e5;
+                line-height: 1.5;
+                white-space: pre-wrap;
+            }
+        </style>
+        <div class="sao-map-card">
+            <div class="sao-map-header">${esc(String(title))}</div>
+            <div class="sao-map-text">${esc(String(description))}</div>
+        </div>
+    `
+
+    // light DOM 标签隐藏由 createSaoShadowHost 统一 CSS 注入处理
+}
+
 
 function bindEvents() {
     eventSource.on(event_types.CHAT_CHANGED, () => {
         // 切换角色卡时重置效果代码表缓存，使其重新从新卡解析
         resetEffectCodeTable();
+        // 无论是否 SAO 卡，先清理战斗副作用（幂等，非 SAO 卡或未初始化时为空操作）
+        destroyBattleSideEffects();
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
             stabilizeSaoRegexScripts();
@@ -1858,8 +2296,31 @@ function bindEvents() {
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
                 refreshStatus();
             }
+
+            // Phase 1 PoC: 切换聊天时对可见历史消息批量渲染日历
+            // 注意：DOM 可能尚未完全就绪，此处做最佳努力尝试；未来可改为 MutationObserver 或延迟轮询
+            const chatCtx = getContext();
+            if (chatCtx.chat && chatCtx.chat.length > 0) {
+                chatCtx.chat.forEach((msg, idx) => {
+                    if (!msg || msg.is_user) return;
+                    const histEl = getMessageElement(idx);
+                    if (histEl) {
+                        renderAllTags(histEl, msg.mes || '');
+                    }
+                });
+                // 延迟重试未渲染的消息（DOM 可能尚未就绪）
+                setTimeout(() => {
+                    chatCtx.chat.forEach((msg, idx) => {
+                        if (!msg || msg.is_user) return;
+                        const histEl = getMessageElement(idx);
+                        if (histEl && !histEl.querySelector('.sao-render-host')) {
+                            renderAllTags(histEl, msg.mes || '');
+                        }
+                    });
+                }, 100);
+            }
         } else {
-            // 切出 SAO 卡，恢复设置
+            // 切出 SAO 卡，恢复设置（destroyBattleSideEffects 已移到上面）
             disableCompatMode();
         }
     });
@@ -1881,9 +2342,9 @@ function bindEvents() {
         // 382KB 的完整 HTML/JS 文档并包裹在 ```text 围栏中。
         // 如果插件修改 msg.mes 并触发二次渲染，正则脚本会再次执行，
         // 导致原始消息文本被破坏、原始卡片 HTML/JS 暴露为裸代码。
-        // 因此 fillGenTags / processCombatIfNeeded / processLootIfNeeded
-        // 以及 editMessage / updateMessageBlock 都不应在自动事件中调用。
-        // 这些函数保留可用于手动/面板操作。
+        // fillGenTags / processCombatIfNeeded / processLootIfNeeded 已删除（死代码，
+        // 其内部 msg.mes 改写逻辑与本只读原则矛盾）。editMessage / updateMessageBlock
+        // 同样不得在自动事件中调用。
         await withProcessingLock(`msg-${messageId}`, async () => {
             // 多任务提取（状态）— 只读取文本、写入 chatMetadata，不修改消息
             const extracted = await extractAll(rawText);
@@ -1894,6 +2355,16 @@ function bindEvents() {
         if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
             refreshStatus();
         }
+
+        // 新消息的 Shadow DOM 渲染已由 CHARACTER_MESSAGE_RENDERED 事件接管（见 H1）
+
+        // fallback: 如果 CHARACTER_MESSAGE_RENDERED 事件不可用，延迟渲染新消息
+        if (!event_types.CHARACTER_MESSAGE_RENDERED) {
+            setTimeout(() => {
+                const fallbackEl = getMessageElement(messageId);
+                if (fallbackEl) renderAllTags(fallbackEl, rawText);
+            }, 100);
+        }
     }));
 
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, () => {
@@ -1901,8 +2372,127 @@ function bindEvents() {
         injectMemoryAndState();
     });
 
+    // Phase 3: Chat Completion 兜底 — 替代 promptOnly 隐藏正则
+    if (event_types.CHAT_COMPLETION_PROMPT_READY) {
+        eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
+            if (!isSaoCard()) return;
+            const settings = getSettings();
+            if (!settings.enabled) return;
+
+            if (data.chat && Array.isArray(data.chat)) {
+                for (const msg of data.chat) {
+                    if (typeof msg.content === 'string' && msg.content) {
+                        msg.content = cleanSaoPromptText(msg.content);
+                    }
+                }
+            }
+        });
+    } else {
+        console.debug('[SAO Companion] event CHAT_COMPLETION_PROMPT_READY not available in this SillyTavern version, prompt-cleaning fallback skipped');
+    }
+
+    // Phase 3: Text Completion 兜底 — 替代 promptOnly 隐藏正则
+    if (event_types.GENERATE_AFTER_COMBINE_PROMPTS) {
+        eventSource.on(event_types.GENERATE_AFTER_COMBINE_PROMPTS, (data) => {
+            if (!isSaoCard()) return;
+            const settings = getSettings();
+            if (!settings.enabled) return;
+
+            if (typeof data.prompt === 'string' && data.prompt) {
+                data.prompt = cleanSaoPromptText(data.prompt);
+            }
+        });
+    } else {
+        console.debug('[SAO Companion] event GENERATE_AFTER_COMBINE_PROMPTS not available in this SillyTavern version, prompt-cleaning fallback skipped');
+    }
+
+    // === Shadow DOM 重绘恢复 ===
+    // ST 的 updateMessageBlock / swipe / 历史消息加载会重绘 .mes_text，销毁 Shadow DOM Host
+    // 监听相关事件后重新渲染 SAO tags
+
+    // swipe 切分支后重新渲染
+    if (event_types.MESSAGE_SWIPED) {
+        eventSource.on(event_types.MESSAGE_SWIPED, (messageId) => {
+            if (!isSaoCard()) return;
+            const ctx = getContext();
+            const msg = ctx.chat?.[messageId];
+            if (!msg || msg.is_user) return;
+            const msgEl = getMessageElement(messageId);
+            if (msgEl) renderAllTags(msgEl, msg.mes || '');
+        });
+    }
+
+    // 消息编辑后重新渲染
+    if (event_types.MESSAGE_EDITED) {
+        eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
+            if (!isSaoCard()) return;
+            const ctx = getContext();
+            const msg = ctx.chat?.[messageId];
+            if (!msg) return;
+            const msgEl = getMessageElement(messageId);
+            if (msgEl) renderAllTags(msgEl, msg.mes || '');
+        });
+    }
+
+    // 角色（AI）消息 DOM 渲染完成后渲染 tags（替代 MESSAGE_RECEIVED 中的 renderAllTags）
+    if (event_types.CHARACTER_MESSAGE_RENDERED) {
+        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
+            if (!isSaoCard()) return;
+            const ctx = getContext();
+            const msg = ctx.chat?.[messageId];
+            if (!msg || msg.is_user) return;
+            const msgEl = getMessageElement(messageId);
+            if (msgEl) renderAllTags(msgEl, msg.mes || '');
+        });
+    }
+
+    // 滚动加载更多历史消息后批量渲染
+    if (event_types.MORE_MESSAGES_LOADED) {
+        eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
+            if (!isSaoCard()) return;
+            const ctx = getContext();
+            if (ctx.chat && ctx.chat.length > 0) {
+                ctx.chat.forEach((msg, idx) => {
+                    if (!msg || msg.is_user) return;
+                    const histEl = getMessageElement(idx);
+                    if (histEl && !histEl.querySelector('.sao-render-host')) {
+                        renderAllTags(histEl, msg.mes || '');
+                    }
+                });
+            }
+        });
+    }
+
     log('事件绑定完成');
 }
+
+/**
+ * Prompt 拦截器 - 在 prompt 组装前修改聊天副本
+ * SillyTavern 通过 manifest.json 的 generate_interceptor 调用此函数
+ * chat 是生成用副本，不是 context.chat 本体，因此不会影响聊天显示
+ */
+globalThis.saoPromptCleanerInterceptor = async function(chat, contextSize, abort, type) {
+    try {
+        if (!isSaoCard()) return;
+        const settings = getSettings();
+        if (!settings.enabled) return;
+        if (!Array.isArray(chat)) return;
+
+        let cleaned = 0;
+        for (const msg of chat) {
+            if (typeof msg.mes === 'string' && msg.mes) {
+                const before = msg.mes.length;
+                msg.mes = cleanSaoPromptText(msg.mes);
+                if (msg.mes.length !== before) cleaned++;
+            }
+        }
+        if (cleaned > 0) {
+            log(`Prompt 清理: 处理了 ${cleaned} 条消息中的 SAO 标签`);
+        }
+    } catch (e) {
+        log('Prompt 清理失败: ' + e.message, 'warn');
+    }
+};
 
 // ============================================================
 // 独立前端面板
@@ -2763,6 +3353,12 @@ async function loadSettingsPanel() {
 // ============================================================
 
 export function init() {
+    // 版本保护：低于 1.17.0 的 ST 不支持 hooks.activate，init 不会被调用；
+    // 如果通过其他途径被调用，此处检测 SillyTavern API 是否可用
+    if (typeof SillyTavern === 'undefined' || !SillyTavern.getContext) {
+        console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
+        return;
+    }
     console.log('[SAO Companion] v0.6.10 初始化中...');
     window.__SAO_INIT_CALLED = true;
     loadSettingsPanel().then(() => {
@@ -2779,6 +3375,9 @@ export function init() {
         window.__SAO_SETTINGS_ERROR = e.message;
     });
     bindEvents();
+    // 设置战斗状态持久化回调
+    setBattleStateChangeCallback(saveBattleStateThrottled);
+    setBattleEndCallback(clearBattleState);
     if (isSaoCard()) {
         log('检测到 SAO 角色卡，立即激活');
         stabilizeSaoRegexScripts();
