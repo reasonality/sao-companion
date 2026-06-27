@@ -5,7 +5,7 @@ import { getSettings, log, getSaoData, saveSaoDataNow } from './sao-core.js';
 
 // === 纯解析函数 ===
 
-export function parseZdStatus(zdText) {
+function parseZdStatus(zdText) {
     const result = { player: {}, skills: [], teammates: [], enemies: [] };
 
     // 去掉换行和多余空白，然后按 ][ 分割成 token
@@ -155,7 +155,7 @@ export function parseZdStatus(zdText) {
 /**
  * 从 <user_status> 的 <details> 块解析装备/背包/技能/属性等
  */
-export function parseUserStatus(statusText) {
+function parseUserStatus(statusText) {
     const state = {};
     const hpM = statusText.match(/\u5F53\u524D\u751F\u547D\u503C[：:]\s*(\d+)\/(\d+)/);
     if (hpM) { state.hp = parseInt(hpM[1]); state.max_hp = parseInt(hpM[2]); }

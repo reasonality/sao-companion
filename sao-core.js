@@ -2,16 +2,14 @@
 // ST API 封装 + 状态管理 + 日志 + 纯工具
 // 被所有其他功能模块共享依赖
 
-import { saveSettingsDebounced } from '../../../../script.js';
-
 // ============================================================
 // 常量
 // ============================================================
 
 export const MODULE_NAME = 'sao_companion';
-export const MAX_LOGS = 100;
+const MAX_LOGS = 100;
 
-export const DEFAULT_SETTINGS = Object.freeze({
+const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     // 多模型 API 配置 (直接存储 endpoint/key/model)
     models: {
@@ -81,10 +79,6 @@ export function getSettings() {
     return ctx.extensionSettings[MODULE_NAME];
 }
 
-export function saveSettings() {
-    saveSettingsDebounced();
-}
-
 // ============================================================
 // 状态管理
 // ============================================================
@@ -98,22 +92,7 @@ export function getSaoData() {
     const meta = ctx.chatMetadata;
     if (!meta) return null;  // 群聊或异常情况
     if (!meta[MODULE_NAME]) {
-        // v1 迁移：尝试从旧的角色卡 extension field 迁移
-        const char = getCurrentCharacter();
-        const legacy = char?.data?.extensions?.sao_companion;
-        if (legacy && legacy.state) {
-            meta[MODULE_NAME] = {
-                state: legacy.state || null,
-                arc: legacy.arc || 'sao',
-                calendar: null,
-                _migrated: true,
-            };
-            log('从角色卡迁移 v1 数据到 chatMetadata');
-        } else {
-            meta[MODULE_NAME] = {
-                state: null, arc: 'sao', calendar: null,
-            };
-        }
+        meta[MODULE_NAME] = { state: null, arc: 'sao', calendar: null };
     }
     const d = meta[MODULE_NAME];
     // 兼容旧字段

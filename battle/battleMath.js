@@ -2,6 +2,24 @@
 // Zero dependencies. Can be imported by battleLogic.js, battleCore.js, and test files.
 // Extracted in P4a per SAO_COMPANION_2_AGENT_ARCHITECTURE.md §5.12
 
+/**
+ * applyStatBuffs - Apply strBoost/agiBoost/intBoost/endBoost buffs to base stats
+ * @param {{str:number,agi:number,int:number,end:number}} base - mutable base stats
+ * @param {Array} buffs - buff array
+ */
+export function applyStatBuffs(base, buffs) {
+  if (!buffs) return;
+  for (let i = 0; i < buffs.length; i++) {
+    const buff = buffs[i];
+    switch (buff.type) {
+      case 'strBoost': base.str += buff.value; break;
+      case 'agiBoost': base.agi += buff.value; break;
+      case 'intBoost': base.int += buff.value; break;
+      case 'endBoost': base.end += buff.value; break;
+    }
+  }
+}
+
 export function calculateDerivedStats(str, agi, int, vit) {
     
     str = str || 0;
@@ -87,37 +105,26 @@ export function calculateFinalDamage(weaponDamage, attackerStats, targetStats, i
     return Math.max(0, Math.floor(finalDamage));
 }
 
-export function getTeammateActualStats(teammate) {
-  let str = teammate.str || 0;
-  let agi = teammate.agi || 0;
-  let int = teammate.int || 0;
-  let end = teammate.vit || 0; 
-  
-  if (teammate.buffs) {
-    teammate.buffs.forEach(buff => {
-      switch (buff.type) {
-        case 'strBoost':
-          str += buff.value;
-          break;
-        case 'agiBoost':
-          agi += buff.value;
-          break;
-        case 'intBoost':
-          int += buff.value;
-          break;
-        case 'endBoost':
-          end += buff.value;
-          break;
-      }
-    });
-  }
-  
-  const derivedStats = calculateDerivedStats(str, agi, int, end);
+/**
+ * getActualStats - Unified stat calculation with buff application
+ * @param {Object} entity - entity with str, agi, int, vit/end, buffs
+ * @param {boolean} [useEndKey=false] - return 'end' instead of 'vit' for the 4th stat
+ */
+export function getActualStats(entity, useEndKey) {
+  const base = {
+    str: entity.str || 0,
+    agi: entity.agi || 0,
+    int: entity.int || 0,
+    end: entity.vit || 0,
+  };
+
+  applyStatBuffs(base, entity.buffs);
+
+  const derivedStats = calculateDerivedStats(base.str, base.agi, base.int, base.end);
+  const fourthKey = useEndKey ? 'end' : 'vit';
   return {
-    str,
-    agi,
-    int,
-    end,
+    str: base.str, agi: base.agi, int: base.int,
+    [fourthKey]: base.end,
     hpRegen: derivedStats.hpRegen,
     mpRegen: derivedStats.mpRegen,
     actionPoints: derivedStats.actionPoints,
@@ -134,46 +141,10 @@ export function getTeammateActualStats(teammate) {
   };
 }
 
+export function getTeammateActualStats(teammate) {
+  return getActualStats(teammate, true);
+}
+
 export function getEnemyActualStats(enemy) {
-  let str = enemy.str || 0;
-  let agi = enemy.agi || 0;
-  let int = enemy.int || 0;
-  let vit = enemy.vit || 0;
-  
-  if (enemy.buffs) {
-    enemy.buffs.forEach(buff => {
-      switch (buff.type) {
-        case 'strBoost':
-          str += buff.value;
-          break;
-        case 'agiBoost':
-          agi += buff.value;
-          break;
-        case 'intBoost':
-          int += buff.value;
-          break;
-        case 'endBoost':
-          vit += buff.value;
-          break;
-      }
-    });
-  }
-  
-  const derivedStats = calculateDerivedStats(str, agi, int, vit);
-  return {
-    str,
-    agi,
-    int,
-    vit,
-    speed: derivedStats.speed,
-    evasionRate: derivedStats.evasionRate,
-    damageBonus: derivedStats.damageBonus,
-    physicalReduction: derivedStats.physicalReduction,
-    damageTakenRate: derivedStats.damageTakenRate,
-    extraHitRate: derivedStats.extraHitRate,
-    extraCritRate: derivedStats.extraCritRate,
-    baseCritMultiplier: derivedStats.baseCritMultiplier,
-    critRateResistance: derivedStats.critRateResistance,
-    critDamageResistance: derivedStats.critDamageResistance,
-  };
+  return getActualStats(enemy, false);
 }

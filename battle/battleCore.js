@@ -9,6 +9,7 @@ import {
     calculateFinalDamage,
     getTeammateActualStats,
     getEnemyActualStats,
+    applyStatBuffs,
 } from './battleMath.js';
 
 /**
@@ -19,36 +20,21 @@ import {
  * @returns {Object} Computed stats {str, agi, int, end, hpRegen, mpRegen, actionPoints, speed, ...}
  */
 export function getPlayerStatsCore(player, playerBuffs, equipmentStats) {
-    let str = (player.str || 0) + (equipmentStats.str || 0);
-    let agi = (player.agi || 0) + (equipmentStats.agi || 0);
-    let int = (player.int || 0) + (equipmentStats.int || 0);
-    let end = (player.vit || 0) + (equipmentStats.vit || 0);
+    const base = {
+        str: (player.str || 0) + (equipmentStats.str || 0),
+        agi: (player.agi || 0) + (equipmentStats.agi || 0),
+        int: (player.int || 0) + (equipmentStats.int || 0),
+        end: (player.vit || 0) + (equipmentStats.vit || 0),
+    };
 
-    if (playerBuffs) {
-        playerBuffs.forEach(buff => {
-            switch (buff.type) {
-                case 'strBoost':
-                    str += buff.value;
-                    break;
-                case 'agiBoost':
-                    agi += buff.value;
-                    break;
-                case 'intBoost':
-                    int += buff.value;
-                    break;
-                case 'endBoost':
-                    end += buff.value;
-                    break;
-            }
-        });
-    }
+    applyStatBuffs(base, playerBuffs);
 
-    const derivedStats = calculateDerivedStats(str, agi, int, end);
+    const derivedStats = calculateDerivedStats(base.str, base.agi, base.int, base.end);
     return {
-        str,
-        agi,
-        int,
-        end,
+        str: base.str,
+        agi: base.agi,
+        int: base.int,
+        end: base.end,
         hpRegen: derivedStats.hpRegen,
         mpRegen: derivedStats.mpRegen,
         actionPoints: derivedStats.actionPoints,
@@ -237,21 +223,9 @@ export function processEnchantmentEffectsCore(weapon, enemy, damage, isCrit, log
         const effectType = match[1];
         const params = match[2].split(',');
         switch (effectType) {
-            case 'B5': {
-                // B5 DoT: setup only (add buff); damage applied once at end of round by processEndOfRoundCore to avoid double-fire.
-                const b5Duration = parseInt(params[0]);
-                const b5Damage = parseInt(params[1]);
-                enemy.buffs = enemy.buffs || [];
-                enemy.buffs.push({
-                    name: '持续伤害',
-                    type: 'dot',
-                    value: b5Damage,
-                    duration: b5Duration,
-                    isPositive: false,
-                });
-                log.push(`持续伤害效果触发！${enemy.name} 将在 ${b5Duration} 回合内每回合受到 ${b5Damage} 点伤害！`);
+            case 'B5':
+                handleDOTCore(params, enemy, log);
                 break;
-            }
             case 'B10':
                 handleHealOverTimeCore(params, playerBuffs, log);
                 break;
@@ -458,80 +432,52 @@ export function processEnchantmentEffectsCore(weapon, enemy, damage, isCrit, log
 // =============================================================================
 
 /**
- * healCore - Pure version of performSingleHealing
- * @param {Object} target - {type: 'player'|'teammate'|'enemy', entity: Object}
- * @param {Object} weapon - Weapon with attack, critRate
- * @param {Object} playerStats - Player stats (for baseCritMultiplier)
- * @param {Array} log - Log array
- * @returns {Array} Instructions [{type:'heal', targetId, targetName, heal, isCrit}]
+ * restoreCore - Unified heal/mana restore logic
+ * @param {Object} target - {type, entity}
+ * @param {Object} weapon - {attack, critRate}
+ * @param {Object} playerStats - {baseCritMultiplier}
+ * @param {Array} log
+ * @param {'heal'|'mana'} type
  */
-export function healCore(target, weapon, playerStats, log) {
+function restoreCore(target, weapon, playerStats, log, type) {
+    const isHeal = type === 'heal';
     const targetName = target.type === 'player' ? (target.entity.name || 'User') : target.entity.name;
     const instructions = [];
-    let healAmount = weapon.attack;
+    let amount = weapon.attack;
 
     const critRoll = Math.random() * 100;
     const isCrit = critRoll <= weapon.critRate;
     if (isCrit) {
-        const critMultiplier = playerStats.baseCritMultiplier;
-        healAmount = Math.floor(healAmount * critMultiplier);
-        log.push("暴击治疗！对 " + targetName + " 恢复 " + healAmount + " 点生命值！");
+        amount = Math.floor(amount * playerStats.baseCritMultiplier);
+        log.push((isHeal ? "暴击治疗！对 " : "暴击恢复！对 ") + targetName + " 恢复 " + amount + " 点" + (isHeal ? "生命值" : "法力值") + "！");
     } else {
-        log.push("对 " + targetName + " 恢复 " + healAmount + " 点生命值！");
+        log.push("对 " + targetName + " 恢复 " + amount + " 点" + (isHeal ? "生命值" : "法力值") + "！");
     }
 
     const entity = target.entity;
-    const oldHp = entity.hp;
-    entity.hp = Math.min(entity.hp + healAmount, entity.maxHp);
-    const actualHeal = entity.hp - oldHp;
+    const prop = isHeal ? 'hp' : 'mp';
+    const maxProp = isHeal ? 'maxHp' : 'maxMp';
+    const oldVal = entity[prop];
+    entity[prop] = Math.min(entity[prop] + amount, entity[maxProp]);
+    const actual = entity[prop] - oldVal;
+    if (!isHeal) log.push("实际恢复了 " + actual + " 点法力值！");
 
     instructions.push({
-        type: 'heal',
+        type: isHeal ? 'heal' : 'manaRestore',
         targetId: target.type === 'player' ? 'player' : entity.id,
-        targetName: targetName,
-        heal: actualHeal,
-        isCrit: isCrit,
+        targetName,
+        ...(isHeal ? { heal: actual } : { restore: actual }),
+        isCrit,
     });
     return instructions;
 }
 
-/**
- * manaRestoreCore - Pure version of performSingleManaRestore
- * @param {Object} target - {type: 'player'|'teammate', entity: Object}
- * @param {Object} weapon - Weapon with attack, critRate
- * @param {Object} playerStats - Player stats (for baseCritMultiplier)
- * @param {Array} log - Log array
- * @returns {Array} Instructions
- */
+export function healCore(target, weapon, playerStats, log) {
+    return restoreCore(target, weapon, playerStats, log, 'heal');
+}
+
 export function manaRestoreCore(target, weapon, playerStats, log) {
-    const targetName = target.type === 'player' ? (target.entity.name || 'User') : target.entity.name;
-    const instructions = [];
-    let manaAmount = weapon.attack;
-
-    const critRoll = Math.random() * 100;
-    const isCrit = critRoll <= weapon.critRate;
-    if (isCrit) {
-        const critMultiplier = playerStats.baseCritMultiplier;
-        manaAmount = Math.floor(manaAmount * critMultiplier);
-        log.push("暴击恢复！对 " + targetName + " 恢复 " + manaAmount + " 点法力值！");
-    } else {
-        log.push("对 " + targetName + " 恢复 " + manaAmount + " 点法力值！");
-    }
-
-    const entity = target.entity;
-    const oldMp = entity.mp;
-    entity.mp = Math.min(entity.mp + manaAmount, entity.maxMp);
-    const actualRestore = entity.mp - oldMp;
-    log.push("实际恢复了 " + actualRestore + " 点法力值！");
-
-    instructions.push({
-        type: 'manaRestore',
-        targetId: target.type === 'player' ? 'player' : entity.id,
-        targetName: targetName,
-        restore: actualRestore,
-        isCrit: isCrit,
-    });
-    return instructions;
+    return restoreCore(target, weapon, playerStats, log, 'mana');
 }
 
 /**
@@ -839,14 +785,6 @@ export function executeStandardAttack(weapon, enemies, stats, player, playerBuff
     return instructions;
 }
 
-/**
- * executeAffixEffects - Process all affix codes on a weapon (B1-B22)
- * Wrapper around processEnchantmentEffectsCore.
- */
-export function executeAffixEffects(weapon, enemy, damage, isCrit, player, playerBuffs, log) {
-    return processEnchantmentEffectsCore(weapon, enemy, damage, isCrit, log, player, playerBuffs);
-}
-
 // =============================================================================
 // PHASE 2f/2g: End-of-round processing
 // =============================================================================
@@ -864,63 +802,49 @@ export function clearExpiredTempShields(player, teammates, log) {
     }
 }
 
-export function decrementBuffTurns(player, playerBuffs, enemies, teammates, log) {
-    if (playerBuffs.length > 0) {
-        playerBuffs.forEach(function(buff) {
-            // Handle both 'turns' (from index.js post-processing chain) and 'duration'
-            if (buff.turns !== undefined) buff.turns--;
-            if (buff.duration !== undefined) buff.duration--;
-            var expired = (buff.turns !== undefined && buff.turns <= 0) || (buff.duration !== undefined && buff.duration <= 0);
-            if (expired) {
-                if (buff.type === 'strDebuff') player.str += buff.value;
-                if (buff.type === 'agiDebuff') player.agi += buff.value;
-                if (buff.type === 'intDebuff') player.int += buff.value;
-                if (buff.type === 'vitDebuff') player.vit += buff.value;
-                // Stat buff expiry: revert stat boost (matches index.js)
-                if (buff.type === 'strBoost') player.str = Math.max(1, (player.str || 0) - (buff.value || 0));
-                if (buff.type === 'agiBoost') player.agi = Math.max(1, (player.agi || 0) - (buff.value || 0));
-                if (buff.type === 'intBoost') player.int = Math.max(1, (player.int || 0) - (buff.value || 0));
-                if (buff.type === 'endBoost') player.vit = Math.max(1, (player.vit || 0) - (buff.value || 0));
-                log.push(buff.name + " 效果已结束！");
+/**
+ * expireBuffs — decrement buff durations and revert stats on expiry
+ * @param {Array} buffs - mutable buff array
+ * @param {Object} entity - entity whose stats to revert
+ * @param {Object} statMap - { buffType: statKey, ... } e.g. { strBoost: 'str' }
+ * @param {string} [logPrefix] - if set, logs "{prefix} {name} 效果已结束！"
+ * @param {Array} log
+ */
+function expireBuffs(buffs, entity, statMap, logPrefix, log) {
+    for (let i = 0; i < buffs.length; i++) {
+        const buff = buffs[i];
+        if (buff.turns !== undefined) buff.turns--;
+        if (buff.duration !== undefined) buff.duration--;
+        const expired = (buff.turns !== undefined && buff.turns <= 0) || (buff.duration !== undefined && buff.duration <= 0);
+        if (expired) {
+            if (buff.type && statMap[buff.type]) {
+                const key = statMap[buff.type];
+                if (buff.type.endsWith('Boost')) {
+                    entity[key] = Math.max(1, (entity[key] || 0) - (buff.value || 0));
+                } else {
+                    entity[key] = (entity[key] || 0) + buff.value;
+                }
             }
-        });
+            log.push((logPrefix || '') + buff.name + " 效果已结束！");
+        }
     }
+}
+
+const BOOST_STAT_MAP = { strBoost: 'str', agiBoost: 'agi', intBoost: 'int', endBoost: 'vit' };
+const FULL_STAT_MAP = { ...BOOST_STAT_MAP, strDebuff: 'str', agiDebuff: 'agi', intDebuff: 'int', vitDebuff: 'vit' };
+
+export function decrementBuffTurns(player, playerBuffs, enemies, teammates, log) {
+    expireBuffs(playerBuffs, player, FULL_STAT_MAP, '', log);
     for (let i = 0; i < enemies.length; i++) {
         var enemy = enemies[i];
         if (enemy.buffs && enemy.buffs.length > 0) {
-            enemy.buffs.forEach(function(buff) {
-                if (buff.turns !== undefined) buff.turns--;
-                if (buff.duration !== undefined) buff.duration--;
-                var expired = (buff.turns !== undefined && buff.turns <= 0) || (buff.duration !== undefined && buff.duration <= 0);
-                if (expired) {
-                    if (buff.type === 'strBoost') enemy.str = Math.max(1, (enemy.str || 0) - (buff.value || 0));
-                    if (buff.type === 'agiBoost') enemy.agi = Math.max(1, (enemy.agi || 0) - (buff.value || 0));
-                    if (buff.type === 'intBoost') enemy.int = Math.max(1, (enemy.int || 0) - (buff.value || 0));
-                    if (buff.type === 'endBoost') enemy.vit = Math.max(1, (enemy.vit || 0) - (buff.value || 0));
-                    log.push(enemy.name + " 的 " + buff.name + " 效果已结束！");
-                }
-            });
+            expireBuffs(enemy.buffs, enemy, BOOST_STAT_MAP, enemy.name + " 的 ", log);
         }
     }
     for (let i = 0; i < teammates.length; i++) {
         var tm = teammates[i];
         if (tm.buffs && tm.buffs.length > 0) {
-            tm.buffs.forEach(function(buff) {
-                if (buff.turns !== undefined) buff.turns--;
-                if (buff.duration !== undefined) buff.duration--;
-                var expired = (buff.turns !== undefined && buff.turns <= 0) || (buff.duration !== undefined && buff.duration <= 0);
-                if (expired) {
-                    if (buff.type === 'strDebuff') tm.str += buff.value;
-                    if (buff.type === 'agiDebuff') tm.agi += buff.value;
-                    if (buff.type === 'intDebuff') tm.int += buff.value;
-                    if (buff.type === 'vitDebuff') tm.vit += buff.value;
-                    if (buff.type === 'strBoost') tm.str = Math.max(1, (tm.str || 0) - (buff.value || 0));
-                    if (buff.type === 'agiBoost') tm.agi = Math.max(1, (tm.agi || 0) - (buff.value || 0));
-                    if (buff.type === 'intBoost') tm.int = Math.max(1, (tm.int || 0) - (buff.value || 0));
-                    if (buff.type === 'endBoost') tm.vit = Math.max(1, (tm.vit || 0) - (buff.value || 0));
-                    log.push(tm.name + " 的 " + buff.name + " 效果已结束！");
-                }
-            });
+            expireBuffs(tm.buffs, tm, FULL_STAT_MAP, tm.name + " 的 ", log);
         }
     }
 }
@@ -1066,14 +990,6 @@ export function processEndOfRoundCore(player, playerBuffs, enemies, teammates, p
 // =============================================================================
 
 /**
- * getPlayerStatsForEnemyTarget - Helper to get player stats for enemy attack target calculation
- * Uses getTeammateActualStats with player entity (same formula, no equipment bonus needed for defense).
- */
-function getPlayerStatsForEnemyTarget(player) {
-    return getTeammateActualStats(player);
-}
-
-/**
  * performEnemyActionCore - Pure version of performEnemyAction
  * Extracts stun check, burn DoT, attackPattern selection, target selection,
  * damage calculation, and monster skill effects. Returns instruction list.
@@ -1162,7 +1078,7 @@ export function performEnemyActionCore(enemy, player, teammates, log) {
     for (let ti = 0; ti < targets.length; ti++) {
         const target = targets[ti];
         const targetStats = target.type === 'player'
-            ? getPlayerStatsForEnemyTarget(player)
+            ? getTeammateActualStats(player)
             : getTeammateActualStats(target.entity);
 
         // Effective hit rate with hitRateDown debuff

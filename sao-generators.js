@@ -8,7 +8,7 @@ import { getSettings, log } from './sao-core.js';
 // ============================================================
 
 /** 装备稀有度骰子表 (1D20): 1-6=白, 7-13=绿, 14-18=蓝, 19-20=紫 */
-export const EQUIP_RARITY_TABLE = [
+const EQUIP_RARITY_TABLE = [
     { roll: [1,6],   name: '白色', mult: 1.0, affixes: 1 },
     { roll: [7,13],  name: '绿色', mult: 1.2, affixes: 1 },
     { roll: [14,18], name: '蓝色', mult: 1.5, affixes: 2 },
@@ -16,7 +16,7 @@ export const EQUIP_RARITY_TABLE = [
 ];
 
 /** 掉落物类型骰子表 (1D10): 消耗品/材料/药草/杂物/装备 */
-export const LOOT_TYPE_TABLE = [
+const LOOT_TYPE_TABLE = [
     { roll: [1,3],  type: '消耗品', label: '药水/食物' },
     { roll: [4,5],  type: '材料',   label: '矿石/皮革/木材' },
     { roll: [6,7],  type: '药草',   label: '草药' },
@@ -25,7 +25,7 @@ export const LOOT_TYPE_TABLE = [
 ];
 
 /** 装备插槽骰子表 (1D10): 1-2=主手, 3=副手, 4=头部, 5=胸部, 6=手部, 7=腿部, 8-10=饰品 */
-export const EQUIP_SLOT_TABLE = [
+const EQUIP_SLOT_TABLE = [
     { roll: [1,2],  slot: 'main_hand', label: '主手' },
     { roll: [3,3],  slot: 'off_hand',  label: '副手' },
     { roll: [4,4],  slot: 'head',      label: '头部' },
@@ -36,7 +36,7 @@ export const EQUIP_SLOT_TABLE = [
 ];
 
 /** 装备类型骰子表 (1D5): 1=力量型, 2=敏捷型, 3=智力型, 4=耐力型, 5=全能型 */
-export const EQUIP_TYPE_TABLE = [
+const EQUIP_TYPE_TABLE = [
     { roll: [1,1], type: '力量型', mainStat: 'str' },
     { roll: [2,2], type: '敏捷型', mainStat: 'agi' },
     { roll: [3,3], type: '智力型', mainStat: 'int' },
@@ -45,7 +45,7 @@ export const EQUIP_TYPE_TABLE = [
 ];
 
 // id=35 为特殊项「上级强化」，stats=null 表示随机一条属性+4
-export const EQUIP_AFFIX_TABLE = [
+const EQUIP_AFFIX_TABLE = [
     null,
     { id: 1,  name: '力量+1',             stats: { str: 1, agi: 0, int: 0, vit: 0 } },
     { id: 2,  name: '敏捷+1',             stats: { str: 0, agi: 1, int: 0, vit: 0 } },
@@ -100,7 +100,7 @@ export const EQUIP_AFFIX_TABLE = [
 ];
 
 /** 剑技稀有度骰子表 (1D20): 1-10=白, 11-16=绿, 17-19=蓝, 20=紫 */
-export const SKILL_RARITY_TABLE = [
+const SKILL_RARITY_TABLE = [
     { roll: [1,10],  name: '白色', mult: 1.0 },
     { roll: [11,16], name: '绿色', mult: 1.2 },
     { roll: [17,19], name: '蓝色', mult: 1.5 },
@@ -108,7 +108,7 @@ export const SKILL_RARITY_TABLE = [
 ];
 
 /** 剑技核心功能骰子表 (1D20): 1-16=伤害A1, 17=终结技A5, 18=生命恢复A2, 19=法力恢复A3, 20=牺牲增益A4 */
-export const SKILL_CORE_TABLE = [
+const SKILL_CORE_TABLE = [
     { roll: [1,16],  code: 'A1', name: '伤害' },
     { roll: [17,17], code: 'A5', name: '终结技' },
     { roll: [18,18], code: 'A2', name: '生命恢复' },
@@ -120,14 +120,14 @@ export const SKILL_CORE_TABLE = [
 // 纯工具函数
 // ============================================================
 
-export function rollDice(sides) { return Math.floor(Math.random() * sides) + 1; }
-export function lookupRoll(table, rollValue) {
+function rollDice(sides) { return Math.floor(Math.random() * sides) + 1; }
+function lookupRoll(table, rollValue) {
     for (const entry of table) {
         if (rollValue >= entry.roll[0] && rollValue <= entry.roll[1]) return entry;
     }
     return table[table.length - 1];
 }
-export function resolveAffixStats(affixEntry) {
+function resolveAffixStats(affixEntry) {
     if (!affixEntry) return { str: 0, agi: 0, int: 0, vit: 0 };
     if (affixEntry.stats) return { ...affixEntry.stats };
     const keys = ['str', 'agi', 'int', 'vit'];
@@ -146,7 +146,7 @@ export function resolveAffixStats(affixEntry) {
  * @param {string} rarity - 稀有度名称，如 '白色', '绿色', '蓝色', '紫色'
  * @returns {string} 完整词缀字符串，如 'EN:B5,3,35' 或 'EN:S3'
  */
-export function generateAffixParams(affixCode, rarity) {
+function generateAffixParams(affixCode, rarity) {
     const code = affixCode.split(',')[0];
     const tier = rarity || '白色';
     const PARAM_TABLE = {

@@ -1,7 +1,7 @@
 // battle/battleRenderer.js
 // 渲染主入口 - 将战斗系统注入 Shadow DOM
 
-import { getBattleTemplate, getBattleCSS } from './battleTemplate.js';
+import { BATTLE_TEMPLATE, BATTLE_CSS } from './battleTemplate.js';
 import {
     setBattleDomRoot,
     initializeInterface,
@@ -51,6 +51,21 @@ export function removeBattleHost(messageId) {
 }
 
 /**
+ * 更新单个 HP/MP 条的 fill 宽度和文字
+ * @param {Element} container - 包含 fill/text 元素的容器
+ * @param {string} fillSel - fill 元素选择器
+ * @param {string} textSel - text 元素选择器
+ * @param {number} cur - 当前值
+ * @param {number} max - 最大值
+ */
+function updateBar(container, fillSel, textSel, cur, max) {
+    const fill = container.querySelector(fillSel);
+    if (fill && max) fill.style.width = `${Math.max(0, Math.min(100, (cur / max) * 100))}%`;
+    const text = container.querySelector(textSel);
+    if (text) text.textContent = `${Math.max(0, cur)}/${max || '?'}`;
+}
+
+/**
  * P4b: 战斗结算后更新 Shadow DOM 面板（HP/MP 条 + 敌人状态）
  * @param {number} messageId - 消息 ID
  * @param {Object} combatResult - resolveCombatRound 返回的结算对象
@@ -63,45 +78,21 @@ export function updateBattlePanelAfterCombat(messageId, combatResult) {
     try {
         // 1. 更新玩家 HP/MP 条
         if (combatResult.playerAfter) {
-            const hpFill = shadowRoot.querySelector('#combat-player-panel .hp-fill');
-            const hpText = shadowRoot.querySelector('#combat-player-panel .hp-text');
-            if (hpFill && combatResult.playerAfter.maxHp) {
-                const pct = Math.max(0, Math.min(100, (combatResult.playerAfter.hp / combatResult.playerAfter.maxHp) * 100));
-                hpFill.style.width = pct + '%';
-            }
-            if (hpText && combatResult.playerAfter.maxHp) {
-                hpText.textContent = `${Math.max(0, combatResult.playerAfter.hp)}/${combatResult.playerAfter.maxHp}`;
-            }
-
-            const mpFill = shadowRoot.querySelector('#combat-player-panel .mp-fill');
-            const mpText = shadowRoot.querySelector('#combat-player-panel .mp-text');
-            if (mpFill && combatResult.playerAfter.maxMp) {
-                const pct = Math.max(0, Math.min(100, (combatResult.playerAfter.mp / combatResult.playerAfter.maxMp) * 100));
-                mpFill.style.width = pct + '%';
-            }
-            if (mpText && combatResult.playerAfter.maxMp) {
-                mpText.textContent = `${Math.max(0, combatResult.playerAfter.mp)}/${combatResult.playerAfter.maxMp}`;
-            }
+            const p = combatResult.playerAfter;
+            const panel = shadowRoot.querySelector('#combat-player-panel');
+            updateBar(panel, '.hp-fill', '.hp-text', p.hp, p.maxHp);
+            updateBar(panel, '.mp-fill', '.mp-text', p.mp, p.maxMp);
         }
 
         // 2. 更新敌人列表 HP 状态
         if (Array.isArray(combatResult.enemiesAfter)) {
             const enemyItems = shadowRoot.querySelectorAll('#combat-enemy-panel .enemy-item');
-            combatResult.enemiesAfter.forEach((enemyAfter, idx) => {
+            combatResult.enemiesAfter.forEach((enemy, idx) => {
                 if (idx >= enemyItems.length) return;
-                const item = enemyItems[idx];
-                const hpFill = item.querySelector('.hp-fill');
-                const hpText = item.querySelector('.hp-text');
-                if (hpFill && enemyAfter.maxHp) {
-                    const pct = Math.max(0, (enemyAfter.hp / enemyAfter.maxHp) * 100);
-                    hpFill.style.width = pct + '%';
-                }
-                if (hpText) {
-                    hpText.textContent = `${enemyAfter.hp}/${enemyAfter.maxHp || '?'}`;
-                }
-                if (enemyAfter.defeated) {
-                    item.style.opacity = '0.4';
-                    item.style.filter = 'grayscale(1)';
+                updateBar(enemyItems[idx], '.hp-fill', '.hp-text', enemy.hp, enemy.maxHp);
+                if (enemy.defeated) {
+                    enemyItems[idx].style.opacity = '0.4';
+                    enemyItems[idx].style.filter = 'grayscale(1)';
                 }
             });
         }
@@ -109,18 +100,9 @@ export function updateBattlePanelAfterCombat(messageId, combatResult) {
         // 3. 更新队友 HP 状态
         if (Array.isArray(combatResult.teammatesAfter)) {
             const tmItems = shadowRoot.querySelectorAll('.teammate-item');
-            combatResult.teammatesAfter.forEach((tmAfter, idx) => {
+            combatResult.teammatesAfter.forEach((tm, idx) => {
                 if (idx >= tmItems.length) return;
-                const item = tmItems[idx];
-                const hpFill = item.querySelector('.hp-fill');
-                const hpText = item.querySelector('.hp-text');
-                if (hpFill && tmAfter.maxHp) {
-                    const pct = Math.max(0, (tmAfter.hp / tmAfter.maxHp) * 100);
-                    hpFill.style.width = pct + '%';
-                }
-                if (hpText && tmAfter.maxHp) {
-                    hpText.textContent = `${Math.max(0, tmAfter.hp)}/${tmAfter.maxHp}`;
-                }
+                updateBar(tmItems[idx], '.hp-fill', '.hp-text', tm.hp, tm.maxHp);
             });
         }
     } catch (e) {
@@ -152,7 +134,7 @@ export function renderBattlePanel(messageEl, rawText, messageId) {
 
     // 注入 CSS
     const style = document.createElement('style');
-    style.textContent = getBattleCSS();
+    style.textContent = BATTLE_CSS;
     shadow.appendChild(style);
 
     // 注入 Font Awesome CSS 到 Shadow DOM（全局样式不穿透 Shadow 边界）
@@ -163,7 +145,7 @@ export function renderBattlePanel(messageEl, rawText, messageId) {
 
     // 注入 HTML 模板
     const templateWrapper = document.createElement('div');
-    templateWrapper.innerHTML = getBattleTemplate();
+    templateWrapper.innerHTML = BATTLE_TEMPLATE;
     while (templateWrapper.firstChild) {
         shadow.appendChild(templateWrapper.firstChild);
     }

@@ -41,64 +41,11 @@ export function registerSaoDompurifyHook() {
  */
 function sanitizeInlineSaoHtml(html) {
     if (!html) return '';
-    const allowed = {
-        br: {},
-        font: { color: true },
-        span: { style: true, color: true },
-        b: {},
-        strong: {},
-        i: {},
-        em: {},
-        div: { style: true },
-        details: { open: true },
-        summary: {},
-    };
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
-    const root = doc.body.firstChild;
-    function walk(node) {
-        if (node.nodeType === 3) return document.createTextNode(node.data);
-        if (node.nodeType !== 1) return null;
-        const tag = node.nodeName.toLowerCase();
-        if (!allowed[tag]) {
-            if (tag === 'script' || tag === 'style' || tag === 'template') return null;
-            const frag = document.createDocumentFragment();
-            for (const child of Array.from(node.childNodes)) {
-                const n = walk(child);
-                if (n) frag.appendChild(n);
-            }
-            return frag;
-        }
-        const spec = allowed[tag];
-        const el = document.createElement(tag);
-        for (const attr of Array.from(node.attributes)) {
-            const aname = attr.name.toLowerCase();
-            if (aname.startsWith('on')) continue;
-            if (/^data-/i.test(aname)) continue;
-            if (aname === 'style') {
-                const styleVal = attr.value.toLowerCase();
-                if (/javascript\s*:|expression\s*\(|behavior\s*:|url\s*\(\s*['"]?\s*(?:javascript|data)\s*:/i.test(styleVal)) continue;
-                const safeStyle = styleVal.split(';').every(part => {
-                    const [prop] = part.split(':');
-                    const name = (prop || '').trim();
-                    return !name || ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration'].includes(name);
-                });
-                if (!safeStyle) continue;
-            }
-            if (spec[aname]) el.setAttribute(attr.name, attr.value);
-        }
-        for (const child of Array.from(node.childNodes)) {
-            const n = walk(child);
-            if (n) el.appendChild(n);
-        }
-        return el;
-    }
-    const out = document.createElement('div');
-    for (const child of Array.from(root.childNodes)) {
-        const n = walk(child);
-        if (n) out.appendChild(n);
-    }
-    return out.innerHTML;
+    return DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: ['br', 'font', 'span', 'b', 'strong', 'i', 'em', 'div', 'details', 'summary'],
+        ALLOWED_ATTR: ['color', 'style', 'open'],
+        ALLOWED_CSS_PROPERTIES: ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration'],
+    });
 }
 /**
  * 根据 year/month/current_day/days 生成原卡日历网格 HTML。

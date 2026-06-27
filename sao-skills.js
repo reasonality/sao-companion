@@ -39,7 +39,7 @@ export const CUSTOM_SKILL_DEFS = {
  * @param {Object} state - data.state
  * @returns {Object|null} 技能定义或 null
  */
-export function findSkillByName(name, state) {
+function findSkillByName(name, state) {
     // 1. Custom skills first (already acquired)
     for (const id of (state.customSkills || [])) {
         const def = CUSTOM_SKILL_DEFS[id];
@@ -54,7 +54,7 @@ export function findSkillByName(name, state) {
  * 技能获取通知
  * @param {Object} def - CUSTOM_SKILL_DEFS 中的技能定义
  */
-export function injectSkillAcquisition(def) {
+function injectSkillAcquisition(def) {
     if (typeof toastr !== 'undefined') {
         toastr.success(`获得技能：${def.name}`, 'SAO Companion');
     }
@@ -79,8 +79,6 @@ export function checkCustomSkillUnlocks(messageText) {
             case 'floor': unlocked = data.state.floor >= def._unlock.floor; break;
             case 'chapter': unlocked = data.arc === def._unlock.arc; break;
             case 'keyword': unlocked = messageText.includes(def._unlock.keyword); break;
-            case 'manual': unlocked = false; break;
-            // TODO: implement grantCustomSkill(skillId) + window.SAO.grantCustomSkill (per architecture doc 6.6.1) when the first manual-type custom skill is added to CUSTOM_SKILL_DEFS.
         }
         if (unlocked) {
             data.state.customSkills.push(id); // store ID only, not full def
@@ -95,11 +93,9 @@ export function checkCustomSkillUnlocks(messageText) {
  * 移除已解锁的自定义技能
  * @param {string} skillId - CUSTOM_SKILL_DEFS 中的技能 ID
  */
-export function removeCustomSkill(skillId) {
+function removeCustomSkill(skillId) {
     const data = getSaoData();
     if (!data?.state?.customSkills) return;
     data.state.customSkills = data.state.customSkills.filter(id => id !== skillId);
     saveSaoDataNow();
 }
-
-// TODO: grantCustomSkill — 待首个 manual 类型自定义技能加入时实现

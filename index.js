@@ -6,10 +6,11 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import {
     MODULE_NAME, logs,
     esc, getContext, getCurrentCharacter, isSaoCard,
-    getSettings, saveSettings,
+    getSettings,
     getSaoData, saveSaoDataNow,
     log, updateLogDisplay,
 } from './sao-core.js';
+import { saveSettingsDebounced } from '../../../../script.js';
 import {
     resolveAffixArgs,
     generateEquipment, generateSkill, generateLoot,
@@ -28,8 +29,6 @@ import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
 import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
-    checkMigrationReadiness, executeWorldBookMigration,
-    restoreWorldBook, backupWorldBook,
 } from './sao-tools.js';
 // memory.js 已移除
 import { cleanSaoPromptText, injectMemoryAndState } from './sao-prompt.js';
@@ -341,27 +340,6 @@ ${formulas}
 // 生成子代理已迁移至 sao-generators.js
 // ============================================================
 
-/**
- * NPC 反应生成（用 narrative 角色）
- * @param {string} npcName, {string} situation
- * @returns {Promise<string|null>} NPC 反应文本
- */
-async function generateNpcReaction(npcName, situation) {
-    const settings = getSettings();
-    // narrative 未配置则跳过
-    const cfg = settings.models.narrative;
-    if (!cfg.url || !cfg.model) return null;
-
-    try {
-        const result = await callModel('narrative', [
-            { role: 'system', content: `你是 ${npcName}，根据当前情境生成这个 NPC 的内心反应和微表情（50-100字）。只输出反应描写，不要 JSON。` },
-            { role: 'user', content: `当前情境: ${situation.substring(0, 2000)}` },
-        ], 256);
-        log(`NPC(${npcName}) 反应生成完成`);
-        return result.trim();
-    } catch (e) { log('NPC反应生成失败: ' + e.message, 'warn'); return null; }
-}
-
 // ============================================================
 // SAO 卡兼容模式（替代 TavernHelper 脚本）
 // ============================================================
@@ -476,7 +454,7 @@ function disableCompatMode() {
             log('恢复正则脚本状态失败: ' + e.message, 'warn');
         }
         delete settings._savedRegexState;
-        saveSettings();
+        saveSettingsDebounced();
     }
 }
 
@@ -622,7 +600,7 @@ function enableCardRegex() {
 
         if (enabled > 0 || forceDisabled > 0) {
             log(`已启用 ${enabled} 个角色卡正则脚本（共 ${scripts.length} 个）`);
-            saveSettings();
+            saveSettingsDebounced();
         }
     } catch (e) {
         log('启用正则脚本失败: ' + e.message, 'warn');
@@ -1607,9 +1585,6 @@ function initPanelLogic() {
             const overlay = document.getElementById('sao_panel_overlay');
             if (overlay) overlay.style.display = 'none';
         },
-        showDetail(title, html) {
-            showDetailModal(title, html);
-        },
         closeDetail() {
             closeDetailModal();
         },
@@ -1621,7 +1596,7 @@ function initPanelLogic() {
             document.querySelector(`.sao-tab-content[data-content="${tabName}"]`)?.classList.add('active');
             if (tabName === 'calendar') _renderCalendarTab();
         },
-        renderCalendarTab() { _renderCalendarTab(); },
+
         // 拉取模型列表
         async fetchModels(role) {
             const testEl = document.getElementById(`sao_${role}_test`);
@@ -1695,7 +1670,7 @@ function initPanelLogic() {
         switchArc(arc) {
             const settings = getSettings();
             settings.currentArc = arc;
-            saveSettings();
+            saveSettingsDebounced();
             const data = getSaoData();
             if (data) data.arc = arc;
             switchWorldInfoEntries(arc);
@@ -1754,11 +1729,7 @@ function initPanelLogic() {
                 testEl.textContent = '✗ ' + e.message;
             }
         },
-        // P7: 世界书迁移
-        checkMigrationReadiness() { return checkMigrationReadiness(); },
-        executeWorldBookMigration() { return executeWorldBookMigration(); },
-        restoreWorldBook() { return restoreWorldBook(); },
-        backupWorldBook() { return backupWorldBook(); },
+
     };
 
     // 面板事件委托（替代 onclick 内联事件，避免 DOMPurify 清洗）
@@ -1854,7 +1825,7 @@ function saveModelsToSettings() {
         const model = document.getElementById(`sao_${role}_model`)?.value || '';
         settings.models[role] = { url, key, model };
     });
-    saveSettings();
+    saveSettingsDebounced();
 }
 
 function loadSettingsToPanel() {
@@ -2002,13 +1973,13 @@ async function loadSettingsPanel() {
     // 绑定启用开关
     $('#sao_companion_enabled').on('change', function() {
         settings.enabled = !!$(this).prop('checked');
-        saveSettings();
+        saveSettingsDebounced();
     });
 
     // 绑定兼容模式开关
     $('#sao_compat_mode').on('change', function() {
         settings.compatMode = !!$(this).prop('checked');
-        saveSettings();
+        saveSettingsDebounced();
         if (settings.compatMode && isSaoCard()) {
             enableCompatMode();
         } else if (!settings.compatMode) {

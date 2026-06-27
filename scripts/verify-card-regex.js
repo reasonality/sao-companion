@@ -2,7 +2,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 
 const PNG_PATH = process.argv[2] || 'C:/Users/23934/Desktop/AI/SAO-card/2.0.0.png';
 const JSON_PATH = process.argv[3] || 'C:/Users/23934/Desktop/AI/SAO-card/2.0.0_extracted.json';

@@ -1,4 +1,4 @@
-﻿import {
+import {
     calculateDerivedStats,
     calculateFinalHitRate,
     calculateFinalCritRate,
@@ -24,7 +24,6 @@ import {
     selectTargets,
     applyDamageToEnemy,
     executeStandardAttack,
-    executeAffixEffects,
     clearExpiredTempShields,
     decrementBuffTurns,
     removeExpiredBuffs,
@@ -72,17 +71,13 @@ function applyInstructionsToDom(instructions, options = {}) {
                         addHpChangeAnimation('player');
                     } else {
                         // Teammate heal
-                        const healEl = memoryManager.getHealNumber();
+                        const healEl = document.createElement('div');
                         healEl.className = 'heal-number';
                         healEl.textContent = `+${inst.heal}`;
                         const tmEl = domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${inst.targetId}"]`);
                         if (tmEl) {
                             tmEl.appendChild(healEl);
-                            memoryManager.activeHealNumbers.add(healEl);
-                            memoryManager.safeSetTimeout(() => {
-                                if (healEl.parentNode) healEl.parentNode.removeChild(healEl);
-                                memoryManager.recycleHealNumber(healEl);
-                            }, 1200);
+                            setTimeout(() => healEl.remove(), 1200);
                             addHpChangeAnimation('teammate', inst.targetId);
                         }
                     }
@@ -135,7 +130,6 @@ const sideEffectsState = {
     initialized: false,
     intervalId: null,
     resizeHandler: null,
-    observer: null,
     runCmdPatched: false,
     beforeunloadHandler: null,
     unloadHandler: null,
@@ -239,22 +233,7 @@ export function setBattleDomRoot(root) {
         return stats;
       }
       
-      // B1 fix: DOM queries moved to lazy getter functions (were top-level const returning null)
-      function getStatusDataSource() { return domRoot.getElementById('status-data-source'); }
-      function getPreparationScreen() { return domRoot.getElementById('preparation-screen'); }
-      function getPlayerStatus() { return domRoot.getElementById('player-status'); }
-      function getPilotsContainer() { return domRoot.getElementById('pilots-container'); }
-      function getCombatControls() { return domRoot.getElementById('combat-controls'); }
-      function getCombatInterface() { return domRoot.getElementById('combat-interface'); }
-      function getCombatPlayerPanel() { return domRoot.getElementById('combat-player-panel'); }
-      function getCombatEnemyPanel() { return domRoot.getElementById('combat-enemy-panel'); }
-      function getMeleeWeaponList() { return domRoot.getElementById('melee-weapon-list'); }
-      function getCombatLog() { return domRoot.getElementById('combat-log'); }
-      function getResultModal() { return domRoot.getElementById('result-modal'); }
-      function getResultSummary() { return domRoot.getElementById('result-summary'); }
-      function getExtraResultText() { return domRoot.getElementById('extra-result-text'); }
-      function getCloseResultBtn() { return domRoot.getElementById('close-result'); }
-      function getSendResultBtn() { return domRoot.getElementById('send-result'); }
+      // B1 fix: DOM queries inlined — getters removed (ponytail: YAGNI wrappers)
 
       const weaponSpecialEffects = {
         A1: () => `伤害输出模板：攻击敌人`,
@@ -517,8 +496,6 @@ function parseStatusData(data) {
   if (enemyBlocks) {
     let enemyIndex = 0; 
     
-    const derivedEnemyTemplates = {};
-    
     enemyBlocks.forEach(block => {
       
       const isDerivative = block.startsWith('[DENN:');
@@ -627,17 +604,12 @@ function parseStatusData(data) {
           enemy.attackPattern = enemy.skills.map(skill => skill.name);
         }
 
-        if (isDerivative) {
-          
-          derivedEnemyTemplates[enemy.name] = enemy;
-        } else {
-          
+        if (!isDerivative) {
           battleData.enemies.push(enemy);
         }
       }
     });
 
-    battleData.derivedEnemyTemplates = derivedEnemyTemplates;
   }
   return battleData;
 }
@@ -669,7 +641,6 @@ let battleState = {
   
   actionOrder: [], 
   currentActionIndex: 0, 
-  actionsThisRound: {}, 
 };
 
 // ============================================================
@@ -892,7 +863,7 @@ function initializeInterface(battleDataParam) {
     updateTeammatesStatus(bd.teammates);
     updateEnemiesDisplay(bd.enemies);
     createBattleButton();
-    getCombatInterface().style.display = 'none';
+    domRoot.getElementById('combat-interface').style.display = 'none';
     lazyRenderManager.isPreparationRendered = true;
   }, 'preparation');
 }
@@ -1286,7 +1257,7 @@ function updatePlayerStatus(player) {
                     </div>`;
   });
   html += `</div></div>`;
-  getPlayerStatus().innerHTML = html;
+  domRoot.getElementById('player-status').innerHTML = html;
 }
 
 function updateEnemiesDisplay(enemies) {
@@ -1396,7 +1367,7 @@ function updateEnemiesDisplay(enemies) {
                     </div>`;
   });
   html += `</div>`;
-  getPilotsContainer().innerHTML = html;
+  domRoot.getElementById('pilots-container').innerHTML = html;
   
   domRoot.querySelectorAll('#pilots-container .enemy-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -1412,7 +1383,7 @@ function createBattleButton() {
   if (!lazyRenderManager.shouldRenderPreparation()) {
     return;
   }
-  getCombatControls().innerHTML = `
+  domRoot.getElementById('combat-controls').innerHTML = `
                 <div style="display: flex; justify-content: center; gap: 10px;">
                     <button id="start-battle" class="battle-button"><i class="fas fa-fist-raised"></i> 进入战斗</button>
                     <button id="quick-battle" class="battle-button" style="background-color: var(--secondary-color);"><i class="fas fa-forward"></i> 快速战斗</button>
@@ -1424,7 +1395,7 @@ function createBattleButton() {
 }
 
       function startQuickBattle() {
-        const data = getStatusDataSource().textContent;
+        const data = domRoot.getElementById('status-data-source').textContent;
         const fullBattleData = parseStatusData(data);
         
         const selectedEnemyElements = domRoot.querySelectorAll('#pilots-container .enemy-item.selected');
@@ -1439,11 +1410,11 @@ function createBattleButton() {
 
         const selectedTeammates = battleState.selectedTeammates || [];
 
-        const clonedEnemies = JSON.parse(JSON.stringify(selectedEnemies));
+        const clonedEnemies = structuredClone(selectedEnemies);
         battleState = {
           round: 1,
-          player: JSON.parse(JSON.stringify(fullBattleData.player)),
-          teammates: JSON.parse(JSON.stringify(selectedTeammates)), 
+          player: structuredClone(fullBattleData.player),
+          teammates: structuredClone(selectedTeammates), 
           enemies: clonedEnemies,
           playerBuffs: [],
           weaponUsage: {}, 
@@ -1875,20 +1846,20 @@ function createBattleButton() {
         summaryHtml += `</ul>`;
       }
       
-      getResultSummary().innerHTML = summaryHtml;
-      getResultModal().style.display = 'flex';
+      domRoot.getElementById('result-summary').innerHTML = summaryHtml;
+      domRoot.getElementById('result-modal').style.display = 'flex';
       
-      getCloseResultBtn().removeEventListener('click', closeResultHandler);
-      getSendResultBtn().removeEventListener('click', sendResultHandler);
+      domRoot.getElementById('close-result').removeEventListener('click', closeResultHandler);
+      domRoot.getElementById('send-result').removeEventListener('click', sendResultHandler);
       
-      getCloseResultBtn().addEventListener('click', closeResultHandler);
+      domRoot.getElementById('close-result').addEventListener('click', closeResultHandler);
       
-      getSendResultBtn().addEventListener('click', sendResultHandler);
+      domRoot.getElementById('send-result').addEventListener('click', sendResultHandler);
     }
       function closeResultHandler() {
-        getResultModal().style.display = 'none';
+        domRoot.getElementById('result-modal').style.display = 'none';
         
-        getExtraResultText().value = '';
+        domRoot.getElementById('extra-result-text').value = '';
         
         battleState.isActive = false;
         battleState.attackInProgress = false;
@@ -1896,7 +1867,7 @@ function createBattleButton() {
       
       function sendResultHandler() {
         
-        const extraText = getExtraResultText().value.trim();
+        const extraText = domRoot.getElementById('extra-result-text').value.trim();
         
         let message = '';
         if (StateValidator.isVictory()) {
@@ -2009,9 +1980,9 @@ function createBattleButton() {
             console.error('发送战斗结果失败:', e);
           });
         
-        getResultModal().style.display = 'none';
+        domRoot.getElementById('result-modal').style.display = 'none';
         
-        getExtraResultText().value = '';
+        domRoot.getElementById('extra-result-text').value = '';
         
         battleState.isActive = false;
         battleState.attackInProgress = false;
@@ -2021,8 +1992,6 @@ function createBattleButton() {
         
         battleState.actionOrder = [];
         battleState.currentActionIndex = 0;
-        battleState.actionsThisRound = {};
-        
         const allParticipants = [];
         
         allParticipants.push({
@@ -2055,10 +2024,6 @@ function createBattleButton() {
         
         battleState.actionOrder = calculateActionOrderCore(allParticipants);
         
-        allParticipants.forEach(participant => {
-          battleState.actionsThisRound[`${participant.type}-${participant.id}`] = 0;
-        });
-        
         let actionOrderText = '行动顺序: ';
         battleState.actionOrder.forEach((action, index) => {
           actionOrderText += `${index + 1}.${action.name}`;
@@ -2071,7 +2036,7 @@ function createBattleButton() {
       }
       
       function startBattle() {
-        const data = getStatusDataSource().textContent;
+        const data = domRoot.getElementById('status-data-source').textContent;
         battleData = parseStatusData(data);
         const selectedEnemyElements = domRoot.querySelectorAll('#pilots-container .enemy-item.selected');
         const selectedEnemyIndices = Array.from(selectedEnemyElements).map(el =>
@@ -2089,14 +2054,13 @@ function createBattleButton() {
 
         battleState.currentItemUsed = false;
         battleState.playerBuffs = [];
-        battleState.player = JSON.parse(JSON.stringify(battleData.player));
-        battleState.teammates = JSON.parse(JSON.stringify(selectedTeammates)); 
+        battleState.player = structuredClone(battleData.player);
+        battleState.teammates = structuredClone(selectedTeammates); 
         battleState.currentTeammate = null; 
         
-        const clonedEnemies = JSON.parse(JSON.stringify(selectedEnemies));
+        const clonedEnemies = structuredClone(selectedEnemies);
         battleState.enemies = clonedEnemies;
         battleState.initialEnemies = clonedEnemies; 
-        battleState.derivedEnemyTemplates = battleData.derivedEnemyTemplates || {}; 
         battleState.selectedEnemies = [];
         battleState.selectedHealTargets = []; 
         battleState.currentWeapon = null;
@@ -2119,14 +2083,14 @@ function createBattleButton() {
         lazyRenderManager.isCombatRendered = true;
         domRoot.querySelector('.container').style.display = 'none';
         initializeBattleInterface();
-        getCombatInterface().style.display = 'block';
+        domRoot.getElementById('combat-interface').style.display = 'block';
         
         lazyRenderManager.safeUpdateInterface(() => {
           
           calculateActionOrder();
           logBattleAction(`第 ${battleState.round} 回合开始！`);
           
-          memoryManager.safeSetTimeout(() => {
+          setTimeout(() => {
             forceUpdateUI();
             showCurrentActor(); 
             updateHateDisplay(); 
@@ -2247,7 +2211,7 @@ function createBattleButton() {
       }
       function initializeBattleInterface() {
         updateBattleUI({ player: true, enemy: true, weapons: true, items: true });
-        getCombatLog().innerHTML = '';
+        domRoot.getElementById('combat-log').innerHTML = '';
         
         const actionOrderDisplay = domRoot.getElementById('action-order-display');
         if (actionOrderDisplay) {
@@ -2728,7 +2692,7 @@ function createBattleButton() {
           });
         }
         
-        getCombatPlayerPanel().innerHTML = html;
+        domRoot.getElementById('combat-player-panel').innerHTML = html;
         
         domRoot.querySelector('.combat-entity.player').addEventListener('click', function () {
           
@@ -2831,7 +2795,7 @@ function createBattleButton() {
         if (!lazyRenderManager.shouldRenderCombat()) {
           return;
         }
-        getCombatEnemyPanel().innerHTML = battleState.enemies
+        domRoot.getElementById('combat-enemy-panel').innerHTML = battleState.enemies
           .map((enemy, index) => {
             
             const actualStats = getEnemyActualStats(enemy);
@@ -3486,7 +3450,7 @@ function createBattleButton() {
         }
         
         const allWeapons = battleState.player.weapons || [];
-        getMeleeWeaponList().innerHTML =
+        domRoot.getElementById('melee-weapon-list').innerHTML =
           allWeapons.length > 0
             ? allWeapons
                 .map(weapon => {
@@ -3631,7 +3595,7 @@ function createBattleButton() {
           
           battleState.currentItem = null;
           
-          memoryManager.safeSetTimeout(
+          setTimeout(
             () => {
               updatePlayerPanel();
               updateEnemyPanel();
@@ -3999,7 +3963,7 @@ function createBattleButton() {
             
             playerEntity.classList.remove('attack-animation-forward');
             
-            memoryManager.safeSetTimeout(() => {
+            setTimeout(() => {
               updatePlayerPanel();
               updateEnemyPanel();
             }, 1500); 
@@ -4133,7 +4097,7 @@ function createBattleButton() {
         
         addHealHate('player', battleState.player.name || 'User', healAmount);
         
-        memoryManager.safeSetTimeout(() => {
+        setTimeout(() => {
           updateBattleUI({ player: true, enemy: true, weapons: true });
           updateHateDisplay(); 
           
@@ -4180,7 +4144,7 @@ function createBattleButton() {
           logBattleAction(`实际恢复了 ${actualRestore} 点法力值！`);
         }
         
-        memoryManager.safeSetTimeout(() => {
+        setTimeout(() => {
           updateBattleUI({ player: true, enemy: true, weapons: true });
           updateHateDisplay(); 
           
@@ -4214,7 +4178,7 @@ function createBattleButton() {
           );
         }
         
-        memoryManager.safeSetTimeout(() => {
+        setTimeout(() => {
           updateBattleUI({ player: true, enemy: true, weapons: true });
           updateHateDisplay(); 
           
@@ -4451,6 +4415,9 @@ function createBattleButton() {
 
         performNextA5Attack();
       }
+// ponytail: two enchantment dispatchers kept — different Core delegation (player calls processEnchantmentEffectsCore,
+// teammate doesn't) + different handler targets (battleState.player vs teammate). Merging saves ~60 lines but adds
+// isTeammate branching in 15+ case arms. Safe refactor if both paths converge on Core.
 function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
   if (!weapon.codes) return 0;
   let totalExtraDamage = 0;
@@ -5386,10 +5353,10 @@ const handleTeammateVitalityBoost = (params, teammate) =>
             });
           }
           victoryHtml += `</div>`;
-          getResultSummary().innerHTML = victoryHtml;
+          domRoot.getElementById('result-summary').innerHTML = victoryHtml;
         } else {
           logBattleAction(`战斗失败！你被击败了！`);
-          getResultSummary().innerHTML = `
+          domRoot.getElementById('result-summary').innerHTML = `
                       <h3 class="defeat">战斗失败！</h3>
                       <p>你被${battleState.lastKilledBy ? ' ' + battleState.lastKilledBy + ' ' : ''}击败了！</p>
                       <p>HP变为0</p>
@@ -5398,27 +5365,27 @@ const handleTeammateVitalityBoost = (params, teammate) =>
         
         const battleStats = collectBattleStatistics();
         
-        getResultModal().style.display = 'flex';
+        domRoot.getElementById('result-modal').style.display = 'flex';
         
-        getCloseResultBtn().removeEventListener('click', closeResultHandler);
-        getSendResultBtn().removeEventListener('click', sendResultHandler);
+        domRoot.getElementById('close-result').removeEventListener('click', closeResultHandler);
+        domRoot.getElementById('send-result').removeEventListener('click', sendResultHandler);
         
-        getCloseResultBtn().addEventListener('click', function () {
-          getResultModal().style.display = 'none';
-          getCombatInterface().style.display = 'none';
+        domRoot.getElementById('close-result').addEventListener('click', function () {
+          domRoot.getElementById('result-modal').style.display = 'none';
+          domRoot.getElementById('combat-interface').style.display = 'none';
           domRoot.querySelector('.container').style.display = 'block';
           battleState.isActive = false;
           // 持久化：战斗结束，清除保存的状态
           if (typeof _onBattleEnd === 'function') _onBattleEnd();
           
-          getExtraResultText().value = '';
+          domRoot.getElementById('extra-result-text').value = '';
           updatePlayerStatus(battleState.player);
           createBattleButton();
         });
         
-        getSendResultBtn().addEventListener('click', function () {
+        domRoot.getElementById('send-result').addEventListener('click', function () {
           
-          const extraText = getExtraResultText().value.trim();
+          const extraText = domRoot.getElementById('extra-result-text').value.trim();
           
           let message = '';
           
@@ -5507,43 +5474,31 @@ const handleTeammateVitalityBoost = (params, teammate) =>
               logBattleAction('发送失败！');
             });
           
-          getResultModal().style.display = 'none';
-          getCombatInterface().style.display = 'none';
+          domRoot.getElementById('result-modal').style.display = 'none';
+          domRoot.getElementById('combat-interface').style.display = 'none';
           domRoot.querySelector('.container').style.display = 'block';
           battleState.isActive = false;
           // 持久化：战斗结束，清除保存的状态
           if (typeof _onBattleEnd === 'function') _onBattleEnd();
           
-          getExtraResultText().value = '';
+          domRoot.getElementById('extra-result-text').value = '';
           updatePlayerStatus(battleState.player);
           createBattleButton();
         });
       }
       
       function logBattleAction(message) {
+        const logEntry = document.createElement('div');
+        logEntry.className = 'log-entry';
+        logEntry.textContent = message;
         
-        let logEntry;
-        if (memoryManager.logEntryPool.length > 0) {
-          logEntry = memoryManager.logEntryPool.pop();
-          logEntry.textContent = message;
-        } else {
-          logEntry = document.createElement('div');
-          logEntry.className = 'log-entry';
-          logEntry.textContent = message;
-        }
-        
-        const cl = getCombatLog();
+        const cl = domRoot.getElementById('combat-log');
         cl.appendChild(logEntry);
         cl.scrollTop = cl.scrollHeight;
         
         const COMBAT_LOG_MAX_LINES = 50;
         while (cl.children.length > COMBAT_LOG_MAX_LINES) {
-          const removedEntry = cl.removeChild(cl.firstChild);
-          
-          if (memoryManager.logEntryPool.length < 20) {
-            removedEntry.textContent = '';
-            memoryManager.logEntryPool.push(removedEntry);
-          }
+          cl.removeChild(cl.firstChild);
         }
         
         if (battleState && battleState.fullCombatLog) {
@@ -5556,7 +5511,7 @@ const handleTeammateVitalityBoost = (params, teammate) =>
       }
       
       function showDamageNumber(target, amount, isCrit = false, enemyId = null, teammateId = null) {
-        const damageElement = memoryManager.getDamageNumber();
+        const damageElement = document.createElement('div');
         damageElement.className = `damage-number ${isCrit ? 'critical' : ''}`;
         damageElement.textContent = amount;
         let targetElement;
@@ -5571,7 +5526,6 @@ const handleTeammateVitalityBoost = (params, teammate) =>
         }
         if (targetElement) {
           targetElement.appendChild(damageElement);
-          memoryManager.activeDamageNumbers.add(damageElement);
           
           const randomX = Math.floor(Math.random() * 30) - 15;
           const randomY = Math.floor(Math.random() * 15) - 5;
@@ -5579,12 +5533,7 @@ const handleTeammateVitalityBoost = (params, teammate) =>
           damageElement.style.top = `${50 + randomY}%`;
           damageElement.style.left = `${50 + randomX}%`;
           
-          memoryManager.safeSetTimeout(() => {
-            if (damageElement.parentNode) {
-              damageElement.parentNode.removeChild(damageElement);
-            }
-            memoryManager.recycleDamageNumber(damageElement);
-          }, 1200);
+          setTimeout(() => damageElement.remove(), 1200);
         }
       }
       
@@ -5595,9 +5544,10 @@ const handleTeammateVitalityBoost = (params, teammate) =>
         flash.className = 'death-flash';
         targetElement.appendChild(flash);
         
-        const particleCount = Math.min(10, 50 - memoryManager.activeParticles.size);
+        const particleCount = 10; // ponytail: was capped at 50 - activeParticles.size, 10 is always ≤ 50
         for (let i = 0; i < particleCount; i++) {
-          const particle = memoryManager.getParticle();
+          const particle = document.createElement('div');
+          particle.className = 'death-particle';
           
           const randomX = Math.random() * 100;
           const randomY = Math.random() * 100;
@@ -5611,14 +5561,8 @@ const handleTeammateVitalityBoost = (params, teammate) =>
           const delay = Math.random() * 0.5;
           particle.style.animationDelay = `${delay}s`;
           targetElement.appendChild(particle);
-          memoryManager.activeParticles.add(particle);
           
-          memoryManager.safeSetTimeout(() => {
-            if (particle.parentNode) {
-              particle.parentNode.removeChild(particle);
-            }
-            memoryManager.recycleParticle(particle);
-          }, 2000 + delay * 1000);
+          setTimeout(() => particle.remove(), 2000 + delay * 1000);
         }
       }
       
@@ -5639,6 +5583,7 @@ const handleTeammateVitalityBoost = (params, teammate) =>
         }
       }
 
+// ponytail: 5 manager singletons kept — each has real logic (12-27 call sites), inlining would increase size
 const BuffManager = {
   
   addBuff(target, buffData, isPlayer = false) {
@@ -6060,48 +6005,36 @@ const TooltipGenerator = {
 };
 
 function showHealNumber(amount) {
-  const healElement = memoryManager.getHealNumber();
+  const healElement = document.createElement('div');
   healElement.className = 'heal-number';
   healElement.textContent = `+${amount}`;
   const targetElement = domRoot.querySelector('.combat-entity.player');
   if (targetElement) {
     targetElement.appendChild(healElement);
-    memoryManager.activeHealNumbers.add(healElement);
     
     const randomX = Math.floor(Math.random() * 30) - 15;
     healElement.style.position = 'absolute';
     healElement.style.top = '40%';
     healElement.style.left = `${50 + randomX}%`;
     
-    memoryManager.safeSetTimeout(() => {
-      if (healElement.parentNode) {
-        healElement.parentNode.removeChild(healElement);
-      }
-      memoryManager.recycleHealNumber(healElement);
-    }, 1200);
+    setTimeout(() => healElement.remove(), 1200);
   }
 }
 
 function showHealNumberOnEnemy(amount, enemyId) {
-  const healElement = memoryManager.getHealNumber();
+  const healElement = document.createElement('div');
   healElement.className = 'heal-number';
   healElement.textContent = `+${amount}`;
   const targetElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemyId}"]`);
   if (targetElement) {
     targetElement.appendChild(healElement);
-    memoryManager.activeHealNumbers.add(healElement);
     
     const randomX = Math.floor(Math.random() * 30) - 15;
     healElement.style.position = 'absolute';
     healElement.style.top = '40%';
     healElement.style.left = `${50 + randomX}%`;
     
-    memoryManager.safeSetTimeout(() => {
-      if (healElement.parentNode) {
-        healElement.parentNode.removeChild(healElement);
-      }
-      memoryManager.recycleHealNumber(healElement);
-    }, 1200);
+    setTimeout(() => healElement.remove(), 1200);
   }
 }
 
@@ -6159,34 +6092,28 @@ function applyHealingEffect(item, userEntity, isPlayer) {
     const playerEntity = domRoot.querySelector('.combat-entity.player');
     if (playerEntity) {
       playerEntity.classList.add('heal-pulse-animation');
-      memoryManager.safeSetTimeout(() => playerEntity.classList.remove('heal-pulse-animation'), 800);
+      setTimeout(() => playerEntity.classList.remove('heal-pulse-animation'), 800);
     }
   } else {
     
-    const healElement = memoryManager.getHealNumber();
+    const healElement = document.createElement('div');
     healElement.className = 'heal-number';
     healElement.textContent = `+${actualHeal}`;
     const teammateElement = domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${userEntity.id}"]`);
     if (teammateElement) {
       teammateElement.appendChild(healElement);
-      memoryManager.activeHealNumbers.add(healElement);
       const randomX = Math.floor(Math.random() * 30) - 15;
       healElement.style.position = 'absolute';
       healElement.style.top = '40%';
       healElement.style.left = `${50 + randomX}%`;
-      memoryManager.safeSetTimeout(() => {
-        if (healElement.parentNode) {
-          healElement.parentNode.removeChild(healElement);
-        }
-        memoryManager.recycleHealNumber(healElement);
-      }, 1200);
+      setTimeout(() => healElement.remove(), 1200);
       
       const teammateId = parseInt(teammateElement.getAttribute('data-teammate-id'));
       if (!isNaN(teammateId)) {
         addHpChangeAnimation('teammate', teammateId);
       }
       teammateElement.classList.add('heal-pulse-animation');
-      memoryManager.safeSetTimeout(() => teammateElement.classList.remove('heal-pulse-animation'), 800);
+      setTimeout(() => teammateElement.classList.remove('heal-pulse-animation'), 800);
     }
   }
 }
@@ -6342,11 +6269,11 @@ function setupLazyRendering() {
 }
 
 function setupDataUpdateListener() {
-  let lastDataContent = getStatusDataSource().textContent;
+  let lastDataContent = domRoot.getElementById('status-data-source').textContent;
   let isRendered = false;
   
   const observer = new MutationObserver(function (mutations) {
-    const currentData = getStatusDataSource().textContent;
+    const currentData = domRoot.getElementById('status-data-source').textContent;
     if (currentData !== lastDataContent) {
       lastDataContent = currentData;
       
@@ -6367,7 +6294,7 @@ function setupDataUpdateListener() {
     }
   });
   
-  observer.observe(getStatusDataSource(), {
+  observer.observe(domRoot.getElementById('status-data-source'), {
     childList: true,
     subtree: true,
     characterData: true,
@@ -6392,7 +6319,7 @@ function updatePreparationSummary(enemies) {
 
 // DOMContentLoaded 替换为可导出的初始化函数
 function initializeBattleDom() {
-  const initialData = getStatusDataSource().textContent;
+  const initialData = domRoot.getElementById('status-data-source').textContent;
   if (initialData) {
     battleData = parseStatusData(initialData);
     
@@ -6530,7 +6457,7 @@ function performEnemyAction(enemy) {
         });
 
         // UI updates
-        memoryManager.safeSetTimeout(() => {
+        setTimeout(() => {
           updatePlayerPanel();
           updateEnemyPanel();
           updateHateDisplay();
@@ -6625,26 +6552,26 @@ function showMidActionResult() {
     statusInfo += `</div>`;
   }
   
-  getResultSummary().innerHTML = statusInfo;
-  getResultModal().style.display = 'flex';
+  domRoot.getElementById('result-summary').innerHTML = statusInfo;
+  domRoot.getElementById('result-modal').style.display = 'flex';
   
-  getCloseResultBtn().removeEventListener('click', closeMidActionHandler);
-  getSendResultBtn().removeEventListener('click', sendMidActionHandler);
+  domRoot.getElementById('close-result').removeEventListener('click', closeMidActionHandler);
+  domRoot.getElementById('send-result').removeEventListener('click', sendMidActionHandler);
   
-  getCloseResultBtn().addEventListener('click', closeMidActionHandler);
+  domRoot.getElementById('close-result').addEventListener('click', closeMidActionHandler);
   
-  getSendResultBtn().addEventListener('click', sendMidActionHandler);
+  domRoot.getElementById('send-result').addEventListener('click', sendMidActionHandler);
 }
 
 function closeMidActionHandler() {
-  getResultModal().style.display = 'none';
+  domRoot.getElementById('result-modal').style.display = 'none';
   
-  getExtraResultText().value = '';
+  domRoot.getElementById('extra-result-text').value = '';
 }
 
 function sendMidActionHandler() {
   
-  const extraText = getExtraResultText().value.trim();
+  const extraText = domRoot.getElementById('extra-result-text').value.trim();
   
   let playerStatus = `{{user}}血量${battleState.player.hp}/${battleState.player.maxHp}，MP值${battleState.player.mp}/${battleState.player.maxMp}`;
   
@@ -6685,11 +6612,11 @@ function sendMidActionHandler() {
       logBattleAction('发送失败！');
     });
   
-  getResultModal().style.display = 'none';
+  domRoot.getElementById('result-modal').style.display = 'none';
   
-  getExtraResultText().value = '';
+  domRoot.getElementById('extra-result-text').value = '';
 
-  getCombatInterface().style.display = 'none';
+  domRoot.getElementById('combat-interface').style.display = 'none';
   domRoot.querySelector('.container').style.display = 'block';
   
   battleState.isActive = false;
@@ -6917,125 +6844,6 @@ function executeTeammateAttackSequence(teammate, weapon) {
     updateTeammateWeaponsList();
   }
 }
-let memoryManager = {
-  
-  particlePool: [],
-  damageNumberPool: [],
-  healNumberPool: [],
-  logEntryPool: [],
-  
-  activeParticles: new Set(),
-  activeDamageNumbers: new Set(),
-  activeHealNumbers: new Set(),
-  activeTimeouts: new Set(),
-  
-  getParticle() {
-    if (this.particlePool.length > 0) {
-      return this.particlePool.pop();
-    }
-    const particle = document.createElement('div');
-    particle.className = 'death-particle';
-    return particle;
-  },
-  
-  recycleParticle(particle) {
-    if (particle && this.particlePool.length < 50) {
-      
-      particle.style.cssText = ''; 
-      particle.className = 'death-particle';
-      this.particlePool.push(particle);
-      this.activeParticles.delete(particle);
-    }
-  },
-  
-  getDamageNumber() {
-    if (this.damageNumberPool.length > 0) {
-      return this.damageNumberPool.pop();
-    }
-    return document.createElement('div');
-  },
-  
-  recycleDamageNumber(element) {
-    if (element && this.damageNumberPool.length < 30) {
-      element.style.cssText = '';
-      element.className = '';
-      element.textContent = '';
-      this.damageNumberPool.push(element);
-      this.activeDamageNumbers.delete(element);
-    }
-  },
-  
-  getHealNumber() {
-    if (this.healNumberPool.length > 0) {
-      return this.healNumberPool.pop();
-    }
-    return document.createElement('div');
-  },
-  
-  recycleHealNumber(element) {
-    if (element && this.healNumberPool.length < 30) {
-      element.style.cssText = '';
-      element.className = '';
-      element.textContent = '';
-      this.healNumberPool.push(element);
-      this.activeHealNumbers.delete(element);
-    }
-  },
-  
-  safeSetTimeout(callback, delay) {
-    const timeoutId = setTimeout(() => {
-      this.activeTimeouts.delete(timeoutId);
-      try {
-        callback();
-      } catch (error) {
-        
-      }
-    }, delay);
-    this.activeTimeouts.add(timeoutId);
-    return timeoutId;
-  },
-  
-  clearSafeTimeout(timeoutId) {
-    if (this.activeTimeouts.has(timeoutId)) {
-      clearTimeout(timeoutId);
-      this.activeTimeouts.delete(timeoutId);
-    }
-  },
-  
-  cleanup() {
-    
-    this.activeParticles.forEach(particle => {
-      if (particle.parentNode) {
-        particle.parentNode.removeChild(particle);
-      }
-    });
-    
-    this.activeDamageNumbers.forEach(element => {
-      if (element.parentNode) {
-        element.parentNode.removeChild(element);
-      }
-    });
-    this.activeHealNumbers.forEach(element => {
-      if (element.parentNode) {
-        element.parentNode.removeChild(element);
-      }
-    });
-    
-    this.activeTimeouts.forEach(timeoutId => {
-      clearTimeout(timeoutId);
-    });
-    
-    this.activeParticles.clear();
-    this.activeDamageNumbers.clear();
-    this.activeHealNumbers.clear();
-    this.activeTimeouts.clear();
-    
-    this.particlePool = [];
-    this.damageNumberPool = [];
-    this.healNumberPool = [];
-    this.logEntryPool = [];
-  },
-};
 
 let lazyRenderManager = {
   isPreparationRendered: false,
@@ -7101,7 +6909,6 @@ function autoCollapseAfterSend() {
     }, 100);
     
     setTimeout(() => {
-      memoryManager.cleanup();
       lazyRenderManager.reset();
     }, 60000);
   }
@@ -7130,23 +6937,6 @@ function setupSendDetection() {
 }
 // B3 fix: setupSendDetection() moved to initializeBattleSideEffects()
 
-// 已废弃：事件委托已替代 onclick 内联调用，保留供 JS 代码直接调用
-function toggleStats(elementId) {
-  const element = domRoot.getElementById(elementId);
-  const button = domRoot.querySelector(`[data-toggle-stats="${elementId}"]`);
-  if (element && button) {
-    const isExpanded = element.classList.contains('expanded');
-    if (isExpanded) {
-      
-      element.classList.remove('expanded');
-      button.classList.remove('expanded');
-    } else {
-      
-      element.classList.add('expanded');
-      button.classList.add('expanded');
-    }
-  }
-}
 
 function executeHealingSequence(weapon, weaponTemplate) {
   
@@ -7651,49 +7441,11 @@ export function initializeBattleSideEffects() {
 
   // 5a: TooltipGenerator 已移至模块顶层，无需在此挂 window
 
-  // Cleanup handlers
-  sideEffectsState.beforeunloadHandler = () => {
-    memoryManager.cleanup();
-  };
-  window.addEventListener('beforeunload', sideEffectsState.beforeunloadHandler);
+  // ponytail: memoryManager removed — no cleanup handlers needed
 
-  if (window.parent !== window) {
-    sideEffectsState.unloadHandler = () => {
-      memoryManager.cleanup();
-    };
-    window.addEventListener('unload', sideEffectsState.unloadHandler);
-  }
-
-  // Periodic memory cleanup — 保存 interval ID 到 sideEffectsState
+  // Periodic lazy render state cleanup
   sideEffectsState.intervalId = setInterval(() => {
     try {
-      memoryManager.activeParticles.forEach(particle => {
-        if (!particle.parentNode || !domRoot.contains(particle)) {
-          memoryManager.activeParticles.delete(particle);
-        }
-      });
-      memoryManager.activeDamageNumbers.forEach(element => {
-        if (!element.parentNode || !domRoot.contains(element)) {
-          memoryManager.activeDamageNumbers.delete(element);
-        }
-      });
-      memoryManager.activeHealNumbers.forEach(element => {
-        if (!element.parentNode || !domRoot.contains(element)) {
-          memoryManager.activeHealNumbers.delete(element);
-        }
-      });
-      if (memoryManager.particlePool.length > 100) {
-        memoryManager.particlePool.length = 50;
-      }
-      if (memoryManager.damageNumberPool.length > 60) {
-        memoryManager.damageNumberPool.length = 30;
-      }
-      if (memoryManager.healNumberPool.length > 60) {
-        memoryManager.healNumberPool.length = 30;
-      }
-      if (memoryManager.logEntryPool.length > 40) {
-        memoryManager.logEntryPool.length = 20;
-      }
       if (!lazyRenderManager.shouldRenderPreparation()) {
         lazyRenderManager.isPreparationRendered = false;
       }
@@ -7720,10 +7472,6 @@ export function destroyBattleSideEffects() {
   if (sideEffectsState.resizeHandler) {
     window.removeEventListener('resize', sideEffectsState.resizeHandler);
     sideEffectsState.resizeHandler = null;
-  }
-  if (sideEffectsState.observer) {
-    sideEffectsState.observer.disconnect();
-    sideEffectsState.observer = null;
   }
   if (sideEffectsState.beforeunloadHandler) {
     window.removeEventListener('beforeunload', sideEffectsState.beforeunloadHandler);
@@ -7755,19 +7503,19 @@ export function serializeBattleState() {
         return {
             isActive: battleState.isActive,
             round: battleState.round,
-            player: battleState.player ? JSON.parse(JSON.stringify(battleState.player)) : null,
-            teammates: battleState.teammates ? JSON.parse(JSON.stringify(battleState.teammates)) : [],
-            enemies: battleState.enemies ? JSON.parse(JSON.stringify(battleState.enemies)) : [],
-            initialEnemies: battleState.initialEnemies ? JSON.parse(JSON.stringify(battleState.initialEnemies)) : [],
+            player: battleState.player ? structuredClone(battleState.player) : null,
+            teammates: battleState.teammates ? structuredClone(battleState.teammates) : [],
+            enemies: battleState.enemies ? structuredClone(battleState.enemies) : [],
+            initialEnemies: battleState.initialEnemies ? structuredClone(battleState.initialEnemies) : [],
             actionOrder: (battleState.actionOrder || []).map(a => ({
                 type: a.type, id: a.id, name: a.name, speed: a.speed,
             })),
             currentActionIndex: battleState.currentActionIndex,
-            playerBuffs: battleState.playerBuffs ? JSON.parse(JSON.stringify(battleState.playerBuffs)) : [],
-            weaponUsage: battleState.weaponUsage ? JSON.parse(JSON.stringify(battleState.weaponUsage)) : {},
-            itemUsageStats: battleState.itemUsageStats ? JSON.parse(JSON.stringify(battleState.itemUsageStats)) : {},
-            killedEnemies: battleState.killedEnemies ? JSON.parse(JSON.stringify(battleState.killedEnemies)) : [],
-            hateLists: typeof hateSystem !== 'undefined' && hateSystem.enemyHateLists ? JSON.parse(JSON.stringify(hateSystem.enemyHateLists)) : {},
+            playerBuffs: battleState.playerBuffs ? structuredClone(battleState.playerBuffs) : [],
+            weaponUsage: battleState.weaponUsage ? structuredClone(battleState.weaponUsage) : {},
+            itemUsageStats: battleState.itemUsageStats ? structuredClone(battleState.itemUsageStats) : {},
+            killedEnemies: battleState.killedEnemies ? structuredClone(battleState.killedEnemies) : [],
+            hateLists: typeof hateSystem !== 'undefined' && hateSystem.enemyHateLists ? structuredClone(hateSystem.enemyHateLists) : {},
         };
     } catch (e) {
         console.error('[BattleLogic] serializeBattleState 失败:', e);

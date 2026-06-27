@@ -10,18 +10,14 @@ import { eventSource, event_types } from '../../../events.js';
 // ============================================================================
 
 /**
- * 从角色卡世界书条目「特殊效果编号」动态解析效果代码表
- * 在首次调用时解析，结果缓存在 _effectCodeTable 中
- * 如果解析失败则回退到内置硬编码表
+ * 获取效果代码表（内置硬编码，缓存复用）
  */
 let _effectCodeTable = null;
-let _effectCodeParsed = false; // 标记是否已尝试解析（避免每次调用都重新解析角色卡）
 
 export function getEffectCodeTable() {
-    if (_effectCodeParsed) return _effectCodeTable;
-    _effectCodeParsed = true;
+    if (_effectCodeTable) return _effectCodeTable;
 
-    // 内置硬编码表（作为回退）
+    // 内置硬编码表
     const fallback = {
         A: {
             A1: { label: '伤害输出', fmt: a => `对敌人造成伤害` },
@@ -88,105 +84,13 @@ export function getEffectCodeTable() {
         },
     };
 
-    // 尝试从角色卡世界书动态解析
-    try {
-        const char = getCurrentCharacter();
-        if (!char?.data?.character_book?.entries) {
-            _effectCodeTable = fallback;
-            return _effectCodeTable;
-        }
-
-        const entries = char.data.character_book.entries;
-        // 查找包含"特殊效果编号"的条目
-        let effEntry = null;
-        for (const e of entries) {
-            const name = (e.name || e.comment || '').toLowerCase();
-            if (name.includes('特殊效果编号') || name.includes('效果编号')) {
-                effEntry = e;
-                break;
-            }
-        }
-        if (!effEntry) {
-            _effectCodeTable = fallback;
-            return _effectCodeTable;
-        }
-
-        const content = effEntry.content || '';
-        const parsed = { A: {}, B: {}, S: {}, M: {}, P: {} };
-
-        // 解析格式: **B1 (生命窃取):** `[EN:B1,X%]` ... 后面可能有说明文字
-        // 或: **A1 (伤害输出模板):** `[WN:A1]`
-        const codeRegex = /\*+\s*(A\d+|B\d+|S\d+|M\d+|P\d+)\s*\(([^)]+)\)[：:]*/g;
-        let match;
-        while ((match = codeRegex.exec(content)) !== null) {
-            const code = match[1];
-            const label = match[2].replace(/模板$/, '').trim();
-            const prefix = code[0]; // A, B, S, M, P
-
-            // 提取该条目后续的说明文字（直到下一个 ** 或 ---）
-            const afterPos = match.index + match[0].length;
-            const nextSection = content.indexOf('**', afterPos);
-            const nextDash = content.indexOf('---', afterPos);
-            const endPos = Math.min(
-                nextSection > 0 ? nextSection : content.length,
-                nextDash > 0 ? nextDash : content.length
-            );
-            const descText = content.substring(afterPos, endPos)
-                .replace(/\[.*?\]/g, '') // 去掉代码格式标记
-                .replace(/\*\*/g, '')
-                .replace(/<[^>]+>/g, '')
-                .replace(/[（(]/g, '(').replace(/[）)]/g, ')')
-                .replace(/[\r\n]+/g, ' ')
-                .trim();
-
-            // 构建描述生成函数：用卡片中的说明文字，参数用占位符替换
-            // 如果卡片有详细说明，直接用说明文字；否则用 label
-            parsed[prefix][code] = {
-                label: label,
-                fmt: (args) => {
-                    // 尝试将卡片说明中的 X, Y 等参数替换为实际值
-                    let desc = descText || label;
-                    const paramNames = ['X', 'Y', 'N', 'P%', 'Cost%'];
-                    for (let pi = 0; pi < args.length && pi < paramNames.length; pi++) {
-                        desc = desc.replace(new RegExp(paramNames[pi].replace('%', '\\%'), 'g'), args[pi]);
-                    }
-                    // 如果没有可替换的参数，直接附加
-                    if (args.length > 0 && !descText) {
-                        desc = `${label}: ${args.join(', ')}`;
-                    }
-                    return desc;
-                },
-            };
-        }
-
-        // 合并：解析到的覆盖 fallback 中没有的
-        for (const prefix of ['A', 'B', 'S', 'M', 'P']) {
-            for (const code in parsed[prefix]) {
-                if (!fallback[prefix][code]) {
-                    fallback[prefix][code] = parsed[prefix][code];
-                } else {
-                    // 用卡片解析的 label 覆盖
-                    fallback[prefix][code].label = parsed[prefix][code].label;
-                    // 如果卡片有说明文字，用它
-                    if (parsed[prefix][code].fmt) {
-                        fallback[prefix][code].fmt = parsed[prefix][code].fmt;
-                    }
-                }
-            }
-        }
-        _effectCodeTable = fallback;
-        log('效果代码表已从角色卡动态解析');
-    } catch (e) {
-        log('效果代码表动态解析失败，使用内置表: ' + e.message, 'warn');
-        _effectCodeTable = fallback;
-    }
+    _effectCodeTable = fallback;
     return _effectCodeTable;
 }
 
 /** 切换角色卡时重置效果代码表缓存 */
 export function resetEffectCodeTable() {
     _effectCodeTable = null;
-    _effectCodeParsed = false;
 }
 
 // ============================================================================
@@ -480,7 +384,7 @@ export function registerGetPlayerStatus(ctx) {
                 log('get_player_status 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
             }
-        }, 'get_player_status'),
+        }),
         shouldRegister: () => isSaoCard(),
         stealth: false,
     });
@@ -511,7 +415,7 @@ export function registerGetCalendar(ctx) {
                 log('get_calendar 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
             }
-        }, 'get_calendar'),
+        }),
         shouldRegister: () => isSaoCard(),
         stealth: false,
     });
@@ -541,7 +445,7 @@ export function registerGetCharacterInfo(ctx) {
                 log('get_character_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
             }
-        }, 'get_character_info'),
+        }),
         shouldRegister: () => isSaoCard(),
         stealth: false,
     });
@@ -570,7 +474,7 @@ export function registerGetFloorInfo(ctx) {
                 log('get_floor_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
             }
-        }, 'get_floor_info'),
+        }),
         shouldRegister: () => isSaoCard(),
         stealth: false,
     });
@@ -611,7 +515,7 @@ export function registerGetSkillInfo(ctx) {
                 log('get_skill_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
             }
-        }, 'get_skill_info'),
+        }),
         shouldRegister: () => isSaoCard(),
         stealth: false,
     });
@@ -640,7 +544,7 @@ export function registerGetWorldLore(ctx) {
                 log('get_world_lore 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
             }
-        }, 'get_world_lore'),
+        }),
         shouldRegister: () => isSaoCard(),
         stealth: false,
     });
@@ -726,9 +630,9 @@ export function recordToolCall(success) {
 
 /**
  * 工具 action 包装器 — 自动记录调用成功/失败
- * 用法: action: wrapToolAction(async (params) => { ... }, 'tool_name')
+ * 用法: action: wrapToolAction(async (params) => { ... })
  */
-export function wrapToolAction(originalAction, _toolName) {
+export function wrapToolAction(originalAction) {
     return async (params) => {
         try {
             const result = await originalAction(params);
