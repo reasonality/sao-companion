@@ -7,7 +7,7 @@ import { renderBattlePanel } from './battle/battleRenderer.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 
 // SAO 自定义标签列表 — DOMPurify 钩子保留这些标签（兼容历史消息残留标签，P4 后主 LLM 不再发新标签）
-const SAO_CUSTOM_TAGS = ['user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
+const SAO_CUSTOM_TAGS = ['user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest', 'calendar'];
 
 /**
  * 注册 DOMPurify 钩子：保留 SAO 自定义标签不被剥离。
@@ -303,10 +303,10 @@ function hideSaoLightDomTags(messageEl) {
     styleEl.textContent = `
         .sao-tags-rendered user_status, .sao-tags-rendered equip,
         .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
-        .sao-tags-rendered digest,
+        .sao-tags-rendered digest, .sao-tags-rendered calendar,
         .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
         .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
-        .sao-tags-rendered digest * {
+        .sao-tags-rendered digest *, .sao-tags-rendered calendar * {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -339,7 +339,7 @@ function createSaoShadowHost(messageEl, tagName) {
 }
 
 /** 从 chatMetadata.calendarPanels[messageId] 渲染日历面板，无数据时显示占位 */
-function renderCalendar(messageEl, rawText, messageId) {
+export function renderCalendar(messageEl, rawText, messageId) {
     const data = getSaoData();
     const panel = (messageId != null) ? data?.calendarPanels?.[messageId] : null;
 
@@ -626,27 +626,24 @@ function renderCalendar(messageEl, rawText, messageId) {
 }
 
 export function renderAllTags(messageEl, rawText, messageId) {
-    // Phase 1: calendar 不再依赖 mes 标签，始终渲染（SAO 卡）
-    // 其余标签仍依赖 hasTags 检测以决定是否隐藏/cleanup light DOM
-    // P2 后：map/equipment/swordskill 不再由 mes 标签驱动（专家面板），始终渲染
-    // user_status/zd_status 仍由标签驱动（P3 解耦）
+    // 渲染顺序匹配原卡 first_mes 标签顺序：装备 → 剑技 → 角色状态栏 → 地图 → 战斗 → 日历
     // 过渡期（P2-P4）主 LLM 可能仍发标签 → 需隐藏 light DOM 避免双重渲染
-    const hasAnySaoTags = /<(?:user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
+    const hasAnySaoTags = /<(?:user_status|equip|swordskill|map|zd_status|digest|calendar)\b/i.test(rawText || '');
     if (hasAnySaoTags) {
         hideSaoLightDomTags(messageEl)
     }
-    // 日历面板始终渲染（messageId 可用时按 messageId 索引 chatMetadata；不可用则占位）
-    try { renderCalendar(messageEl, rawText, messageId); } catch(e) { log('renderCalendar 渲染失败: ' + e.message, 'error'); }
     // P2: 装饰面板始终渲染（读 chatMetadata.panels[messageId]，回退 mes 标签过渡兼容）
     try { renderEquipment(messageEl, rawText, messageId); } catch(e) { log('renderEquipment 渲染失败: ' + e.message, 'error'); }
     try { renderSwordSkill(messageEl, rawText, messageId); } catch(e) { log('renderSwordSkill 渲染失败: ' + e.message, 'error'); }
+    // P3: 状态面板（读 chatMetadata.panels[messageId].status，回退 mes 标签）
+    try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { log('renderUserStatus 渲染失败: ' + e.message, 'error'); }
     try { renderMap(messageEl, rawText, messageId); } catch(e) { log('renderMap 渲染失败: ' + e.message, 'error'); }
     // 战斗面板始终渲染（combat 不依赖 mes 标签，依赖 _lastCombatResult + P3 status 专家 zdText）
     if (typeof messageId !== 'undefined') {
         try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { log('renderBattlePanel 渲染失败: ' + e.message, 'error'); }
     }
-    // P3: 状态面板始终渲染（读 chatMetadata.panels[messageId].status，回退 mes 标签）
-    try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { log('renderUserStatus 渲染失败: ' + e.message, 'error'); }
+    // 日历面板始终渲染（messageId 可用时按 messageId 索引 chatMetadata；不可用则占位）
+    try { renderCalendar(messageEl, rawText, messageId); } catch(e) { log('renderCalendar 渲染失败: ' + e.message, 'error'); }
     if (hasAnySaoTags) {
         cleanupSaoLightDom(messageEl)
     }
@@ -710,6 +707,9 @@ function renderUserStatus(messageEl, rawText, messageId) {
     }
     const shadow = createSaoShadowHost(messageEl, 'user_status')
     const safeContent = sanitizeInlineSaoHtml(content.trim())
+        .replace(/^[ \t]+/gm, '')      // 去除每行前导缩进（LLM 常插入多余缩进）
+        .replace(/[ \t]+$/gm, '')      // 去除每行尾随空格
+        .replace(/\n{3,}/g, '\n\n');   // 3+ 连续空行折叠为单个空行
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}

@@ -40,7 +40,7 @@ import {
 } from './sao-tools.js';
 // memory.js 已移除
 import { cleanSaoPromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
+import { registerSaoDompurifyHook, renderAllTags, renderCalendar } from './sao-render.js';
 
 // ============================================================
 // 常量
@@ -1378,6 +1378,14 @@ function bindEvents() {
 
             // Persist all state changes from this processing cycle
             await saveSaoDataNow();
+
+            // Bug 2 fix: 异步处理（status 专家 + extractAll + updateCalendarIncremental）已写入
+            // calendarPanels[messageId]，但 CHARACTER_MESSAGE_RENDERED 可能已先于本 lock 完成渲染了占位。
+            // 此处重渲染日历 Shadow DOM（createSaoShadowHost 复用已有 host，覆盖占位 innerHTML）。
+            try {
+                const calEl = getMessageElement(messageId);
+                if (calEl) renderCalendar(calEl, rawText, messageId);
+            } catch (e) { log('日历重渲染失败: ' + e.message, 'warn'); }
 
             // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveSaoDataNow 之后、lock 块结束前）。
             // 不 await，不阻塞后处理链。opt-in 由 shouldTriggerCalendarModel 内部守护（§10.2）。

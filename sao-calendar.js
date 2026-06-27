@@ -270,6 +270,52 @@ export function getTimelineForPrompt(currentDate, maxChars = 1500) {
 }
 
 /**
+ * 解析 first_mes 中的 <calendar> 标签，提取用户预填的原作时间线。
+ * 格式为自定义 YAML-like：
+ *   year: 2022
+ *   month: 11
+ *   current_day: 6
+ *   days:
+ *   6: [主线] 事件描述
+ *   7: ...
+ * @param {string} rawText - 含 <calendar> 标签的文本（通常是 first_mes）
+ * @returns {{year:number,month:number,currentDay:number,days:Object<string,Array<{title:string}>>}|null}
+ *          days 键为 'YYYY-MM-DD'；解析失败返回 null
+ */
+export function parseFirstMesCalendarTag(rawText) {
+    if (!rawText || typeof rawText !== 'string') return null;
+    const m = rawText.match(/<calendar>\s*([\s\S]*?)\s*<\/calendar>/i);
+    if (!m) return null;
+    const body = m[1];
+    const yearM = body.match(/^year:\s*(\d+)/m);
+    const monthM = body.match(/^month:\s*(\d+)/m);
+    const dayM = body.match(/^current_day:\s*(\d+)/m);
+    if (!yearM || !monthM) return null;
+    const year = parseInt(yearM[1]);
+    const month = parseInt(monthM[1]);
+    if (!year || month < 1 || month > 12) return null;
+    const currentDay = dayM ? parseInt(dayM[1]) : 0;
+
+    const days = {};
+    const daysIdx = body.indexOf('days:');
+    if (daysIdx >= 0) {
+        const daysBlock = body.slice(daysIdx + 5);
+        const lineRe = /^(\d{1,2}):\s*(.+)$/gm;
+        let lm;
+        while ((lm = lineRe.exec(daysBlock)) !== null) {
+            const dayNum = parseInt(lm[1]);
+            if (dayNum < 1 || dayNum > 31) continue;
+            const title = lm[2].trim();
+            if (!title) continue;
+            const dateStr = year + '-' + String(month).padStart(2, '0') + '-' + String(dayNum).padStart(2, '0');
+            if (!days[dateStr]) days[dateStr] = [];
+            days[dateStr].push({ title });
+        }
+    }
+    return { year, month, currentDay, days };
+}
+
+/**
  * 日历懒初始化：首次访问时从世界书提取时间线条目
  * P2a: 仅从 world book timeline entries 初始化 days；appointments 为空
  */
@@ -309,6 +355,36 @@ export function initCalendarIfNeeded() {
                     break;
                 }
             }
+        }
+
+        // A5: 优先从 first_mes <calendar> 标签预填原作时间线（用户-authored 权威数据）
+        const chat2 = ctx.chat || [];
+        for (let i = 0; i < chat2.length; i++) {
+            const fm = chat2[i];
+            if (!fm || fm.is_user) continue;
+            const parsed = parseFirstMesCalendarTag(fm.mes || '');
+            if (parsed && parsed.days && Object.keys(parsed.days).length > 0) {
+                let fmCount = 0;
+                for (const [dateStr, evs] of Object.entries(parsed.days)) {
+                    if (!cal.days[dateStr]) cal.days[dateStr] = { events: [], isUpdated: false };
+                    for (const ev of evs) {
+                        cal.days[dateStr].events.push({
+                            type: 'canon',
+                            time: null,
+                            title: ev.title,
+                            description: ev.title,
+                            source: 'first_mes',
+                        });
+                        fmCount++;
+                    }
+                }
+                // 若 currentDate 仍为空，用 first_mes 的 current_day 补齐
+                if (!cal.currentDate && parsed.currentDay) {
+                    cal.currentDate = parsed.year + '-' + String(parsed.month).padStart(2, '0') + '-' + String(parsed.currentDay).padStart(2, '0');
+                }
+                log('日历初始化：从 first_mes <calendar> 预填 ' + fmCount + ' 个原作事件');
+            }
+            break; // 只处理第一条非用户消息（greeting）
         }
 
         // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
