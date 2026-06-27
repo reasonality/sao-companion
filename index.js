@@ -2316,9 +2316,6 @@ function initPanelLogic() {
                 c.classList.toggle('sao-chapter-active', c.dataset.arc === arc);
             });
         },
-        refreshStatus() {
-            refreshStatus();
-        },
         clearLogs() {
             logs.length = 0;
             updateLogDisplay();
@@ -2389,7 +2386,7 @@ function initPanelLogic() {
                 case 'toggleCalLlm': window.SaoPanel.toggleCalLlm(); break;
                 case 'toggleSpecialistPanels': window.SaoPanel.toggleSpecialistPanels(); break;
                 case 'testGenerate': window.SaoPanel.testGenerate(type); break;
-                case 'refreshStatus': window.SaoPanel.refreshStatus(); break;
+                case 'refreshStatus': refreshStatus(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
                 case 'closeDetail': window.SaoPanel.closeDetail(); break;
                 case 'calPrevMonth': handleCalPrevMonth(); break;

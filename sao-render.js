@@ -320,7 +320,7 @@ function hideSaoLightDomTags(messageEl) {
 /**
  * 创建 Shadow DOM 容器
  */
-function createSaoShadowHost(messageEl, tagName, refNode) {
+function createSaoShadowHost(messageEl, tagName) {
     // 避免重复注入
     const existing = messageEl.querySelector(`.sao-render-host[data-sao-tag="${tagName}"]`);
     if (existing) return existing.shadowRoot;
@@ -330,18 +330,7 @@ function createSaoShadowHost(messageEl, tagName, refNode) {
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
     const shadow = host.attachShadow({ mode: 'open' });
 
-    if (refNode && refNode.parentNode) {
-        refNode.parentNode.insertBefore(host, refNode);
-        // 如果 host 被插入到 <p> 内部（Showdown 会把自定义标签包在 <p> 里），
-        // 将 host 提升到 <p> 之后，避免 cleanup 删除空 <p> 时误删 host
-        // 放在 <p> 之后（而非之前）以保持标签在文本流中的原始位置
-        if (host.parentNode && host.parentNode.nodeName === 'P') {
-            const p = host.parentNode;
-            if (p.parentNode) {
-                p.parentNode.insertBefore(host, p.nextSibling);
-            }
-        }
-    } else if (mesText) {
+    if (mesText) {
         mesText.appendChild(host);
     } else {
         messageEl.appendChild(host);
@@ -356,7 +345,7 @@ function renderCalendar(messageEl, rawText, messageId) {
 
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
     // 无 <calendar> 标签锚点（主 LLM 不再发），日历面板追加到 mes_text 末尾
-    const shadow = createSaoShadowHost(messageEl, 'calendar', null);
+    const shadow = createSaoShadowHost(messageEl, 'calendar');
 
     let year = 0, month = 0, currentDay = 0;
     let gridDays = null;
@@ -647,17 +636,17 @@ export function renderAllTags(messageEl, rawText, messageId) {
         hideSaoLightDomTags(messageEl)
     }
     // 日历面板始终渲染（messageId 可用时按 messageId 索引 chatMetadata；不可用则占位）
-    try { renderCalendar(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderCalendar ERROR:', e.message, e.stack); }
+    try { renderCalendar(messageEl, rawText, messageId); } catch(e) { log('renderCalendar 渲染失败: ' + e.message, 'error'); }
     // P2: 装饰面板始终渲染（读 chatMetadata.panels[messageId]，回退 mes 标签过渡兼容）
-    try { renderEquipment(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderEquipment ERROR:', e.message, e.stack); }
-    try { renderSwordSkill(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderSwordSkill ERROR:', e.message, e.stack); }
-    try { renderMap(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderMap ERROR:', e.message, e.stack); }
+    try { renderEquipment(messageEl, rawText, messageId); } catch(e) { log('renderEquipment 渲染失败: ' + e.message, 'error'); }
+    try { renderSwordSkill(messageEl, rawText, messageId); } catch(e) { log('renderSwordSkill 渲染失败: ' + e.message, 'error'); }
+    try { renderMap(messageEl, rawText, messageId); } catch(e) { log('renderMap 渲染失败: ' + e.message, 'error'); }
     // 战斗面板始终渲染（combat 不依赖 mes 标签，依赖 _lastCombatResult + P3 status 专家 zdText）
     if (typeof messageId !== 'undefined') {
-        try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
+        try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { log('renderBattlePanel 渲染失败: ' + e.message, 'error'); }
     }
     // P3: 状态面板始终渲染（读 chatMetadata.panels[messageId].status，回退 mes 标签）
-    try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderUserStatus ERROR:', e.message, e.stack); }
+    try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { log('renderUserStatus 渲染失败: ' + e.message, 'error'); }
     if (hasAnySaoTags) {
         cleanupSaoLightDom(messageEl)
     }
@@ -719,7 +708,7 @@ function renderUserStatus(messageEl, rawText, messageId) {
         content = extractTag(rawText, 'user_status')
         if (content === null) return
     }
-    const shadow = createSaoShadowHost(messageEl, 'user_status', null)
+    const shadow = createSaoShadowHost(messageEl, 'user_status')
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
@@ -907,7 +896,7 @@ function renderEquipment(messageEl, rawText, messageId) {
         if (matches.length === 0) return
         itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     }
-    const shadow = createSaoShadowHost(messageEl, 'equip', null)
+    const shadow = createSaoShadowHost(messageEl, 'equip')
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -939,7 +928,7 @@ function renderSwordSkill(messageEl, rawText, messageId) {
         if (matches.length === 0) return
         itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     }
-    const shadow = createSaoShadowHost(messageEl, 'swordskill', null)
+    const shadow = createSaoShadowHost(messageEl, 'swordskill')
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -971,7 +960,7 @@ function renderMap(messageEl, rawText, messageId) {
         content = extractTag(rawText, 'map')
         if (content === null) return
     }
-    const shadow = createSaoShadowHost(messageEl, 'map', null)
+    const shadow = createSaoShadowHost(messageEl, 'map')
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
