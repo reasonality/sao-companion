@@ -5,6 +5,27 @@ import { getSettings, log, getSaoData, saveSaoDataNow } from './sao-core.js';
 
 // === 纯解析函数 ===
 
+function parseSkillField(tok, skill) {
+    if (tok.startsWith('ATK:'))    skill.atk    = parseInt(tok.substring(4)) || 0;
+    else if (tok.startsWith('Hit%:'))   skill.hit   = parseInt(tok.substring(5)) || 0;
+    else if (tok.startsWith('Crit%:'))  skill.crit  = parseInt(tok.substring(6)) || 0;
+    else if (tok.startsWith('APT:'))    skill.apt   = parseInt(tok.substring(4)) || 0;
+    else if (tok.startsWith('TPA:'))    skill.tpa   = parseInt(tok.substring(4)) || 0;
+    else if (tok.startsWith('MPCost:')) skill.mpCost = parseInt(tok.substring(7)) || 0;
+    else if (tok.startsWith('CD:'))     skill.cd    = parseInt(tok.substring(3)) || 0;
+    else if (tok.startsWith('WN:'))     skill.wn    = tok.substring(3);
+    else if (tok.startsWith('EN:')) {
+        if (!skill.en) skill.en = [];
+        skill.en.push(tok.substring(3));
+    }
+    else if (tok.startsWith('MN:')) {
+        if (!skill.mn) skill.mn = [];
+        skill.mn.push(tok.substring(3));
+    }
+    else return false;
+    return true;
+}
+
 function parseZdStatus(zdText) {
     const result = { player: {}, skills: [], teammates: [], enemies: [] };
 
@@ -53,19 +74,7 @@ function parseZdStatus(zdText) {
             currentSkill = { name: tok.substring(3) };
         }
         else if (currentSkill) {
-            if (tok.startsWith('ATK:')) currentSkill.atk = parseInt(tok.substring(4)) || 0;
-            else if (tok.startsWith('Hit%:')) currentSkill.hit = parseInt(tok.substring(5)) || 0;
-            else if (tok.startsWith('Crit%:')) currentSkill.crit = parseInt(tok.substring(6)) || 0;
-            else if (tok.startsWith('APT:')) currentSkill.apt = parseInt(tok.substring(4)) || 0;
-            else if (tok.startsWith('TPA:')) currentSkill.tpa = parseInt(tok.substring(4)) || 0;
-            else if (tok.startsWith('MPCost:')) currentSkill.mpCost = parseInt(tok.substring(7)) || 0;
-            else if (tok.startsWith('CD:')) currentSkill.cd = parseInt(tok.substring(3)) || 0;
-            else if (tok.startsWith('WN:')) currentSkill.wn = tok.substring(3);
-            else if (tok.startsWith('EN:')) {
-                if (!currentSkill.en) currentSkill.en = [];
-                currentSkill.en.push(tok.substring(3));
-            }
-            else if (tok.startsWith('MN:') || tok.startsWith('FR') || tok.startsWith('EN')) {
+            if (!parseSkillField(tok, currentSkill) && (tok.startsWith('MN:') || tok.startsWith('FR') || tok.startsWith('EN'))) {
                 playerSkills.push(currentSkill); currentSkill = null;
             }
         }
@@ -97,14 +106,7 @@ function parseZdStatus(zdText) {
                 if (frSkill) tm.skills = [...(tm.skills || []), frSkill];
                 frSkill = { name: tok.substring(5) };
             } else if (frSkill) {
-                if (tok.startsWith('ATK:')) frSkill.atk = parseInt(tok.substring(4)) || 0;
-                else if (tok.startsWith('Hit%:')) frSkill.hit = parseInt(tok) || 0;
-                else if (tok.startsWith('Crit%:')) frSkill.crit = parseInt(tok) || 0;
-                else if (tok.startsWith('APT:')) frSkill.apt = parseInt(tok.substring(4)) || 0;
-                else if (tok.startsWith('TPA:')) frSkill.tpa = parseInt(tok.substring(4)) || 0;
-                else if (tok.startsWith('MPCost:')) frSkill.mpCost = parseInt(tok.substring(7)) || 0;
-                else if (tok.startsWith('CD:')) frSkill.cd = parseInt(tok.substring(3)) || 0;
-                else if (tok.startsWith('WN:')) frSkill.wn = tok.substring(3);
+                parseSkillField(tok, frSkill);
             }
         }
         if (frSkill) tm.skills = [...(tm.skills || []), frSkill];
@@ -132,15 +134,7 @@ function parseZdStatus(zdText) {
                 if (curESkill) curEnemy.skills.push(curESkill);
                 curESkill = { name: tok.substring(4) };
             } else if (curESkill) {
-                if (tok.startsWith('ATK:')) curESkill.atk = parseInt(tok.substring(4)) || 0;
-                else if (tok.startsWith('Hit%:')) curESkill.hit = parseInt(tok) || 0;
-                else if (tok.startsWith('Crit%:')) curESkill.crit = parseInt(tok) || 0;
-                else if (tok.startsWith('APT:')) curESkill.apt = parseInt(tok.substring(4)) || 0;
-                else if (tok.startsWith('TPA:')) curESkill.tpa = parseInt(tok.substring(4)) || 0;
-                else if (tok.startsWith('MN:')) {
-                    if (!curESkill.mn) curESkill.mn = [];
-                    curESkill.mn.push(tok.substring(3));
-                }
+                parseSkillField(tok, curESkill);
             }
             if (tok.startsWith('PN5A:')) {
                 if (curESkill) { curEnemy.skills.push(curESkill); curESkill = null; }
