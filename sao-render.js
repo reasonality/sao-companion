@@ -34,6 +34,45 @@ export function registerSaoDompurifyHook() {
     saoDompurifyHookRegistered = true;
     log('DOMPurify 钩子已注册: 保留 SAO 自定义标签');
 }
+
+// ─── 共享 CSS ────────────────────────────────────────────────
+// 所有 5 个渲染器共用的 :host 重置
+const SHARED_SAO_CSS = `:host { display: block; margin: 0; padding: 0; }`;
+
+// renderEquipment + renderSwordSkill 共用的暗色 Stardew 主题基础样式
+const SHARED_STARDEW_CSS = `
+            /* Define the custom font */
+                    @font-face {
+                        font-family: 'NotoSansCJKsc-Bold';
+                        src: url('https://files.catbox.moe/tisct7.otf') format('opentype');
+                        font-style: normal;
+                        font-weight: bold;
+                        font-display: swap;
+                    }
+
+                    /* Main container style */
+                    .stardew-text-wrapper {
+                        background-color: rgba(40, 40, 40, 0.85);
+                        border: 1px solid #666;
+                        border-radius: 6px;
+                        max-width: 861px;
+                        margin: 5px auto;
+                        padding: 0 5px 5px 5px;
+                        box-sizing: border-box;
+                        overflow: hidden;
+
+                        /* --- Color Variables --- */
+                        --stardew-header-text: #FFFFFF;
+                        --stardew-content-border: rgba(255, 255, 255, 0.15);
+                        --stardew-pressed-bg: rgba(40, 40, 40, 0.85);
+                        --stardew-pressed-border: #666;
+                        --stardew-pressed-highlight: rgba(80, 80, 80, 0.85);
+                        --stardew-pressed-shadow: rgba(20, 20, 20, 0.85);
+                        --stardew-pressed-text: #DDDDDD;
+                        --stardew-pressed-outer-shadow-color: rgba(50, 50, 50, 0.3);
+                    }
+`;
+
 /**
  * 白名单清洗内联 HTML，仅保留 SAO 卡中常见的安全标签与属性。
  * 允许：br, font[color], span[style|color], b, strong, i, em
@@ -296,7 +335,7 @@ function renderCalendar(messageEl, rawText) {
 
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0; padding: 0; }
+            ${SHARED_SAO_CSS}
             /* 移动优先设计 */
                   * {
                     box-sizing: border-box;
@@ -607,7 +646,7 @@ function renderUserStatus(messageEl, rawText) {
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0; padding: 0; }
+            ${SHARED_SAO_CSS}
             /* 主容器样式 */
                 .character-status-wrapper {
                   background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
@@ -789,38 +828,9 @@ function renderEquipment(messageEl, rawText) {
     const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0; padding: 0; }
-            /* Define the custom font */
-                    @font-face {
-                        font-family: 'NotoSansCJKsc-Bold';
-                        src: url('https://files.catbox.moe/tisct7.otf') format('opentype');
-                        font-style: normal;
-                        font-weight: bold;
-                        font-display: swap;
-                    }
-            
-                    /* Main container style (Unchanged) */
-                    .stardew-text-wrapper {
-                        background-color: rgba(40, 40, 40, 0.85);
-                        border: 1px solid #666;
-                        border-radius: 6px;
-                        max-width: 861px;
-                        margin: 5px auto;
-                        padding: 0 5px 5px 5px;
-                        box-sizing: border-box;
-                        overflow: hidden;
-            
-                        /* --- Color Variables (Unchanged) --- */
-                        --stardew-header-text: #FFFFFF;
-                        --stardew-content-border: rgba(255, 255, 255, 0.15);
-                        --stardew-pressed-bg: rgba(40, 40, 40, 0.85); /* This is our target dark grey */
-                        --stardew-pressed-border: #666;
-                        --stardew-pressed-highlight: rgba(80, 80, 80, 0.85);
-                        --stardew-pressed-shadow: rgba(20, 20, 20, 0.85);
-                        --stardew-pressed-text: #DDDDDD;
-                        --stardew-pressed-outer-shadow-color: rgba(50, 50, 50, 0.3);
-                    }
-            
+            ${SHARED_SAO_CSS}
+            ${SHARED_STARDEW_CSS}
+
                     /* --- Styles SPECIFICALLY for the Character Bar Button --- */
                     .details-character-bar {
                         border: none;
@@ -962,41 +972,12 @@ function renderSwordSkill(messageEl, rawText) {
     const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0; padding: 0; }
-            /* Define the custom font */
-                    @font-face {
-                        font-family: 'NotoSansCJKsc-Bold';
-                        src: url('https://files.catbox.moe/tisct7.otf') format('opentype');
-                        font-style: normal;
-                        font-weight: bold;
-                        font-display: swap;
-                    }
-            
-                    /* Main container style (MATCHES CHARACTER BAR) */
+            ${SHARED_SAO_CSS}
+            ${SHARED_STARDEW_CSS}
                     .stardew-text-wrapper {
-                        background-color: rgba(40, 40, 40, 0.85); /* Dark grey background */
-                        border: 1px solid #666;
-                        border-radius: 6px;
-                        max-width: 861px; /* Target width */
-                        margin: 5px auto; /* Centering */
-                        padding: 0 5px 5px 5px; /* Padding: Top 0, R 5, B 5, L 5 */
-                        box-sizing: border-box;
-                        overflow: hidden;
-            
-                        /* --- Color Variables (MATCHES CHARACTER BAR THEME) --- */
-                        --stardew-header-text: #FFFFFF;
-                        --stardew-content-border: rgba(255, 255, 255, 0.15);
-                        --stardew-pressed-bg: rgba(40, 40, 40, 0.85);
-                        --stardew-pressed-border: #666;
-                        --stardew-pressed-highlight: rgba(80, 80, 80, 0.85);
-                        --stardew-pressed-shadow: rgba(20, 20, 20, 0.85);
-                        --stardew-pressed-text: #DDDDDD;
-                        --stardew-pressed-outer-shadow-color: rgba(50, 50, 50, 0.3);
-                        --stardew-heart-icon-color: #ff6b6b; /* Specific heart color */
+                        --stardew-heart-icon-color: #ff6b6b;
                     }
-            
-                    /* REMOVED .stardew-text-content styles */
-            
+
                     /* --- Styles SPECIFICALLY for the Affinity Button (Placed directly in wrapper) --- */
             
                     .details-affinity-button { /* Target the specific details element */
@@ -1144,7 +1125,7 @@ function renderMap(messageEl, rawText) {
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
-            :host { display: block; margin: 0; padding: 0; }
+            ${SHARED_SAO_CSS}
             /* 主容器样式 */
                 .map-status-wrapper {
                   background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
