@@ -21,7 +21,6 @@ import {
     sacrificeBoostCore,
     a5MultiHitCore,
     hasDebuff,
-    selectTargets,
     applyDamageToEnemy,
     executeStandardAttack,
     clearExpiredTempShields,
