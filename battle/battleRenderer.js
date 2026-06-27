@@ -27,15 +27,6 @@ export function registerBattleHost(messageId, host, shadowRoot) {
 }
 
 /**
- * 获取已注册的战斗面板宿主
- * @param {number} messageId - 消息 ID
- * @returns {{host: HTMLElement, shadowRoot: ShadowRoot}|undefined}
- */
-export function getBattleHost(messageId) {
-    return battleHostRegistry.get(messageId);
-}
-
-/**
  * 清空注册表（用于会话切换等场景）
  */
 export function clearBattleHostRegistry() {

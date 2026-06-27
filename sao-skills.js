@@ -87,15 +87,3 @@ export function checkCustomSkillUnlocks(messageText) {
         }
     }
 }
-
-// === 移除技能 ===
-/**
- * 移除已解锁的自定义技能
- * @param {string} skillId - CUSTOM_SKILL_DEFS 中的技能 ID
- */
-function removeCustomSkill(skillId) {
-    const data = getSaoData();
-    if (!data?.state?.customSkills) return;
-    data.state.customSkills = data.state.customSkills.filter(id => id !== skillId);
-    saveSaoDataNow();
-}

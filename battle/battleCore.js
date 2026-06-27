@@ -21,10 +21,10 @@ import {
  */
 export function getPlayerStatsCore(player, playerBuffs, equipmentStats) {
     const base = {
-        str: (player.str || 0) + (equipmentStats.str || 0),
-        agi: (player.agi || 0) + (equipmentStats.agi || 0),
-        int: (player.int || 0) + (equipmentStats.int || 0),
-        end: (player.vit || 0) + (equipmentStats.vit || 0),
+        str: (player.str || 0) + (equipmentStats?.str || 0),
+        agi: (player.agi || 0) + (equipmentStats?.agi || 0),
+        int: (player.int || 0) + (equipmentStats?.int || 0),
+        end: (player.vit || 0) + (equipmentStats?.vit || 0),
     };
 
     applyStatBuffs(base, playerBuffs);
@@ -200,6 +200,13 @@ export function handleShieldOverTimeCore(params, buffsArray, log, targetName) {
     }
 }
 
+const STAT_BOOST_MAP = {
+    'B11': ['strBoost', '力量', 'str'],
+    'B12': ['agiBoost', '敏捷', 'agi'],
+    'B13': ['intBoost', '智力', 'int'],
+    'B14': ['endBoost', '耐力', 'end'],
+};
+
 /**
  * processEnchantmentEffectsCore — Pure version of processEnchantmentEffects
  * Dispatches to handle*Core versions. Uses log array instead of logBattleAction.
@@ -334,44 +341,15 @@ export function processEnchantmentEffectsCore(weapon, enemy, damage, isCrit, log
                 break;
             }
             // B10 handled above (HoT)
-            case 'B11': {
-                const duration = parseInt(params[0]);
-                const value = parseInt(params[1]);
-                playerBuffs.push({
-                    name: '力量提升', type: 'strBoost',
-                    value, duration, isPositive: true,
-                });
-                log.push(`力量提升效果触发！力量+${value} 持续 ${duration} 回合！`);
-                break;
-            }
-            case 'B12': {
-                const duration = parseInt(params[0]);
-                const value = parseInt(params[1]);
-                playerBuffs.push({
-                    name: '敏捷提升', type: 'agiBoost',
-                    value, duration, isPositive: true,
-                });
-                log.push(`敏捷提升效果触发！敏捷+${value} 持续 ${duration} 回合！`);
-                break;
-            }
-            case 'B13': {
-                const duration = parseInt(params[0]);
-                const value = parseInt(params[1]);
-                playerBuffs.push({
-                    name: '智力提升', type: 'intBoost',
-                    value, duration, isPositive: true,
-                });
-                log.push(`智力提升效果触发！智力+${value} 持续 ${duration} 回合！`);
-                break;
-            }
+            case 'B11':
+            case 'B12':
+            case 'B13':
             case 'B14': {
+                const [buffType, label] = STAT_BOOST_MAP[effectType];
                 const duration = parseInt(params[0]);
                 const value = parseInt(params[1]);
-                playerBuffs.push({
-                    name: '耐力提升', type: 'endBoost',
-                    value, duration, isPositive: true,
-                });
-                log.push(`耐力提升效果触发！耐力+${value} 持续 ${duration} 回合！`);
+                playerBuffs.push({ name: `${label}提升`, type: buffType, value, duration, isPositive: true });
+                log.push(`${label}提升效果触发！${label}+${value} 持续 ${duration} 回合！`);
                 break;
             }
             case 'B15': {
@@ -670,7 +648,6 @@ export function selectTargets(enemies, count) {
 
 /**
  * applyDamageToEnemy - Apply damage with shield absorption (tempShield -> shield -> HP)
- * Matches existing applyDamageWithShield order in battleLogic.js.
  * @param {Object} enemy - Enemy entity (mutable)
  * @param {number} damage - Damage to apply
  * @param {Array} log - Log array

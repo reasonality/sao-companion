@@ -685,7 +685,7 @@ function applyAffixEffect(effectCode, args, player, enemies, stats, log, timing,
 /**
  * 完整版：执行玩家行动（§5.12 executePlayerActionCore，含 A1-A5 路由）
  */
-export function executePlayerActionCore(player, skill, enemies, teammates, log, stateUpdates) {
+export function executePlayerActionCore(player, skill, enemies, teammates, log) {
     const stats = getPlayerStatsCore(player, player.buffs || [], player.equipmentStats || {});
     let activeWeapon = skill ? normalizeWeapon(skill, player._skillCooldowns || {}) : null;
 
@@ -719,33 +719,24 @@ export function executePlayerActionCore(player, skill, enemies, teammates, log, 
     }
 
     // Apply sacrificeBoostActive stat bonuses (§5.13 step 6a)
+    let effectiveStats = stats;
     if (player.sacrificeBoostActive) {
         const boost = player.sacrificeBoostActive;
-        const boostedStats = {
+        effectiveStats = {
             ...stats,
             damageBonus: (stats.damageBonus || 0) + (boost.attack || 0) / 100,
             extraHitRate: (stats.extraHitRate || 0) + (boost.hitRate || 0) / 100,
             extraCritRate: (stats.extraCritRate || 0) + (boost.critRate || 0) / 100,
         };
-        // Route by core code (wn)
-        const wn = activeWeapon.wn || 'A1';
-        switch (wn) {
-            case 'A2': healCore(player, activeWeapon.attack, false, 1.0, log); break;
-            case 'A3': manaRestoreCore(player, activeWeapon.attack, false, 1.0, log); break;
-            case 'A4': sacrificeBoostCore(player, activeWeapon, log); break;
-            case 'A5': a5MultiHitCore(player, activeWeapon, enemies, log); break;
-            default: case 'A1': executeStandardAttack(player, activeWeapon, enemies, boostedStats, log); break;
-        }
-    } else {
-        // Route by core code (wn)
-        const wn = activeWeapon.wn || 'A1';
-        switch (wn) {
-            case 'A2': healCore(player, activeWeapon.attack, false, 1.0, log); break;
-            case 'A3': manaRestoreCore(player, activeWeapon.attack, false, 1.0, log); break;
-            case 'A4': sacrificeBoostCore(player, activeWeapon, log); break;
-            case 'A5': a5MultiHitCore(player, activeWeapon, enemies, log); break;
-            default: case 'A1': executeStandardAttack(player, activeWeapon, enemies, stats, log); break;
-        }
+    }
+    // Route by core code (wn)
+    const wn = activeWeapon.wn || 'A1';
+    switch (wn) {
+        case 'A2': healCore(player, activeWeapon.attack, false, 1.0, log); break;
+        case 'A3': manaRestoreCore(player, activeWeapon.attack, false, 1.0, log); break;
+        case 'A4': sacrificeBoostCore(player, activeWeapon, log); break;
+        case 'A5': a5MultiHitCore(player, activeWeapon, enemies, log); break;
+        default: case 'A1': executeStandardAttack(player, activeWeapon, enemies, effectiveStats, log); break;
     }
 
     // Execute affix effects (buff/debuff/shield timing)
@@ -1086,46 +1077,23 @@ export function processEndOfRoundCore(player, enemies, teammates, log) {
         log.push(`${player.name} 获得 ${sotBuff.value} 点护盾`);
     }
 
-    // 4. Clear expired temp shields (B21)
-    if (player.tempShieldTurns !== undefined) {
-        player.tempShieldTurns--;
-        if (player.tempShieldTurns <= 0) {
-            player.tempShield = 0;
-            log.push('临时护盾过期');
-        }
-    }
-
     // 5. Decrement buff turns/duration for all entities (含 stat 恢复)
     const decrementAndClean = (entity) => {
         if (!entity.buffs) return;
         entity.buffs = entity.buffs.filter(b => {
-            if (b.turns !== undefined) {
-                b.turns--;
-                if (b.turns <= 0) {
-                    // stat 降 debuff 过期时恢复属性
-                    if (b.type === 'strDebuff') entity.str = (entity.str || 0) + (b.value || 0);
-                    if (b.type === 'agiDebuff') entity.agi = (entity.agi || 0) + (b.value || 0);
-                    if (b.type === 'intDebuff') entity.int = (entity.int || 0) + (b.value || 0);
-                    if (b.type === 'vitDebuff') entity.vit = (entity.vit || 0) + (b.value || 0);
-                    // stat buff 过期时回退加成
-                    if (b.type === 'strBoost') entity.str = Math.max(1, (entity.str || 0) - (b.value || 0));
-                    if (b.type === 'agiBoost') entity.agi = Math.max(1, (entity.agi || 0) - (b.value || 0));
-                    return false;
-                }
-                return true;
-            }
-            if (b.duration !== undefined) {
-                b.duration--;
-                if (b.duration <= 0) {
-                    if (b.type === 'strDebuff') entity.str = (entity.str || 0) + (b.value || 0);
-                    if (b.type === 'agiDebuff') entity.agi = (entity.agi || 0) + (b.value || 0);
-                    if (b.type === 'intDebuff') entity.int = (entity.int || 0) + (b.value || 0);
-                    if (b.type === 'vitDebuff') entity.vit = (entity.vit || 0) + (b.value || 0);
-                    if (b.type === 'strBoost') entity.str = Math.max(1, (entity.str || 0) - (b.value || 0));
-                    if (b.type === 'agiBoost') entity.agi = Math.max(1, (entity.agi || 0) - (b.value || 0));
-                    return false;
-                }
-                return true;
+            const turnsKey = b.turns !== undefined ? 'turns' : (b.duration !== undefined ? 'duration' : null);
+            if (!turnsKey) return true;
+            b[turnsKey]--;
+            if (b[turnsKey] <= 0) {
+                // stat debuff 过期时恢复属性
+                if (b.type === 'strDebuff') entity.str = (entity.str || 0) + (b.value || 0);
+                if (b.type === 'agiDebuff') entity.agi = (entity.agi || 0) + (b.value || 0);
+                if (b.type === 'intDebuff') entity.int = (entity.int || 0) + (b.value || 0);
+                if (b.type === 'vitDebuff') entity.vit = (entity.vit || 0) + (b.value || 0);
+                // stat buff 过期时回退加成
+                if (b.type === 'strBoost') entity.str = Math.max(1, (entity.str || 0) - (b.value || 0));
+                if (b.type === 'agiBoost') entity.agi = Math.max(1, (entity.agi || 0) - (b.value || 0));
+                return false;
             }
             return true;
         });
@@ -1180,7 +1148,6 @@ export function resolveCombatRound(messageText) {
     }
 
     const roundLog = [];
-    const stateUpdates = {};
 
     // 构建实体
     const player = buildPlayerEntity(zd.player, zd.skills, getEquipmentStatsFromState());
@@ -1190,7 +1157,6 @@ export function resolveCombatRound(messageText) {
     if (enemies.length === 0) {
         return {
             log: ['无存活敌人'],
-            stateUpdates,
             playerAfter: { hp: player.hp, maxHp: player.maxHp, mp: player.mp, maxMp: player.maxMp },
             enemiesAfter: [],
             teammatesAfter: teammates.map(t => ({ name: t.name, hp: t.hp, maxHp: t.maxHp })),
@@ -1227,7 +1193,7 @@ export function resolveCombatRound(messageText) {
 
         try {
             if (actor.type === 'player') {
-                executePlayerActionCore(player, actor.skill, enemies, teammates, roundLog, stateUpdates);
+                executePlayerActionCore(player, actor.skill, enemies, teammates, roundLog);
             } else if (actor.type === 'teammate') {
                 executeTeammateAttackCore(entity, enemies, roundLog);
             } else if (actor.type === 'enemy') {
@@ -1279,6 +1245,5 @@ export function resolveCombatRound(messageText) {
         teammatesAfter: teammates.map(t => ({ name: t.name, hp: t.hp, maxHp: t.maxHp })),
         narrativeHint,
         log: roundLog,
-        stateUpdates,
     };
 }

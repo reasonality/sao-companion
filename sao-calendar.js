@@ -49,6 +49,25 @@ function daysBetween(dateStr1, dateStr2) {
     return Math.round((d2.getTime() - d1.getTime()) / msPerDay);
 }
 
+/**
+ * 从文本中提取 <time> 标签并解析日期
+ * @param {string} text - 包含 <time> 标签的文本
+ * @returns {Date|null} 解析后的日期，未找到则返回 null
+ */
+function parseTimeTagDate(text) {
+    const timeMatch = text.match(/<time>([\s\S]*?)<\/time>/);
+    if (!timeMatch) return null;
+    const parts = timeMatch[1].replace(/[『』]/g, '').split(/\s*-\s*/);
+    if (parts.length === 0) return null;
+    const datePart = parts[0].trim();
+    const parsedDate = parseDate(datePart);
+    if (parsedDate) return parsedDate;
+    // 尝试中文日期格式 YYYY年MM月DD日
+    const cm = datePart.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
+    if (cm) return new Date(parseInt(cm[1]), parseInt(cm[2]) - 1, parseInt(cm[3]));
+    return null;
+}
+
 // === 时间线解析 ===
 
 /**
@@ -134,26 +153,11 @@ export function initCalendarIfNeeded() {
             for (let i = ctx.chat.length - 1; i >= 0; i--) {
                 const msg = ctx.chat[i];
                 if (msg && !msg.is_user && msg.mes) {
-                    const timeMatch = msg.mes.match(/<time>([\s\S]*?)<\/time>/);
-                    if (timeMatch) {
-                        const timeText = timeMatch[1];
-                        const parts = timeText.replace(/[『』]/g, '').split(/\s*-\s*/);
-                        if (parts.length > 0) {
-                            const datePart = parts[0].trim();
-                            // 尝试解析日期部分
-                            const parsedDate = parseDate(datePart);
-                            if (parsedDate) {
-                                cal.currentDate = formatDate(parsedDate);
-                            } else {
-                                // 尝试中文日期格式 YYYY年MM月DD日
-                                const cm = datePart.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
-                                if (cm) {
-                                    cal.currentDate = cm[1] + '-' + String(cm[2]).padStart(2, '0') + '-' + String(cm[3]).padStart(2, '0');
-                                }
-                            }
-                        }
-                        break;
+                    const parsedDate = parseTimeTagDate(msg.mes);
+                    if (parsedDate) {
+                        cal.currentDate = formatDate(parsedDate);
                     }
+                    break;
                 }
             }
         }
@@ -364,23 +368,7 @@ export function updateCalendarIncremental(messageText) {
         if (!calendar) return;
 
         // 从 <time> 标签解析当前游戏日期
-        const timeMatch = messageText.match(/<time>([\s\S]*?)<\/time>/);
-        let newDate = null;
-        if (timeMatch) {
-            const timeText = timeMatch[1];
-            const parts = timeText.replace(/[『』]/g, '').split(/\s*-\s*/);
-            if (parts.length > 0) {
-                const datePart = parts[0].trim();
-                newDate = parseDate(datePart);
-                if (!newDate) {
-                    // 尝试中文日期格式 YYYY年MM月DD日
-                    const cm = datePart.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
-                    if (cm) {
-                        newDate = new Date(parseInt(cm[1]), parseInt(cm[2]) - 1, parseInt(cm[3]));
-                    }
-                }
-            }
-        }
+        const newDate = parseTimeTagDate(messageText);
 
         // 无论是否找到日期，都尝试提取约定
         const newAptCount = extractAppointments(messageText, calendar);

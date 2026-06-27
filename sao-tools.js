@@ -1,5 +1,5 @@
 // SAO Companion - Tool System & Tool Action Helpers
-// Extracted from index.js: function calling tools, effect code table, world book migration
+// Extracted from index.js: function calling tools, effect code table
 
 import { getSaoData, getCurrentCharacter, isSaoCard, log, getContext } from './sao-core.js';
 import { initCalendarIfNeeded, formatCalendarForLLM } from './sao-calendar.js';
@@ -613,14 +613,11 @@ export function initToolSystem() {
 }
 
 // ============================================================================
-// Tool Call Recording, Wrapping & World Book Migration
+// Tool Call Recording & Wrapping
 // ============================================================================
-
-// === P7: World Book Migration ===
 
 /**
  * 工具调用计数器 — 记录成功/失败次数到 localStorage
- * 用于 checkMigrationReadiness 判断工具稳定性
  */
 export function recordToolCall(success) {
     const key = success ? 'sao_tool_call_count' : 'sao_tool_fail_count';
@@ -644,135 +641,4 @@ export function wrapToolAction(originalAction) {
         }
     };
 }
-
-/**
- * 备份世界书 enabled 状态到 localStorage
- * 仅保存 uid/name/enabled，不保存内容（~10-50KB）
- */
-export function backupWorldBook() {
-    const char = getCurrentCharacter();
-    if (!char?.data?.character_book?.entries) return false;
-    const backup = char.data.character_book.entries.map(e => ({
-        uid: e.uid,
-        name: e.comment || e.name || '',
-        enabled: e.enabled !== false, // default true
-    }));
-    localStorage.setItem('sao_wb_backup_' + (char.name || 'default'), JSON.stringify(backup));
-    log(`世界书备份完成: ${backup.length} 个条目`);
-    return true;
-}
-
-/**
- * 从 localStorage 恢复世界书 enabled 状态
- */
-export function restoreWorldBook() {
-    const char = getCurrentCharacter();
-    if (!char?.data?.character_book?.entries) return false;
-    const key = 'sao_wb_backup_' + (char.name || 'default');
-    const stored = localStorage.getItem(key);
-    if (!stored) { log('无世界书备份可恢复', 'warn'); return false; }
-    try {
-        const backup = JSON.parse(stored);
-        const entries = char.data.character_book.entries;
-        for (const b of backup) {
-            const entry = entries.find(e => e.uid === b.uid);
-            if (entry) entry.enabled = b.enabled;
-        }
-        // 保存到角色卡
-        const ctx = getContext();
-        if (typeof ctx.saveWorldInfo === 'function') {
-            const bookName = char.data.character_book.name || char.name;
-            ctx.saveWorldInfo(bookName, char.data.character_book, true);
-        }
-        log(`世界书恢复完成: ${backup.length} 个条目`);
-        return true;
-    } catch (e) {
-        log('世界书恢复失败: ' + e.message, 'error');
-        return false;
-    }
-}
-
-/**
- * 检查世界书迁移 (Phase B) 就绪状态
- * 返回各条件是否满足及总体 readiness
- */
-export function checkMigrationReadiness() {
-    // 1. 工具系统已注册
-    const ctx = getContext();
-    const toolsRegistered = typeof ctx.registerFunctionTool === 'function' &&
-        (typeof ctx.isToolCallingSupported !== 'function' || ctx.isToolCallingSupported());
-
-    // 2. 至少 10 次成功工具调用
-    const toolCallCount = parseInt(localStorage.getItem('sao_tool_call_count') || '0');
-    const minCallsMet = toolCallCount >= 10;
-
-    // 3. 失败率 < 20%
-    const toolFailCount = parseInt(localStorage.getItem('sao_tool_fail_count') || '0');
-    const failRateOk = toolCallCount === 0 || (toolFailCount / toolCallCount) < 0.2;
-
-    // 4. 用户确认 — 此处只报告状态，需手动触发
-    const ready = toolsRegistered && minCallsMet && failRateOk;
-
-    return {
-        toolsRegistered,
-        minCallsMet,
-        failRateOk,
-        ready,
-        toolCallCount,
-        toolFailCount,
-        failRate: toolCallCount > 0 ? (toolFailCount / toolCallCount * 100).toFixed(1) + '%' : 'N/A',
-    };
-}
-
-/**
- * 执行世界书迁移 — 禁用信息查询类条目（时间线/角色/楼层）
- * 保留: constant=true 条目、regex 脚本、展示条目
- */
-export function executeWorldBookMigration() {
-    const readiness = checkMigrationReadiness();
-    if (!readiness.ready) {
-        log(`世界书迁移条件未满足: ${JSON.stringify(readiness)}`, 'warn');
-        return false;
-    }
-
-    // 先备份
-    if (!backupWorldBook()) {
-        log('世界书备份失败，迁移中止', 'error');
-        return false;
-    }
-
-    const char = getCurrentCharacter();
-    if (!char?.data?.character_book?.entries) return false;
-
-    // 已知 NPC 名称列表（用于识别角色信息条目）
-    const npcNames = ['亚丝娜', '克莱因', '艾基尔', '希兹克利夫', '结衣', '西莉卡', '莉兹贝特', '诗乃'];
-
-    let disabledCount = 0;
-    char.data.character_book.entries.forEach(e => {
-        const name = e.comment || e.name || '';
-        const isConstant = e.constant === true;
-        const isRegex = e.selective === true && e.disable === true; // regex 脚本
-        // 时间线条目（日期模式）
-        const isTimeline = /^\d{4}年\d{1,2}月/.test(name);
-        // 角色信息条目（已知 NPC 名称）
-        const isCharInfo = npcNames.some(n => name.includes(n));
-        // 楼层信息条目
-        const isFloorInfo = /^\d+F|^\d+层|^\d+楼/.test(name);
-
-        if (!isConstant && !isRegex && (isTimeline || isCharInfo || isFloorInfo)) {
-            if (e.enabled !== false) {
-                e.enabled = false;
-                disabledCount++;
-            }
-        }
-    });
-
-    // 保存
-    const ctx = getContext();
-    if (typeof ctx.saveWorldInfo === 'function') {
-        const bookName = char.data.character_book.name || char.name;
-        ctx.saveWorldInfo(bookName, char.data.character_book, true);
-    }
-    log(`世界书迁移完成: 禁用 ${disabledCount} 个信息查询类条目`);
-    return true;
-}
+

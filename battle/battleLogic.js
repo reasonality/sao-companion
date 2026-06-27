@@ -627,7 +627,6 @@ let battleState = {
   selectedEnemies: [],
   currentWeapon: null,
   currentItem: null, 
-  waitingForNextRound: false,
   healTarget: null, 
   selfTargetMode: false, 
   lastKilledBy: null, 
@@ -729,76 +728,6 @@ function addHealHate(healerId, healerName, healAmount) {
   Object.keys(hateSystem.enemyHateLists).forEach(enemyId => {
     hateSystem.addHateToEnemy(enemyId, healerId, healerName, healAmount);
   });
-}
-
-function getEnemyTargetsByHate(enemyId, maxTargets) {
-  if (maxTargets <= 0) return [];
-  const hateList = hateSystem.enemyHateLists[enemyId] || [];
-  const targets = [];
-  
-  for (const hateEntry of hateList) {
-    if (targets.length >= maxTargets) break;
-    
-    if (hateEntry.targetId === 'player' && battleState.player.hp > 0) {
-      targets.push({
-        type: 'player',
-        entity: battleState.player,
-        name: battleState.player.name || 'User',
-        hateValue: hateEntry.hateValue,
-      });
-    } else {
-      const teammate = battleState.teammates.find(t => t.id === hateEntry.targetId && t.hp > 0);
-      if (teammate) {
-        targets.push({
-          type: 'teammate',
-          entity: teammate,
-          name: teammate.name,
-          hateValue: hateEntry.hateValue,
-        });
-      }
-    }
-  }
-  
-  if (targets.length < maxTargets) {
-    
-    const allPossibleTargets = [];
-    
-    if (battleState.player.hp > 0) {
-      allPossibleTargets.push({
-        type: 'player',
-        entity: battleState.player,
-        name: battleState.player.name || 'User',
-        hateValue: 0,
-      });
-    }
-    
-    battleState.teammates.forEach(teammate => {
-      if (teammate.hp > 0) {
-        allPossibleTargets.push({
-          type: 'teammate',
-          entity: teammate,
-          name: teammate.name,
-          hateValue: 0,
-        });
-      }
-    });
-    
-    const nonSelectedTargets = allPossibleTargets.filter(target => {
-      return !targets.some(selectedTarget => {
-        if (selectedTarget.type === 'player' && target.type === 'player') {
-          return true;
-        }
-        if (selectedTarget.type === 'teammate' && target.type === 'teammate') {
-          return selectedTarget.entity.id === target.entity.id;
-        }
-        return false;
-      });
-    });
-    
-    const remainingSlots = maxTargets - targets.length;
-    targets.push(...nonSelectedTargets.slice(0, remainingSlots));
-  }
-  return targets;
 }
 
 let battleData = null;
@@ -2065,7 +1994,6 @@ function createBattleButton() {
         battleState.selectedHealTargets = []; 
         battleState.currentWeapon = null;
         battleState.currentItem = null;
-        battleState.waitingForNextRound = false;
         battleState.healTarget = null;
         battleState.selfTargetMode = false;
         battleState.lastKilledBy = null;
@@ -4655,7 +4583,7 @@ function handleShieldOverTime(params, buffsArray = battleState.playerBuffs, targ
 }
 
 function getPlayerActualStats() {
-  return getPlayerStatsCore(battleState.player, battleState.playerBuffs, battleState.equipmentStats || {});
+  return getPlayerStatsCore(battleState.player, battleState.playerBuffs, battleState.equipmentStats);
 }
 
 function processTeammateEnchantmentEffects(weapon, enemy, damage, isCrit, teammate) {
@@ -4773,218 +4701,6 @@ const handleTeammateIntelligenceBoost = (params, teammate) =>
 const handleTeammateVitalityBoost = (params, teammate) =>
   BuffManager.handleAttributeBoost(params, 'vitBoost', '体力', false, teammate);
 
-      function performEnemyTurn() {
-        battleState.waitingForNextRound = false;
-        logBattleAction(`敌人回合！`);
-        
-        for (const enemy of battleState.enemies) {
-          
-          if (enemy.pendingFreeze) {
-            logBattleAction(`${enemy.name} 被晕眩，无法行动！`);
-            enemy.pendingFreezeCount--;
-            if (enemy.pendingFreezeCount <= 0) {
-              enemy.pendingFreeze = false;
-              enemy.pendingFreezeCount = 0;
-              logBattleAction(`${enemy.name} 解除了晕眩状态！`);
-            }
-            continue;
-          }
-          
-          let totalBurnDamage = 0;
-          const burnBuffs = enemy.buffs ? enemy.buffs.filter(buff => buff.type === 'burnOverTime') : [];
-          if (burnBuffs.length > 0) {
-            
-            burnBuffs.forEach(burnBuff => {
-              totalBurnDamage += burnBuff.value;
-            });
-            if (totalBurnDamage > 0) {
-              enemy.hp = Math.max(0, enemy.hp - totalBurnDamage);
-              logBattleAction(`${enemy.name} 受到余烬效果，损失 ${totalBurnDamage} 点生命值！`);
-              
-              showDamageNumber('enemy', totalBurnDamage, false, enemy.id);
-              
-              addHpChangeAnimation('enemy', enemy.id);
-              
-              if (StateValidator.isDead(enemy)) {
-                logBattleAction(`${enemy.name} 被余烬效果击败了！`);
-                
-                if (StateValidator.checkEnemyDeath(enemy)) {
-                  return; 
-                }
-                
-                continue;
-              }
-            }
-          }
-          
-          const attackName = enemy.attackPattern[enemy.nextAttackIndex];
-          const skill = enemy.skills.find(s => s.name === attackName);
-          if (skill) {
-            logBattleAction(`${enemy.name} 使用 ${skill.name} 攻击！`);
-            
-            const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
-            enemyElement.classList.add('attack-animation-backward');
-            
-            setTimeout(() => {
-              
-              const effectiveHitRate = getEffectiveHitRate(skill.hitRate, enemy);
-              
-              const maxTargets = skill.targetsPerAttack || 1;
-              const targets = getEnemyTargetsByHate(enemy.id, maxTargets);
-              if (targets.length === 0) {
-                logBattleAction(`${enemy.name} 找不到可攻击的目标！`);
-                
-                setTimeout(() => {
-                  enemyElement.classList.remove('attack-animation-backward');
-                }, 500);
-                return;
-              }
-              if (maxTargets > 1) {
-                logBattleAction(
-                  `${enemy.name} 的 ${skill.name} 瞄准了 ${targets.length} 个目标：${targets
-                    .map(t => t.name)
-                    .join(', ')}`,
-                );
-              }
-              
-              targets.forEach((target, targetIndex) => {
-                
-                const enemyStats = getEnemyActualStats(enemy);
-                let targetStats;
-                if (target.entity === battleState.player) {
-                  targetStats = getPlayerActualStats();
-                } else {
-                  
-                  targetStats = getTeammateActualStats(target.entity);
-                }
-                
-                const finalHitRate = calculateFinalHitRate(effectiveHitRate, enemyStats, targetStats);
-                const hitRoll = Math.random();
-                
-                if (hitRoll <= Math.min(1.0, finalHitRate)) {
-                  
-                  logBattleAction(`攻击命中 ${target.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-                  
-                  const targetElement =
-                    target.type === 'player'
-                      ? domRoot.querySelector('.combat-entity.player')
-                      : domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${target.entity.id}"]`);
-                  if (targetElement) {
-                    targetElement.classList.add('shake-animation');
-                  }
-                  
-                  const finalCritRate = calculateFinalCritRate(skill.critRate, enemyStats, targetStats, finalHitRate);
-                  const critRoll = Math.random();
-                  
-                  const isCrit = critRoll <= finalCritRate;
-                  
-                  const finalCritMultiplier = isCrit
-                    ? calculateFinalCritMultiplier(enemyStats, targetStats, finalCritRate)
-                    : 1.0;
-                  
-                  let damage = calculateFinalDamage(skill.attack, enemyStats, targetStats, isCrit, finalCritMultiplier);
-                  
-                  if (isCrit) {
-                    logBattleAction(
-                      `暴击！造成 ${damage} 点伤害！(暴击率: ${(finalCritRate * 100).toFixed(
-                        1,
-                      )}%, 暴击倍率: ${finalCritMultiplier.toFixed(2)}x)`,
-                    );
-                    if (target.type === 'player') {
-                      showDamageNumber('player', damage, true);
-                    } else {
-                      
-                      showDamageNumber('teammate', damage, true, null, target.entity.id);
-                    }
-                  } else {
-                    logBattleAction(`造成 ${damage} 点伤害！`);
-                    if (target.type === 'player') {
-                      showDamageNumber('player', damage, false);
-                    } else {
-                      
-                      showDamageNumber('teammate', damage, false, null, target.entity.id);
-                    }
-                  }
-                  
-                  let remainingDamage = damage;
-
-                  if (target.entity.tempShield && target.entity.tempShield > 0) {
-                    const tempShieldAbsorbed = Math.min(target.entity.tempShield, remainingDamage);
-                    target.entity.tempShield -= tempShieldAbsorbed;
-                    remainingDamage -= tempShieldAbsorbed;
-                    if (tempShieldAbsorbed > 0) {
-                      logBattleAction(`临时护盾吸收 ${tempShieldAbsorbed} 点伤害！（剩余临时护盾 ${target.entity.tempShield} 点）`);
-                    }
-                  }
-
-                  if (remainingDamage > 0 && target.entity.shield && target.entity.shield > 0) {
-                    const shieldAbsorbed = Math.min(target.entity.shield, remainingDamage);
-                    target.entity.shield -= shieldAbsorbed;
-                    remainingDamage -= shieldAbsorbed;
-                    if (shieldAbsorbed > 0) {
-                      logBattleAction(`护盾吸收 ${shieldAbsorbed} 点伤害！（剩余护盾 ${target.entity.shield} 点）`);
-                    }
-                  }
-
-                  const oldHp = target.entity.hp;
-                  target.entity.hp = Math.max(0, target.entity.hp - remainingDamage);
-                  
-                  if (target.type === 'player') {
-                    addHpChangeAnimation('player');
-                  } else {
-                    addHpChangeAnimation('teammate', target.entity.id);
-                  }
-                  
-                  setTimeout(() => {
-                    if (targetElement) {
-                      targetElement.classList.remove('shake-animation');
-                    }
-                  }, 800);
-                  
-                  if (StateValidator.isDead(target.entity)) {
-                    if (target.type === 'player') {
-                      
-                      battleState.lastKilledBy = skill.name;
-                      endBattle(false);
-                      return;
-                    } else {
-                      
-                      logBattleAction(`${target.name} 被击败了！`);
-                      
-                      createDeathEffect(targetElement);
-                      
-                      hateSystem.clearTargetHate(target.entity.id);
-                      
-                      battleState.teammates = battleState.teammates.filter(t => t.id !== target.entity.id);
-                      
-                      cleanupActionOrder('teammate', target.entity.id);
-                      
-                      updatePlayerPanel();
-                    }
-                  }
-                } else {
-                  
-                  logBattleAction(`攻击未命中 ${target.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-                }
-              }); 
-              
-              enemy.nextAttackIndex = (enemy.nextAttackIndex + 1) % enemy.attackPattern.length;
-              
-              enemyElement.classList.remove('attack-animation-backward');
-            }, 500);
-          }
-        }
-        
-        setTimeout(() => {
-          
-          updatePlayerPanel();
-          updateEnemyPanel();
-          updateHateDisplay(); 
-          
-          startNextRound();
-        }, 1500); 
-      }
-      
       function forceUpdateUI() {
         
         updateActionOrderDisplay();
@@ -6038,47 +5754,6 @@ function showHealNumberOnEnemy(amount, enemyId) {
   }
 }
 
-function applyDamageWithShield(target, damage, targetName) {
-  let remainingDamage = damage;
-  let shieldDamage = 0;
-  let tempShieldDamage = 0;
-  let hpDamage = 0;
-
-  if (target.tempShield && target.tempShield > 0) {
-    tempShieldDamage = Math.min(target.tempShield, remainingDamage);
-    target.tempShield -= tempShieldDamage;
-    remainingDamage -= tempShieldDamage;
-    
-    if (tempShieldDamage > 0) {
-      logBattleAction(`${targetName}的临时护盾抵挡了 ${tempShieldDamage} 点伤害！剩余临时护盾: ${target.tempShield}`);
-    }
-  }
-
-  if (remainingDamage > 0 && target.shield && target.shield > 0) {
-    shieldDamage = Math.min(target.shield, remainingDamage);
-    target.shield -= shieldDamage;
-    remainingDamage -= shieldDamage;
-    
-    if (shieldDamage > 0) {
-      logBattleAction(`${targetName}的护盾抵挡了 ${shieldDamage} 点伤害！剩余护盾: ${target.shield}`);
-    }
-  }
-
-  if (remainingDamage > 0) {
-    hpDamage = remainingDamage;
-    target.hp = Math.max(0, target.hp - hpDamage);
-    logBattleAction(`${targetName}受到 ${hpDamage} 点伤害！当前HP: ${target.hp}/${target.maxHp}`);
-  }
-  
-  return {
-    totalDamage: damage,
-    tempShieldDamage: tempShieldDamage,
-    shieldDamage: shieldDamage,
-    hpDamage: hpDamage,
-    blocked: damage - hpDamage
-  };
-}
-
 function applyHealingEffect(item, userEntity, isPlayer) {
   const oldHp = userEntity.hp;
   userEntity.hp = Math.min(userEntity.hp + item.value, userEntity.maxHp);
@@ -6270,7 +5945,6 @@ function setupLazyRendering() {
 
 function setupDataUpdateListener() {
   let lastDataContent = domRoot.getElementById('status-data-source').textContent;
-  let isRendered = false;
   
   const observer = new MutationObserver(function (mutations) {
     const currentData = domRoot.getElementById('status-data-source').textContent;

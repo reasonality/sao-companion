@@ -74,6 +74,122 @@ const SHARED_STARDEW_CSS = `
 `;
 
 /**
+ * renderEquipment + renderSwordSkill 共用的 details/summary 交互样式。
+ * 两个渲染器的 CSS 结构完全一致，只有 class 名、icon、icon 颜色不同，
+ * 这些差异通过 CSS 自定义属性 --stardew-icon / --stardew-icon-open-color /
+ * --stardew-icon-closed-color 参数化，由各自的 .stardew-text-wrapper 设定。
+ * @param {string} className - details 元素的 class 名（如 'details-character-bar'）
+ * @returns {string} CSS 规则文本
+ */
+function stardewDetailsSharedCSS(className) {
+    return `
+                    .${className} {
+                        border: none;
+                        margin: 0;
+                        padding: 0;
+                        color: #CCCCCC;
+                        font-family: 'NotoSansCJKsc-Bold', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    }
+                    .${className} > summary {
+                        display: flex;
+                        align-items: center;
+                        width: 100%;
+                        cursor: pointer;
+                        font-weight: bold;
+                        list-style: none;
+                        outline: none;
+                        image-rendering: pixelated;
+                        -webkit-font-smoothing: none;
+                        -moz-osx-font-smoothing: grayscale;
+                        transition: all 0.1s ease-in-out;
+                        position: relative;
+                        top: 0; left: 0;
+                        box-sizing: border-box;
+                    }
+                    .${className} > summary::-webkit-details-marker,
+                    .${className} > summary::marker {
+                         display: none;
+                         content: '';
+                    }
+                    .${className} > summary::before {
+                        content: var(--stardew-icon);
+                        display: inline-block;
+                        line-height: 1;
+                        font-size: 1.1em;
+                    }
+                    .${className}:not([open]) > summary {
+                        padding: 4px 8px 5px 8px;
+                        font-size: 16px;
+                        line-height: 1.2;
+                        margin-bottom: 0;
+                        background-color: transparent;
+                        border: none !important;
+                        border-radius: 0;
+                        box-shadow: none !important;
+                        filter: none;
+                        justify-content: flex-start;
+                        color: var(--stardew-header-text);
+                        border-bottom: 1px solid var(--stardew-content-border);
+                    }
+                    .${className}:not([open]) > summary::before {
+                         color: var(--stardew-icon-closed-color);
+                         margin-right: 6px;
+                    }
+                    .${className}[open] > summary {
+                        padding: 10px 8px;
+                        font-size: 18px;
+                        line-height: initial;
+                        margin-bottom: 5px;
+                        border: 2px solid var(--stardew-pressed-border);
+                        border-radius: 5px;
+                        background-color: var(--stardew-pressed-bg);
+                        justify-content: flex-start;
+                        color: var(--stardew-pressed-text);
+                        border-bottom: none;
+                        box-shadow:
+                            inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
+                            inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
+                        filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
+                        top: 1px;
+                        left: 1px;
+                    }
+                    .${className}[open] > summary::before {
+                        color: var(--stardew-icon-open-color);
+                        margin-right: 8px;
+                    }
+                    .${className} > summary:active {
+                         padding: 10px 8px;
+                         font-size: 18px;
+                         line-height: initial;
+                         background-color: var(--stardew-pressed-bg);
+                         color: var(--stardew-pressed-text);
+                         box-shadow:
+                             inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
+                             inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
+                         filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
+                         top: 1px;
+                         left: 1px;
+                         border: 2px solid var(--stardew-pressed-border);
+                         border-radius: 5px;
+                         justify-content: flex-start;
+                         margin-bottom: 5px;
+                         border-bottom: none;
+                    }
+                    .${className} > summary:active::before {
+                        color: var(--stardew-icon-open-color);
+                        margin-right: 8px;
+                    }
+                    .${className} > div {
+                        padding: 5px 0 0 0;
+                        margin: 0;
+                        font-size: 15px;
+                        line-height: 1.4;
+                        background-color: rgba(40, 40, 40, 0.85);
+                        color: #CCCCCC;
+                    }`;
+}
+
+/**
  * 白名单清洗内联 HTML，仅保留 SAO 卡中常见的安全标签与属性。
  * 允许：br, font[color], span[style|color], b, strong, i, em
  * 移除：script/style/事件属性/data-/javascript: 等。
@@ -220,7 +336,7 @@ function hideSaoLightDomTags(messageEl) {
     target.classList.add('sao-tags-rendered');
     
     // 直接隐藏 light DOM 中的 SAO 自定义标签元素（比 CSS 更可靠）
-    const tagsToHide = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
+    const tagsToHide = SAO_CUSTOM_TAGS;
     for (const tag of tagsToHide) {
         const elements = target.querySelectorAll(tag);
         elements.forEach(el => {
@@ -608,7 +724,7 @@ export function renderAllTags(messageEl, rawText, messageId) {
 function cleanupSaoLightDom(messageEl) {
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
     // 1. 删除所有自定义标签元素（及其子元素）
-    const tagsToRemove = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
+    const tagsToRemove = SAO_CUSTOM_TAGS;
     for (const tag of tagsToRemove) {
         mesText.querySelectorAll(tag).forEach(el => el.remove());
     }
@@ -830,128 +946,11 @@ function renderEquipment(messageEl, rawText) {
         <style>
             ${SHARED_SAO_CSS}
             ${SHARED_STARDEW_CSS}
-
-                    /* --- Styles SPECIFICALLY for the Character Bar Button --- */
-                    .details-character-bar {
-                        border: none;
-                        margin: 0;
-                        padding: 0;
-                        color: #CCCCCC;
-                        font-family: 'NotoSansCJKsc-Bold', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    }
-            
-                    /* Base Summary Styling (Unchanged) */
-                    .details-character-bar > summary {
-                        display: flex;
-                        align-items: center;
-                        width: 100%;
-                        cursor: pointer;
-                        font-weight: bold;
-                        list-style: none;
-                        outline: none;
-                        image-rendering: pixelated;
-                        -webkit-font-smoothing: none;
-                        -moz-osx-font-smoothing: grayscale;
-                        transition: all 0.1s ease-in-out;
-                        position: relative;
-                        top: 0; left: 0;
-                        box-sizing: border-box;
-                    }
-            
-                    /* Remove default marker (Unchanged) */
-                    .details-character-bar > summary::-webkit-details-marker,
-                    .details-character-bar > summary::marker {
-                         display: none;
-                         content: '';
-                    }
-            
-                    /* Base Character Icon Styling (Unchanged) */
-                    .details-character-bar > summary::before {
-                        content: '🎒';
-                        display: inline-block;
-                        line-height: 1;
-                        font-size: 1.1em;
-                    }
-            
-                    /* State when CLOSED (Unchanged) */
-                    .details-character-bar:not([open]) > summary {
-                        padding: 4px 8px 5px 8px;
-                        font-size: 16px;
-                        line-height: 1.2;
-                        margin-bottom: 0;
-                        background-color: transparent;
-                        border: none !important;
-                        border-radius: 0;
-                        box-shadow: none !important;
-                        filter: none;
-                        justify-content: flex-start;
-                        color: var(--stardew-header-text);
-                        border-bottom: 1px solid var(--stardew-content-border);
-                    }
-                    /* Icon color and margin when closed (Unchanged) */
-                    .details-character-bar:not([open]) > summary::before {
-                         color: var(--stardew-header-text);
-                         margin-right: 6px;
-                    }
-            
-                    /* State when OPEN (Summary unchanged) */
-                    .details-character-bar[open] > summary {
-                        padding: 10px 8px;
-                        font-size: 18px;
-                        line-height: initial;
-                        margin-bottom: 5px;
-                        border: 2px solid var(--stardew-pressed-border);
-                        border-radius: 5px;
-                        background-color: var(--stardew-pressed-bg); /* Summary background */
-                        justify-content: flex-start;
-                        color: var(--stardew-pressed-text);
-                        border-bottom: none;
-                        box-shadow:
-                            inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
-                            inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
-                        filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
-                        top: 1px;
-                        left: 1px;
-                    }
-                     /* Icon style when open (Unchanged) */
-                    .details-character-bar[open] > summary::before {
-                        color: var(--stardew-pressed-text);
-                        margin-right: 8px;
-                    }
-            
-                    /* Instant feedback WHILE clicking (:active) (Unchanged) */
-                    .details-character-bar > summary:active {
-                         padding: 10px 8px;
-                         font-size: 18px;
-                         line-height: initial;
-                         background-color: var(--stardew-pressed-bg);
-                         color: var(--stardew-pressed-text);
-                         box-shadow:
-                             inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
-                             inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
-                         filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
-                         top: 1px;
-                         left: 1px;
-                         border: 2px solid var(--stardew-pressed-border);
-                         border-radius: 5px;
-                         justify-content: flex-start;
-                         margin-bottom: 5px;
-                         border-bottom: none;
-                    }
-                     /* Icon style when active (Unchanged) */
-                    .details-character-bar > summary:active::before {
-                        color: var(--stardew-pressed-text);
-                        margin-right: 8px;
-                    }
-            
-                    /* Content revealed when details is open - Added explicit background */
-                    .details-character-bar > div {
-                        padding: 5px 0 0 0;
-                        margin: 0;
-                        font-size: 15px;
-                        line-height: 1.4;
-                        background-color: rgba(40, 40, 40, 0.85); /* Ensure content area matches */
-                        color: #CCCCCC; /* Ensure text color is set */
+            ${stardewDetailsSharedCSS('details-character-bar')}
+                    .stardew-text-wrapper {
+                        --stardew-icon: '🎒';
+                        --stardew-icon-closed-color: var(--stardew-header-text);
+                        --stardew-icon-open-color: var(--stardew-pressed-text);
                     }
         </style>
         <div class="stardew-text-wrapper">
@@ -974,137 +973,12 @@ function renderSwordSkill(messageEl, rawText) {
         <style>
             ${SHARED_SAO_CSS}
             ${SHARED_STARDEW_CSS}
+            ${stardewDetailsSharedCSS('details-affinity-button')}
                     .stardew-text-wrapper {
+                        --stardew-icon: '✨';
+                        --stardew-icon-closed-color: var(--stardew-heart-icon-color);
+                        --stardew-icon-open-color: var(--stardew-heart-icon-color);
                         --stardew-heart-icon-color: #ff6b6b;
-                    }
-
-                    /* --- Styles SPECIFICALLY for the Affinity Button (Placed directly in wrapper) --- */
-            
-                    .details-affinity-button { /* Target the specific details element */
-                        border: none;
-                        margin: 0;
-                        padding: 0;
-                        color: #CCCCCC; /* Default text color */
-                        font-family: 'NotoSansCJKsc-Bold', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    }
-            
-                    /* Base Summary Styling (MATCHES CHARACTER BAR) */
-                    .details-affinity-button > summary {
-                        display: flex;
-                        align-items: center;
-                        width: 100%;
-                        cursor: pointer;
-                        font-weight: bold;
-                        list-style: none;
-                        outline: none;
-                        image-rendering: pixelated;
-                        -webkit-font-smoothing: none;
-                        -moz-osx-font-smoothing: grayscale;
-                        transition: all 0.1s ease-in-out;
-                        position: relative;
-                        top: 0; left: 0;
-                        box-sizing: border-box;
-                         /* Font size set by state */
-                    }
-            
-                    /* Remove default marker */
-                    .details-affinity-button > summary::-webkit-details-marker,
-                    .details-affinity-button > summary::marker {
-                         display: none;
-                         content: '';
-                    }
-            
-                    /* Base Heart Icon Styling */
-                    .details-affinity-button > summary::before {
-                        content: '✨'; /* AFFINITY ICON */
-                        display: inline-block;
-                        line-height: 1;
-                        font-size: 1.1em; /* MATCHES CHARACTER BAR */
-                        color: var(--stardew-heart-icon-color);
-                        /* Margin set by state */
-                    }
-            
-                    /* State when CLOSED (MATCHES CHARACTER BAR) */
-                    .details-affinity-button:not([open]) > summary {
-                        padding: 4px 8px 5px 8px; /* Adjusted padding for larger size */
-                        font-size: 16px; /* Increased closed font size */
-                        line-height: 1.2;
-                        margin-bottom: 0;
-                        background-color: transparent;
-                        border: none !important;
-                        border-radius: 0;
-                        box-shadow: none !important;
-                        filter: none;
-                        justify-content: flex-start;
-                        color: var(--stardew-header-text);
-                        border-bottom: 1px solid var(--stardew-content-border);
-                    }
-                    /* Icon margin when closed */
-                    .details-affinity-button:not([open]) > summary::before {
-                         margin-right: 6px; /* MATCHES CHARACTER BAR */
-                         color: var(--stardew-heart-icon-color); /* Keep heart color */
-                    }
-            
-                    /* State when OPEN (MATCHES CHARACTER BAR) */
-                    .details-affinity-button[open] > summary {
-                        padding: 10px 8px;
-                        font-size: 18px;
-                        line-height: initial;
-                        margin-bottom: 5px;
-                        border: 2px solid var(--stardew-pressed-border);
-                        border-radius: 5px;
-                        background-color: var(--stardew-pressed-bg);
-                        justify-content: flex-start;
-                        color: var(--stardew-pressed-text);
-                        border-bottom: none;
-                        box-shadow:
-                            inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
-                            inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
-                        filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
-                        top: 1px;
-                        left: 1px;
-                    }
-                     /* Icon style when open */
-                    .details-affinity-button[open] > summary::before {
-                        margin-right: 8px; /* MATCHES CHARACTER BAR */
-                        color: var(--stardew-heart-icon-color); /* Keep heart color */
-                        /* font-size: 1.1em; Already set */
-                    }
-            
-                    /* Instant feedback WHILE clicking (:active) (MATCHES CHARACTER BAR) */
-                    .details-affinity-button > summary:active {
-                         padding: 10px 8px;
-                         font-size: 18px;
-                         line-height: initial;
-                         background-color: var(--stardew-pressed-bg);
-                         color: var(--stardew-pressed-text);
-                         box-shadow:
-                             inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
-                             inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
-                         filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
-                         top: 1px;
-                         left: 1px;
-                         border: 2px solid var(--stardew-pressed-border);
-                         border-radius: 5px;
-                         justify-content: flex-start;
-                         margin-bottom: 5px;
-                         border-bottom: none;
-                    }
-                     /* Icon style when active */
-                    .details-affinity-button > summary:active::before {
-                        margin-right: 8px; /* MATCHES CHARACTER BAR */
-                        color: var(--stardew-heart-icon-color); /* Keep heart color */
-                        /* font-size: 1.1em; Already set */
-                    }
-            
-                    /* Content revealed when details is open (Added background color) */
-                    .details-affinity-button > div {
-                        padding: 5px 0 0 0;
-                        margin: 0;
-                        font-size: 15px;
-                        line-height: 1.4;
-                        background-color: rgba(40, 40, 40, 0.85); /* Ensure content area matches background */
-                        color: #CCCCCC;
                     }
         </style>
         <div class="stardew-text-wrapper">

@@ -96,7 +96,6 @@ export function getSaoData() {
     }
     const d = meta[MODULE_NAME];
     // 兼容旧字段
-    if (!d.quests) d.quests = [];
     if (d.calendar === undefined) d.calendar = null;
     return d;
 }
