@@ -660,6 +660,76 @@ function formatCompactState(state) {
     return parts.join(' | ');
 }
 
+function formatFullState(state) {
+    if (!state) return 'No SAO state available.';
+    const parts = [];
+
+    // Core stats (reuse formatCompactState's core)
+    if (state.player_name) parts.push(`[玩家]${state.player_name}`);
+    if (state.level != null) parts.push(`Lv${state.level}`);
+    if (state.hp != null) parts.push(`HP:${state.hp}/${state.max_hp || '?'}`);
+    if (state.mp != null) parts.push(`MP:${state.mp}/${state.max_mp || '?'}`);
+    if (state.floor != null) parts.push(`${state.floor}F`);
+    if (state.location) parts.push(`@${state.location}`);
+    if (state.cor != null) parts.push(`珂尔:${state.cor}`);
+
+    // Equipment detailed stats
+    if (state.equipment) {
+        parts.push('\n[装备详情]');
+        for (const [slot, eq] of Object.entries(state.equipment)) {
+            if (!eq || !eq.name) continue;
+            const stats = eq.stats || {};
+            parts.push(`  ${slot}: ${eq.name} (STR+${stats.str||0} AGI+${stats.agi||0} INT+${stats.int||0} VIT+${stats.vit||0} HP+${stats.max_hp||0})`);
+        }
+    }
+
+    // Inventory
+    if (state.inventory?.length) {
+        parts.push('\n[背包]');
+        state.inventory.slice(0, 10).forEach(item => {
+            parts.push(`  ${item.name || item.type || '?'} x${item.qty || 1}`);
+        });
+        if (state.inventory.length > 10) parts.push(`  ... 共${state.inventory.length}件`);
+    }
+
+    // Skills with combat attributes
+    if (state.skills?.length) {
+        parts.push('\n[技能详情]');
+        const effectTable = getEffectCodeTable();
+        state.skills.forEach(skill => {
+            const atk = skill.atk || skill.base_damage || 0;
+            const hit = skill.hit || skill.hit_rate || 0;
+            const crit = skill.crit || skill.crit_rate || 0;
+            const apt = skill.apt || skill.hits || 1;
+            const tpa = skill.tpa || skill.targets || 1;
+            const mpCost = skill.mpCost || skill.mp_cost || 0;
+            const cd = skill.cd || skill.cooldown || 0;
+            const wn = skill.wn || skill.core_code || 'A1';
+            let line = `  ${skill.name || '?'}(Lv${skill.level||skill.skill_level||1}) ATK:${atk} 命中:${hit}% 暴击:${crit}% 连击:${apt} 目标:${tpa} MP:${mpCost} CD:${cd}轮 ${wn}`;
+            // Affix descriptions
+            const affixCodes = skill.affix_codes || skill.en || [];
+            if (affixCodes.length > 0) {
+                const affixDescs = affixCodes.map(code => {
+                    const bareCode = code.replace(/^EN:/, '').split(',')[0];
+                    const entry = effectTable[bareCode];
+                    if (entry?.fmt) {
+                        const params = code.split(',').slice(1).map(Number);
+                        return entry.fmt(params);
+                    }
+                    return bareCode;
+                });
+                line += ` [${affixDescs.join(', ')}]`;
+            }
+            parts.push(line);
+        });
+    }
+
+    // Last combat hint
+    if (state.lastCombatHint) parts.push('\n' + state.lastCombatHint);
+
+    return parts.join('\n');
+}
+
 function injectMemoryAndState() {
     const ctx = getContext();
     const settings = getSettings();
