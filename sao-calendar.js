@@ -50,6 +50,19 @@ function daysBetween(dateStr1, dateStr2) {
 }
 
 /**
+ * 递增日历版本号并保存。
+ * v2 乐观并发控制依赖：每次 calendar 变更后调用此函数，确保 LLM fire-and-forget
+ * 的版本号快照能检测到 v1 的后续变更（见 CALENDAR_MODEL_V2_DESIGN.md §5.3）。
+ * 所有修改 calendar 数据后的保存点必须用本函数，不得直接调用 saveSaoDataNow。
+ * @param {object} calendar - 日历对象（会被原地修改：calendarVersion++）
+ * @returns {Promise<void>}
+ */
+export async function persistCalendar(calendar) {
+    if (calendar) calendar.calendarVersion = (calendar.calendarVersion || 0) + 1;
+    return saveSaoDataNow();
+}
+
+/**
  * 从文本中提取 <time> 标签并解析日期
  * @param {string} text - 包含 <time> 标签的文本
  * @returns {Date|null} 解析后的日期，未找到则返回 null
@@ -143,6 +156,7 @@ export function initCalendarIfNeeded() {
                 appointments: [],
                 lastCalUpdateDate: null,
                 lastCalUpdateMsgId: null,
+                calendarVersion: 0,
             };
         }
         const cal = data.calendar;
@@ -233,12 +247,62 @@ export function initCalendarIfNeeded() {
  * 用于从 AI 消息中自动提取约定事项
  */
 const APPOINTMENT_PATTERNS = [
+    // --- 原有 5 条（保持顺序不变） ---
     /约[定好].*?(明天|后天|下周|\d+月?\d*[日号]?)/,
     /(明天|后天|下周|过几天).*?(见|会面|等)/,
     /(上午|下午|晚上|\d{1,2}:\d{2}).*?(见|会面|约)/,
     /说好.*?(到时候|属于我们)/,
     /答应.*?(一起|同行|前往)/,
+    // --- 扩展 5 条（SAO 角色扮演场景补充） ---
+    // 仅保留含明确约会信号或可被 extractAppointments 解析日期/时间的模式；
+    // 无日期/时间纯叙事动词（商定/计划/决定/承诺）及不可解析时词（中午/傍晚等）已剔除，避免产出无价值 today-dated 幻影约定。
+    /约好了.*?(见|会面|碰头|一起)/,
+    /(广场|城门|据点|塔|旅馆|酒馆).*?(见|集合|会合|碰头)/,
+    /(\d{1,2}:\d{2}).*?(会合|碰头|集合)/,
+    /Boss战.*?(定于|在|约).*?(明天|后天|\d+月\d+[日号])/,
+    /老地方.*?(见|会合|碰头)/,
 ];
+
+// === 时间跳跃正则 fallback（无 <time> 标签时的日期推进） ===
+const TIME_SKIP_PATTERNS = [
+    { pattern: /第[二两]天/, offset: 1 },
+    { pattern: /第三天/, offset: 2 },
+    { pattern: /第四天/, offset: 3 },
+    { pattern: /第五天/, offset: 4 },
+    { pattern: /次日/, offset: 1 },
+    { pattern: /隔天/, offset: 1 },
+    { pattern: /过了一周/, offset: 7 },
+    { pattern: /一周后/, offset: 7 },
+    { pattern: /数日后/, offset: 3 },
+    { pattern: /几天后/, offset: 3 },
+    { pattern: /过了\s*(\d+)\s*天/, offset: 0 },   // offset computed from capture group
+    { pattern: /(\d+)\s*天[之后]/, offset: 0 },    // offset computed from capture group
+    { pattern: /过了两三[日天]/, offset: 2 },
+];
+
+/**
+ * 检测文本中的时间跳跃短语（正则 fallback，仅在无 <time> 标签时使用）
+ * @param {string} text - 消息文本
+ * @returns {{ offset: number, matchText: string } | null}
+ */
+export function detectTimeSkip(text) {
+    if (!text) return null;
+    for (const { pattern, offset } of TIME_SKIP_PATTERNS) {
+        const m = text.match(pattern);
+        if (m) {
+            let resolvedOffset = offset;
+            if (offset === 0) {
+                // 动态 offset：从捕获组 1 提取数字
+                if (!m[1]) continue;
+                const parsed = parseInt(m[1], 10);
+                if (isNaN(parsed) || parsed <= 0) continue;
+                resolvedOffset = parsed;
+            }
+            return { offset: resolvedOffset, matchText: m[0] };
+        }
+    }
+    return null;
+}
 
 /**
  * 从文本中提取约定/会面类事件（纯正则，无 LLM）
@@ -353,11 +417,43 @@ function extractAppointments(text, calendar) {
 // === 增量更新 ===
 
 /**
+ * 推进日历日期并执行 GC（<time> 路径与时间跳跃 fallback 共享）
+ * 仅处理 daysPassed>0 的推进场景：GC currentDate-30 之前的 days、标记跳过天、GC 过期约定。
+ * 调用前已确认 daysPassed>0。
+ * @param {object} calendar - 日历对象
+ * @param {string} oldDateStr - 推进前的日期 YYYY-MM-DD
+ * @param {string} newDateStr - 推进后的日期 YYYY-MM-DD
+ */
+function applyDateAdvanceGC(calendar, oldDateStr, newDateStr) {
+    const newDateObj = parseDate(newDateStr);
+    const daysPassed = daysBetween(oldDateStr, newDateStr);
+    calendar.currentDate = newDateStr;
+    calendar.lastCalUpdateDate = newDateStr;
+    // GC：删除 currentDate-30 天之前的 days
+    const gcCutoff = formatDate(addDays(newDateObj, -30));
+    for (const dateKey of Object.keys(calendar.days)) {
+        if (dateKey < gcCutoff) delete calendar.days[dateKey];
+    }
+    // 标记跳过的天数（介于 oldDateStr 和 newDateStr 之间的无事件天）
+    if (daysPassed > 1) {
+        const skippedStart = addDays(parseDate(oldDateStr), 1);
+        for (let i = 0; i < daysPassed - 1; i++) {
+            const skipDate = formatDate(addDays(skippedStart, i));
+            if (!calendar.days[skipDate]) calendar.days[skipDate] = { events: [], isUpdated: true };
+        }
+    }
+    // GC 约定：移除已过期（超过 30 天）且非 pending 的
+    calendar.appointments = (calendar.appointments || []).filter(apt =>
+        apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
+    );
+}
+
+/**
  * 日历增量更新（P2b：纯正则，无 LLM）
  * 在每条 AI 消息处理时调用，推进日历日期、提取约定、GC 过期数据
  * @param {string} messageText - AI 消息原始文本
  */
-export function updateCalendarIncremental(messageText) {
+export async function updateCalendarIncremental(messageText) {
     try {
         const data = getSaoData();
         if (!data) return;
@@ -373,9 +469,32 @@ export function updateCalendarIncremental(messageText) {
         // 无论是否找到日期，都尝试提取约定
         const newAptCount = extractAppointments(messageText, calendar);
 
+        // 尝试时间跳跃正则 fallback（仅在无 <time> 标签时）
+        let timeSkipOffset = 0;
+        let timeSkipMatch = null;
         if (!newDate) {
-            // 无 <time> 标签或无法解析日期 → 只做了约定提取
-            saveSaoDataNow();
+            const skip = detectTimeSkip(messageText);
+            if (skip) {
+                timeSkipOffset = skip.offset;
+                timeSkipMatch = skip.matchText;
+            }
+        }
+
+        if (!newDate) {
+            if (timeSkipOffset > 0) {
+                // 时间跳跃 fallback：推进日期并执行 GC
+                const baseDate = parseDate(calendar.currentDate);
+                if (!baseDate) { await persistCalendar(calendar); return; }
+                const advancedDateStr = formatDate(addDays(baseDate, timeSkipOffset));
+                const oldDateStr = calendar.currentDate;
+                if (daysBetween(oldDateStr, advancedDateStr) <= 0) { await persistCalendar(calendar); return; }
+                applyDateAdvanceGC(calendar, oldDateStr, advancedDateStr);
+                log('日历时间跳跃(正则fallback): ' + oldDateStr + ' → ' + advancedDateStr + ' (+' + timeSkipOffset + '天，匹配: "' + timeSkipMatch + '")，新增约定: ' + newAptCount);
+                await persistCalendar(calendar);
+                return;
+            }
+            // 无 <time> 标签且无时间跳跃 → 仅约定提取
+            await persistCalendar(calendar);
             return;
         }
 
@@ -395,7 +514,7 @@ export function updateCalendarIncremental(messageText) {
             calendar.appointments = (calendar.appointments || []).filter(apt =>
                 apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
             );
-            saveSaoDataNow();
+            await persistCalendar(calendar);
             log('日历重新初始化完成，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
             return;
         }
@@ -405,7 +524,7 @@ export function updateCalendarIncremental(messageText) {
             log('日历：日期回退 (' + lastDate + ' → ' + newDateStr + ')，跳过 GC', 'warn');
             calendar.currentDate = newDateStr;
             calendar.lastCalUpdateDate = newDateStr;
-            saveSaoDataNow();
+            await persistCalendar(calendar);
             return;
         }
 
@@ -417,41 +536,14 @@ export function updateCalendarIncremental(messageText) {
             calendar.appointments = (calendar.appointments || []).filter(apt =>
                 apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
             );
-            saveSaoDataNow();
+            await persistCalendar(calendar);
             log('日历同日更新，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
             return;
         }
 
         // daysPassed > 0：推进日期，GC 过期 days
-        calendar.currentDate = newDateStr;
-        calendar.lastCalUpdateDate = newDateStr;
-
-        // GC：删除 currentDate-30 天之前的 days
-        const gcCutoff = formatDate(addDays(newDate, -30));
-        for (const dateKey of Object.keys(calendar.days)) {
-            if (dateKey < gcCutoff) {
-                delete calendar.days[dateKey];
-            }
-        }
-
-        // 标记跳过的天数（介于 lastDate 和 newDate 之间的无事件天）
-        if (daysPassed > 1) {
-            const skippedStart = addDays(parseDate(lastDate), 1);
-            for (let i = 0; i < daysPassed - 1; i++) {
-                const skipDate = formatDate(addDays(skippedStart, i));
-                if (!calendar.days[skipDate]) {
-                    calendar.days[skipDate] = { events: [], isUpdated: true };
-                }
-            }
-        }
-
-        // GC 约定：移除已过期（超过 30 天）且非 pending 的
-        calendar.appointments = (calendar.appointments || []).filter(apt =>
-            apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
-        );
-
-        saveSaoDataNow();
-
+        applyDateAdvanceGC(calendar, lastDate, newDateStr);
+        await persistCalendar(calendar);
         log('日历更新: ' + lastDate + ' → ' + newDateStr + ' (+' + daysPassed + '天)，新增约定: ' + newAptCount);
     } catch (e) {
         log('日历增量更新失败: ' + e.message, 'warn');

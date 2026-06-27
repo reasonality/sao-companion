@@ -55,6 +55,16 @@ const SLOT_LABELS = {
     cape: '披风', belt: '腰带',
 };
 
+/**
+ * Returns true when the calendar periodic check should fire (every 20 turns).
+ * v2 trigger condition #4 entry point (see CALENDAR_MODEL_V2_DESIGN.md §3).
+ * @param {object} state - saoData.state
+ * @returns {boolean}
+ */
+export function shouldTriggerPeriodicCalendarCheck(state) {
+    return !!(state && state.calendarTurnCounter > 0 && state.calendarTurnCounter % 20 === 0);
+}
+
 // ============================================================
 // 骰子表常量已迁移至 sao-generators.js
 // ============================================================
@@ -748,7 +758,9 @@ function bindEvents() {
             if (extracted) await applyExtractedData(extracted, CUSTOM_SKILL_DEFS);
 
             // P2b: Calendar incremental update (v1 pure regex, no LLM)
-            updateCalendarIncremental(rawText);
+            // await 保证 calendar 变更（含 calendarVersion 递增）在 combat/skill 之前完成，
+            // 消除 fire-and-forget 双重保存与潜在未处理 rejection（见 oracle 审查）。
+            await updateCalendarIncremental(rawText);
 
             // P4b: Combat resolution (no DOM dependency)
             const combatResult = resolveCombatRound(rawText);
@@ -788,6 +800,40 @@ function bindEvents() {
 
             // Centralized turn counter increment (per spec §4.4, at end of chain before save)
             const saoData = getSaoData();
+
+            // P2d: Arc-change calendar trigger (v1 consumer of arcChangedThisTurn) — v2 trigger condition #3.
+            if (saoData?.state?.arcChangedThisTurn) {
+                try {
+                    const cal = saoData.calendar;
+                    log('章节切换触发日历检查: arc=' + saoData.arc + ', 日期=' + (cal?.currentDate || '未初始化'));
+                    // v2 will hook calendarModelUpdate here; v1 just logs + ensures calendar is initialized for the new arc.
+                    if (cal && !cal.currentDate) {
+                        // New arc with no calendar date — ensure initialization runs on this message.
+                        // (initCalendarIfNeeded runs inside updateCalendarIncremental, already called above.)
+                    }
+                } catch (e) {
+                    log('章节切换日历检查失败: ' + e.message, 'warn');
+                } finally {
+                    saoData.state.arcChangedThisTurn = false; // clear after consumption (one-shot)
+                }
+            }
+
+            // P2c: Periodic calendar health check (every 20 turns) — v1 consumer of calendarTurnCounter.
+            // Also serves as the entry point for v2 trigger condition #4 (see CALENDAR_MODEL_V2_DESIGN.md §3).
+            const preIncrement = saoData?.state?.calendarTurnCounter || 0;
+            if (shouldTriggerPeriodicCalendarCheck({ calendarTurnCounter: preIncrement })) {
+                try {
+                    const cal = saoData.calendar;
+                    if (cal) {
+                        const pendingCount = (cal.appointments || []).filter(a => a.status === 'pending').length;
+                        const dayCount = Object.keys(cal.days || {}).length;
+                        log(`日历周期检查(轮次${preIncrement}): 日期=${cal.currentDate}, 待处理约定=${pendingCount}, 日历天数=${dayCount}`);
+                    }
+                } catch (e) {
+                    log('日历周期检查失败: ' + e.message, 'warn');
+                }
+            }
+
             if (saoData?.state) {
                 saoData.state.calendarTurnCounter = (saoData.state.calendarTurnCounter || 0) + 1;
             }
@@ -1673,6 +1719,13 @@ function initPanelLogic() {
             saveSettingsDebounced();
             const data = getSaoData();
             if (data) data.arc = arc;
+            // Mark that the arc changed this turn — v2 calendar trigger condition #3 (CALENDAR_MODEL_V2_DESIGN.md §3).
+            // v1 consumer: log the arc change for diagnostics. Cleared after the next MESSAGE_RECEIVED cycle.
+            if (data) {
+                if (!data.state) data.state = {};
+                data.state.arcChangedThisTurn = true;
+                log('章节切换标记 arcChangedThisTurn=true (arc: ' + arc + ')');
+            }
             switchWorldInfoEntries(arc);
             injectMemoryAndState();
             log('章节切换: ' + arc);
