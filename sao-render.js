@@ -6,10 +6,7 @@ import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 
-// SAO 自定义标签列表 — DOMPurify 钩子会保留这些标签作为 DOM 元素
-// 注：'calendar' 已移除（Phase 1）——日历面板从 chatMetadata.calendarPanels 渲染。
-// map/equip/swordskill/user_status/zd_status 保留在列表以兼容历史消息中残留的标签（P4 已改卡 prompt，主 LLM 不再发出新标签）；
-// 旧消息中的标签经此钩子保留为 DOM 元素，供渲染器回退解析或 hideSaoLightDomTags 隐藏。
+// SAO 自定义标签列表 — DOMPurify 钩子保留这些标签（兼容历史消息残留标签，P4 后主 LLM 不再发新标签）
 const SAO_CUSTOM_TAGS = ['user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
 
 /**
@@ -352,15 +349,7 @@ function createSaoShadowHost(messageEl, tagName, refNode) {
     return shadow;
 }
 
-/**
- * 在消息 Shadow DOM 中渲染日历面板。
- * Phase 1 专家架构：不再解析 mes 中的 <calendar> 标签，改为从 chatMetadata.calendarPanels[messageId] 读取。
- * 主 LLM 不再发 <calendar> 标签；日历网格由 calendarModelUpdate（LLM）或 updateCalendarIncremental（瞬时）生成。
- * 若该 messageId 暂无 panel 数据（LLM fire-and-forget 未返回），渲染占位"⏳ 日历生成中…"。
- * @param {HTMLElement} messageEl
- * @param {string} rawText - 保留参数以兼容 renderAllTags 调用签名（不再用于解析日历）
- * @param {number|string} messageId - 消息 ID，用于索引 chatMetadata.calendarPanels
- */
+/** 从 chatMetadata.calendarPanels[messageId] 渲染日历面板，无数据时显示占位 */
 function renderCalendar(messageEl, rawText, messageId) {
     const data = getSaoData();
     const panel = (messageId != null) ? data?.calendarPanels?.[messageId] : null;

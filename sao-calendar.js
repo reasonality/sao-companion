@@ -111,11 +111,7 @@ export function persistCalendarPanel(messageId, grid) {
     const data = getSaoData();
     if (!data) return;
     if (!data.calendarPanels) data.calendarPanels = {};
-    data.calendarPanels[messageId] = {
-        grid,
-        version: (data.calendar?.calendarVersion || 0),
-        createdAt: new Date().toISOString(),
-    };
+    data.calendarPanels[messageId] = { grid };
 }
 
 /**

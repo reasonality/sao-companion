@@ -594,14 +594,12 @@ describe('persistCalendarPanel', () => {
         vi.mocked(getSaoData).mockReset();
     });
 
-    it('writes panel with grid, version, createdAt', () => {
+    it('writes panel with grid', () => {
         const grid = { year: 2024, month: 12, current_day: 16, days: [] };
         persistCalendarPanel(5, grid);
         const panel = testSaoData.calendarPanels[5];
         expect(panel).toBeDefined();
         expect(panel.grid).toEqual(grid);
-        expect(panel.version).toBe(7);
-        expect(panel.createdAt).toBeTruthy();
     });
 
     it('initializes calendarPanels when missing', () => {

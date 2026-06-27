@@ -542,32 +542,20 @@ async function callViaMainModel(messages, maxTokens) {
     });
 }
 
-/**
- * P2: 专家面板调用——4 级回退链。
- * 顺序：专属配置(specialistRole) → specialist 档 → extract 档 → 主模型
- * 任何一级配置了 url+model 即使用该级；否则向下回退。
- * @param {string} specialistRole - 'map'/'equipment'/'swordskill'（专属档，当前无专属 UI，预留；实际走 specialist 档）
- * @param {Array} messages
- * @param {number} maxTokens
- * @param {object} opts
- */
+/** 专家面板调用——3 级回退：specialist 档 → extract 档 → 主模型 */
 async function callSpecialist(specialistRole, messages, maxTokens = 512, opts = {}) {
     const settings = getSettings();
     const tryConfig = (cfg) => cfg && cfg.url && cfg.model;
     const label = (r) => ROLE_LABELS[r] || r;
-    // 1. 专属配置（预留，当前无专属 UI，settings.models[specialistRole] 不存在 → 跳过到 specialist 档）
-    if (specialistRole && settings.models[specialistRole] && tryConfig(settings.models[specialistRole])) {
-        return _fetchOpenAICompat(label(specialistRole), settings.models[specialistRole], messages, maxTokens, opts);
-    }
-    // 2. specialist 档
+    // 1. specialist 档
     if (settings.models.specialist && tryConfig(settings.models.specialist)) {
         return _fetchOpenAICompat(label('specialist'), settings.models.specialist, messages, maxTokens, opts);
     }
-    // 3. extract 档
+    // 2. extract 档
     if (settings.models.extract && tryConfig(settings.models.extract)) {
         return _fetchOpenAICompat(label('extract'), settings.models.extract, messages, maxTokens, opts);
     }
-    // 4. 主模型
+    // 3. 主模型
     log(`专家面板 ${specialistRole} 未配置专用 API，回退主模型`, 'warn');
     return await callViaMainModel(messages, maxTokens);
 }
@@ -585,7 +573,7 @@ function persistSpecialistPanel(messageId, panelType, html) {
     if (!data) return;
     if (!data.panels) data.panels = {};
     if (!data.panels[messageId]) data.panels[messageId] = {};
-    data.panels[messageId][panelType] = { html, createdAt: new Date().toISOString() };
+    data.panels[messageId][panelType] = { html };
 }
 
 /**
@@ -648,13 +636,12 @@ async function _callPanelSpecialist(panelType, panelName, instruction, stateHint
         content = await callSpecialist(panelType, messages, 512, { temperature: 0.5, jsonSchema: true });
     } catch (e) {
         log(`${panelType} 专家调用失败: ` + e.message, 'warn');
-        return false;
+        return;
     }
     const html = _parseSpecialistHtml(content, panelType);
-    if (!html) return false;
+    if (!html) return;
     persistSpecialistPanel(messageId, panelType, html);
     await saveSaoDataNow();
-    return true;
 }
 
 /** 装饰面板专家配置（DRY 驱动） */
@@ -686,6 +673,13 @@ function fireSpecialistPanels(messageId, narrativeText) {
         _callPanelSpecialist(cfg.type, cfg.name, cfg.instruction, cfg.hint(), messageId, narrativeText)
             .catch(e => log(`${cfg.type} 专家失败: ` + e.message, 'warn'));
     }
+}
+
+/** 清理指定消息的专家面板数据（swipe/edit 复用） */
+function _clearSpecialistPanels(messageId) {
+    const d = getSaoData();
+    if (d?.calendarPanels && d.calendarPanels[messageId] != null) delete d.calendarPanels[messageId];
+    if (d?.panels && d.panels[messageId] != null) delete d.panels[messageId];
 }
 
 // ============================================================
@@ -1287,13 +1281,9 @@ function bindEvents() {
         // 其内部 msg.mes 改写逻辑与本只读原则矛盾）。editMessage / updateMessageBlock
         // 同样不得在自动事件中调用。
         await withProcessingLock(`msg-${messageId}`, async () => {
-            // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源）
+            // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源；内部已 catch 返回 null）
             if (getSettings().specialistPanels?.enabled !== false) {
-                try {
-                    await callStatusSpecialist(messageId, rawText);
-                } catch (e) {
-                    log('status 专家触发失败（extractAll 将回退标签/模型）: ' + e.message, 'warn');
-                }
+                await callStatusSpecialist(messageId, rawText);
             }
             // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
             const extracted = await extractAll(rawText, callModel, messageId);
@@ -1472,17 +1462,7 @@ function bindEvents() {
             if (!isSaoCard()) return;
             // A3: 清理当前消息的 battle host，防止切换分支后内存泄漏（不再整表清除，保护其他活跃战斗面板）
             removeBattleHost(messageId);
-            // Phase 1: 清理 swipe 消息的 calendarPanels，避免陈旧面板残留（plan §2.3）
-            // P2: 清理 swipe 消息的 panels（装饰专家面板）
-            {
-                const d = getSaoData();
-                if (d?.calendarPanels && d.calendarPanels[messageId] != null) {
-                    delete d.calendarPanels[messageId];
-                }
-                if (d?.panels && d.panels[messageId] != null) {
-                    delete d.panels[messageId];
-                }
-            }
+            _clearSpecialistPanels(messageId);
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
@@ -1501,17 +1481,7 @@ function bindEvents() {
     if (event_types.MESSAGE_EDITED) {
         eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
             if (!isSaoCard()) return;
-            // Phase 1: 编辑使原叙事失效，清理该消息的 calendarPanels（将重新填充）
-            // P2: 清理该消息的 panels（装饰专家面板将重新填充）
-            {
-                const d = getSaoData();
-                if (d?.calendarPanels && d.calendarPanels[messageId] != null) {
-                    delete d.calendarPanels[messageId];
-                }
-                if (d?.panels && d.panels[messageId] != null) {
-                    delete d.panels[messageId];
-                }
-            }
+            _clearSpecialistPanels(messageId);
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
