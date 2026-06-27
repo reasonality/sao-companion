@@ -21,6 +21,7 @@ import { renderBattlePanel, updateBattlePanelAfterCombat, clearBattleHostRegistr
 import {
     initCalendarIfNeeded,
     updateCalendarIncremental,
+    persistCalendar,
     parseDate, formatDate,
 } from './sao-calendar.js';
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
@@ -1572,7 +1573,7 @@ function initPanelLogic() {
             cal.days[date].events.push(eventObj);
         }
 
-        await saveSaoDataNow();
+        await persistCalendar(cal);
         hideCalEditForm();
         _renderCalendarTab();
         } catch (e) {
@@ -1592,7 +1593,7 @@ function initPanelLogic() {
         if (day) {
             day.events = day.events.filter(e => !(e.type === 'appointment' && e.source === 'manual' && e.title === apt.description && e.time === apt.time));
         }
-        await saveSaoDataNow();
+        await persistCalendar(cal);
         _renderCalendarTab();
         } catch (e) {
             log('\u5220\u9664\u7ea6\u5b9a\u5931\u8d25: ' + e.message, 'error');
@@ -1606,7 +1607,7 @@ function initPanelLogic() {
         const apt = cal.appointments?.find(a => a.id === id);
         if (!apt) return;
         apt.status = 'completed';
-        await saveSaoDataNow();
+        await persistCalendar(cal);
         _renderCalendarTab();
         } catch (e) {
             log('\u5b8c\u6210\u7ea6\u5b9a\u5931\u8d25: ' + e.message, 'error');
