@@ -1,5 +1,5 @@
 ﻿// SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.14 (用原卡模板替换自写美化)
+// 版本: 0.6.15 (用原卡模板替换自写美化)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
