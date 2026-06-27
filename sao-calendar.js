@@ -41,12 +41,22 @@ function addDays(dateObj, n) {
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
  * 返回正数表示 date2 > date1，负数表示 date2 < date1
  */
-function daysBetween(dateStr1, dateStr2) {
+export function daysBetween(dateStr1, dateStr2) {
     const d1 = parseDate(dateStr1);
     const d2 = parseDate(dateStr2);
     if (!d1 || !d2) return 0;
     const msPerDay = 86400000;
     return Math.round((d2.getTime() - d1.getTime()) / msPerDay);
+}
+
+/**
+ * 约定去重 key 归一化：去除空白后取前 20 个字符。
+ * existingKeys 构建与新 key 构建均走此函数，修正 v1 既有 bug
+ * （v1 existingKeys 用完整描述、新 key 用 50 字符截断导致永不匹配）。
+ * 见 CALENDAR_MODEL_V2_DESIGN.md §10.05/§10.2。
+ */
+function _dedupKey(str) {
+    return String(str || '').replace(/\s+/g, '').substring(0, 20);
 }
 
 /**
@@ -67,7 +77,7 @@ export async function persistCalendar(calendar) {
  * @param {string} text - 包含 <time> 标签的文本
  * @returns {Date|null} 解析后的日期，未找到则返回 null
  */
-function parseTimeTagDate(text) {
+export function parseTimeTagDate(text) {
     const timeMatch = text.match(/<time>([\s\S]*?)<\/time>/);
     if (!timeMatch) return null;
     const parts = timeMatch[1].replace(/[『』]/g, '').split(/\s*-\s*/);
@@ -135,6 +145,63 @@ function extractYearFromEntryName(name) {
 // === 日历核心逻辑 ===
 
 /**
+ * 共享：从世界书条目中过滤 ±1 月内的 YYYY年MM月 时间线条目，解析每个事件行。
+ * getTimelineForPrompt 与 initCalendarIfNeeded 共用，消除过滤逻辑重复（见 ponytail 审查）。
+ * @param {string} currentDate - YYYY-MM-DD，用于 ±1 月过滤；空则不过滤
+ * @returns {Array<{date:string,title:string}>} 按 entry 顺序的事件列表（未排序）
+ */
+function _filterTimelineEntries(currentDate) {
+    const char = getCurrentCharacter();
+    const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
+    if (!entries || !Array.isArray(entries)) return [];
+
+    let currentMonthIdx = null;
+    if (currentDate) {
+        const parts = currentDate.split('-');
+        const cy = parseInt(parts[0]);
+        const cm = parseInt(parts[1]);
+        if (!isNaN(cy) && !isNaN(cm)) currentMonthIdx = cy * 12 + (cm - 1);
+    }
+
+    const events = [];
+    for (const e of entries) {
+        const entryName = (e.comment || e.name || '').trim();
+        if (!/^\d{4}年\d{1,2}月/.test(entryName)) continue;
+
+        if (currentMonthIdx !== null) {
+            const yearMatch = entryName.match(/^(\d{4})年(\d{1,2})月/);
+            if (yearMatch) {
+                const entryMonthIdx = parseInt(yearMatch[1]) * 12 + (parseInt(yearMatch[2]) - 1);
+                if (Math.abs(entryMonthIdx - currentMonthIdx) > 1) continue;
+            }
+        }
+
+        const fallbackYear = extractYearFromEntryName(entryName);
+        const content = e.content || '';
+        if (!content) continue;
+
+        for (const line of content.split(/\r?\n/)) {
+            const parsed = parseTimelineEvent(line, fallbackYear);
+            if (parsed) events.push({ date: parsed.date, title: parsed.title });
+        }
+    }
+    return events;
+}
+
+/**
+ * 为 v2 日历 LLM prompt 构造当月+下月原作时间线文本。
+ * 见 CALENDAR_MODEL_V2_DESIGN.md §4.1（截断至 1500 字）。
+ * @param {string} currentDate - YYYY-MM-DD
+ * @param {number} [maxChars=1500]
+ * @returns {string} 时间线文本；无可用条目时返回空串
+ */
+export function getTimelineForPrompt(currentDate, maxChars = 1500) {
+    const events = _filterTimelineEntries(currentDate).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const result = events.map(ev => `${ev.date}: ${ev.title}`).join('\n');
+    return result.length > maxChars ? result.substring(0, maxChars) : result;
+}
+
+/**
  * 日历懒初始化：首次访问时从世界书提取时间线条目
  * P2a: 仅从 world book timeline entries 初始化 days；appointments 为空
  */
@@ -177,60 +244,27 @@ export function initCalendarIfNeeded() {
         }
 
         // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
-        const char = getCurrentCharacter();
-        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
-        if (!entries || !Array.isArray(entries)) {
+        const events = _filterTimelineEntries(cal.currentDate);
+        if (!events.length) {
             log('日历初始化：未找到世界书条目');
-            // A4: 即使没有世界书条目，也要确保日历结构完整
             cal.lastCalUpdateDate = cal.currentDate;
             log('日历首次初始化完成（无世界书条目），currentDate=' + cal.currentDate);
             return;
         }
 
         let extractedCount = 0;
-        // A4: 预计算 currentDate 的月索引用于 ±1 月过滤
-        let currentMonthIdx = null;
-        if (cal.currentDate) {
-            const [cy, cm] = cal.currentDate.split('-').map(Number);
-            currentMonthIdx = cy * 12 + (cm - 1);
-        }
-
-        for (const e of entries) {
-            const entryName = (e.comment || e.name || '').trim();
-            // 匹配时间线条目名称：YYYY年MM月
-            if (!/^\d{4}年\d{1,2}月/.test(entryName)) continue;
-
-            // A4: ±1 月过滤：如果 currentDate 已知，跳过超出范围的条目
-            if (currentMonthIdx !== null) {
-                const yearMatch = entryName.match(/^(\d{4})年(\d{1,2})月/);
-                if (yearMatch) {
-                    const entryMonthIdx = parseInt(yearMatch[1]) * 12 + (parseInt(yearMatch[2]) - 1);
-                    if (Math.abs(entryMonthIdx - currentMonthIdx) > 1) continue;
-                }
+        for (const ev of events) {
+            if (!cal.days[ev.date]) {
+                cal.days[ev.date] = { events: [], isUpdated: false };
             }
-
-            const fallbackYear = extractYearFromEntryName(entryName);
-            const content = e.content || '';
-            if (!content) continue;
-
-            // 解析内容中的日期+事件行
-            const lines = content.split(/\r?\n/);
-            for (const line of lines) {
-                const parsed = parseTimelineEvent(line, fallbackYear);
-                if (!parsed) continue;
-
-                if (!cal.days[parsed.date]) {
-                    cal.days[parsed.date] = { events: [], isUpdated: false };
-                }
-                cal.days[parsed.date].events.push({
-                    type: 'canon',
-                    time: null,
-                    title: parsed.title,
-                    description: parsed.title,
-                    source: 'timeline',
-                });
-                extractedCount++;
-            }
+            cal.days[ev.date].events.push({
+                type: 'canon',
+                time: null,
+                title: ev.title,
+                description: ev.title,
+                source: 'timeline',
+            });
+            extractedCount++;
         }
 
         cal.lastCalUpdateDate = cal.currentDate;
@@ -318,12 +352,6 @@ function extractAppointments(text, calendar) {
 
     let addedCount = 0;
 
-    // 用于去重：收集已有的 date+time+description 组合
-    const existingKeys = new Set();
-    for (const apt of (calendar.appointments || [])) {
-        existingKeys.add(apt.date + '|' + (apt.time || '') + '|' + (apt.description || ''));
-    }
-
     for (const pattern of APPOINTMENT_PATTERNS) {
         const matches = text.matchAll(new RegExp(pattern, 'g'));
         for (const match of matches) {
@@ -372,46 +400,71 @@ function extractAppointments(text, calendar) {
             if (!baseDateObj) continue;
             const aptDate = formatDate(addDays(baseDateObj, dateOffset));
 
-            // 去重
-            const dedupKey = aptDate + '|' + timeStr + '|' + description;
-            if (existingKeys.has(dedupKey)) continue;
-            existingKeys.add(dedupKey);
-
-            // 创建约定对象
-            const appointment = {
-                id: 'apt_' + Date.now() + '_' + addedCount,
+            // 通过共享 helper 添加（含去重 + 双写），见 CALENDAR_MODEL_V2_DESIGN.md §10.2
+            const added = addAppointmentToCalendar(calendar, {
                 date: aptDate,
                 time: timeStr,
                 description: description,
-                participants: [],
-                location: '',
                 source: 'auto',
                 status: 'pending',
-                createdAt: new Date().toISOString(),
-            };
-
-            // 添加到 appointments 数组
-            if (!calendar.appointments) calendar.appointments = [];
-            calendar.appointments.push(appointment);
-
-            // 添加到对应日期的 events
-            if (!calendar.days[aptDate]) {
-                calendar.days[aptDate] = { events: [], isUpdated: false };
-            }
-            calendar.days[aptDate].events.push({
-                type: 'appointment',
-                time: timeStr,
-                title: description,
-                description: description,
-                source: 'auto',
             });
-
-            addedCount++;
-            log('提取到约定: ' + aptDate + ' ' + timeStr + ' - ' + description);
+            if (added) {
+                addedCount++;
+                log('提取到约定: ' + aptDate + ' ' + timeStr + ' - ' + description);
+            }
         }
     }
 
     return addedCount;
+}
+
+/**
+ * 共享 helper：向日历添加一条约定（含去重 + appointments/days 双写）。
+ * v1 extractAppointments 与 v2 calendarModelUpdate 均调用此 helper。
+ * dedup key = date|time|_dedupKey(description)，existingKeys 与新 key 均经 _dedupKey 归一化，
+ * 修正 v1 既有 dedup bug（见 CALENDAR_MODEL_V2_DESIGN.md §5.4/§10.2）。
+ * @param {object} calendar - 日历对象（原地修改）
+ * @param {object} apt - {date, time, description, source, status}
+ * @returns {boolean} true=新增成功，false=重复跳过
+ */
+export function addAppointmentToCalendar(calendar, { date, time, description, source, status } = {}) {
+    if (!calendar || !date) return false;
+    if (!calendar.appointments) calendar.appointments = [];
+    if (!calendar.days) calendar.days = {};
+
+    const descKey = _dedupKey(description);
+    // 去重：检查已有约定（existingKeys 与新 key 均经 _dedupKey 归一化）
+    for (const apt of calendar.appointments) {
+        const existingDescKey = _dedupKey(apt.description);
+        if ((apt.date || '') + '|' + (apt.time || '') + '|' + existingDescKey === date + '|' + (time || '') + '|' + descKey) {
+            return false; // 重复，跳过
+        }
+    }
+
+    const newApt = {
+        id: 'apt_' + Date.now() + '_' + calendar.appointments.length,
+        date: date,
+        time: time || '',
+        description: description || '',
+        participants: [],
+        location: '',
+        source: source || 'auto',
+        status: status || 'pending',
+        createdAt: new Date().toISOString(),
+    };
+    calendar.appointments.push(newApt);
+
+    if (!calendar.days[date]) {
+        calendar.days[date] = { events: [], isUpdated: false };
+    }
+    calendar.days[date].events.push({
+        type: 'appointment',
+        time: time || '',
+        title: description || '',
+        description: description || '',
+        source: source || 'auto',
+    });
+    return true;
 }
 
 // === 增量更新 ===
@@ -547,6 +600,11 @@ export async function updateCalendarIncremental(messageText) {
         log('日历更新: ' + lastDate + ' → ' + newDateStr + ' (+' + daysPassed + '天)，新增约定: ' + newAptCount);
     } catch (e) {
         log('日历增量更新失败: ' + e.message, 'warn');
+        // 确保版本号与可能的部分变异一致（见 CALENDAR_MODEL_V2_DESIGN.md §5.3 catch 路径）
+        try {
+            const cal = getSaoData()?.calendar;
+            if (cal) await persistCalendar(cal);
+        } catch (_) { /* 忽略持久化失败 */ }
     }
 }
 

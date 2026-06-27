@@ -16,7 +16,10 @@ const DEFAULT_SETTINGS = Object.freeze({
         narrative: { url: '', key: '', model: '' },
         combat:    { url: '', key: '', model: '' },
         extract:   { url: '', key: '', model: '' },
+        calendar:  { url: '', key: '', model: '' },
     },
+    // v2 日历 LLM 模型开关（opt-in 默认关）
+    saoCalendar: { llmEnabled: false },
     // 章节
     currentArc: 'sao',
     // SAO 卡兼容模式（替代 TavernHelper 脚本）
@@ -72,11 +75,22 @@ export function getSettings() {
     if (!ctx.extensionSettings[MODULE_NAME]) {
         ctx.extensionSettings[MODULE_NAME] = structuredClone(DEFAULT_SETTINGS);
     }
+    const s = ctx.extensionSettings[MODULE_NAME];
     // 兼容旧版本：确保 models 对象存在
-    if (!ctx.extensionSettings[MODULE_NAME].models) {
-        ctx.extensionSettings[MODULE_NAME].models = structuredClone(DEFAULT_SETTINGS.models);
+    if (!s.models) {
+        s.models = structuredClone(DEFAULT_SETTINGS.models);
     }
-    return ctx.extensionSettings[MODULE_NAME];
+    // 兼容旧版本：补全可能缺失的各角色 model 配置（如新增 calendar）
+    for (const role of Object.keys(DEFAULT_SETTINGS.models)) {
+        if (!s.models[role]) {
+            s.models[role] = structuredClone(DEFAULT_SETTINGS.models[role]);
+        }
+    }
+    // 兼容旧版本：确保 saoCalendar 开关存在
+    if (!s.saoCalendar) {
+        s.saoCalendar = structuredClone(DEFAULT_SETTINGS.saoCalendar);
+    }
+    return s;
 }
 
 // ============================================================

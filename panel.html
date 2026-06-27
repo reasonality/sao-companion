@@ -182,6 +182,18 @@
 <div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_extract_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="extract">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="extract">测试</button></div>
 <div class="sao-test-result" id="sao_extract_test"></div>
 </div>
+<div class="sao-card">
+<div class="sao-card-title">日历模型<span class="sao-status-box sao-status-warn" id="sao_calendar_status" style="font-size:0.8em;">未配置</span></div>
+<p style="color:var(--text-secondary);font-size:0.82em;margin-bottom:12px;">剧情时间线协调、约定提取与完成标记。建议配置专用 API，回退主模型时超时不可控。</p>
+<div class="sao-field"><label>API 地址</label><input id="sao_calendar_url" placeholder="https://api.deepseek.com/v1" /></div>
+<div class="sao-field"><label>API 密钥</label><input id="sao_calendar_key" type="password" placeholder="sk-..." /></div>
+<div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_calendar_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="calendar">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="calendar">测试</button></div>
+<div class="sao-test-result" id="sao_calendar_test"></div>
+<div class="sao-field" style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+<input type="checkbox" id="sao_calendar_llm_enabled" data-action="toggleCalLlm" style="margin:0;" />
+<label for="sao_calendar_llm_enabled" style="margin:0;font-size:0.85em;">启用日历 LLM 增强（v2）</label>
+</div>
+</div>
 <div style="margin-top:10px;"><button class="sao-btn" data-action="saveModels">保存配置</button></div>
 </div>
 </div>
