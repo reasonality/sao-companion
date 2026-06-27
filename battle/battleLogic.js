@@ -1,4 +1,129 @@
-﻿// battle/battleLogic.js
+﻿import {
+    calculateDerivedStats,
+    calculateFinalHitRate,
+    calculateFinalCritRate,
+    calculateFinalCritMultiplier,
+    calculateFinalDamage,
+    getTeammateActualStats,
+    getEnemyActualStats,
+} from './battleMath.js';
+import {
+    getPlayerStatsCore,
+    calculateActionOrderCore,
+    handleDOTCore,
+    handleHealOverTimeCore,
+    handlePermanentShieldCore,
+    handleTemporaryShieldCore,
+    handleShieldOverTimeCore,
+    processEnchantmentEffectsCore,
+    healCore,
+    manaRestoreCore,
+    sacrificeBoostCore,
+    a5MultiHitCore,
+    hasDebuff,
+    selectTargets,
+    applyDamageToEnemy,
+    executeStandardAttack,
+    executeAffixEffects,
+    clearExpiredTempShields,
+    decrementBuffTurns,
+    removeExpiredBuffs,
+    processEndOfRoundCore,
+    performEnemyActionCore,
+    executeTeammateAttackCore,
+} from './battleCore.js';
+
+/**
+ * applyInstructionsToDom — Execute DOM operations from Core instruction lists
+ * Processes instruction arrays returned by C-class Core functions (performEnemyActionCore,
+ * executeTeammateAttackCore, etc.) and applies visual effects with appropriate timing.
+ * @param {Array} instructions - Instruction list from Core function
+ * @param {Object} options - { onComplete: Function } callback when all animations done
+ */
+function applyInstructionsToDom(instructions, options = {}) {
+    if (!instructions || instructions.length === 0) {
+        if (options.onComplete) options.onComplete();
+        return;
+    }
+
+    let delay = 0;
+    instructions.forEach((inst, index) => {
+        setTimeout(() => {
+            switch (inst.type) {
+                case 'damage':
+                    if (inst.fromEnemy) {
+                        // Enemy attacking player/teammate
+                        if (inst.targetId === 'player') {
+                            showDamageNumber('player', inst.damage, inst.isCrit);
+                            addHpChangeAnimation('player');
+                        } else {
+                            showDamageNumber('teammate', inst.damage, inst.isCrit, null, inst.targetId);
+                            addHpChangeAnimation('teammate', inst.targetId);
+                        }
+                    } else {
+                        // Player/teammate attacking enemy
+                        showDamageNumber(inst.damage, inst.targetId, inst.isCrit);
+                        addHpChangeAnimation('enemy', inst.targetId);
+                    }
+                    break;
+                case 'heal':
+                    if (inst.targetId === 'player') {
+                        showHealNumber(inst.heal);
+                        addHpChangeAnimation('player');
+                    } else {
+                        // Teammate heal
+                        const healEl = memoryManager.getHealNumber();
+                        healEl.className = 'heal-number';
+                        healEl.textContent = `+${inst.heal}`;
+                        const tmEl = domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${inst.targetId}"]`);
+                        if (tmEl) {
+                            tmEl.appendChild(healEl);
+                            memoryManager.activeHealNumbers.add(healEl);
+                            memoryManager.safeSetTimeout(() => {
+                                if (healEl.parentNode) healEl.parentNode.removeChild(healEl);
+                                memoryManager.recycleHealNumber(healEl);
+                            }, 1200);
+                            addHpChangeAnimation('teammate', inst.targetId);
+                        }
+                    }
+                    break;
+                case 'miss':
+                    // No visual effect for misses
+                    break;
+                case 'burnDamage':
+                    showDamageNumber('enemy', inst.damage, false, inst.targetId);
+                    addHpChangeAnimation('enemy', inst.targetId);
+                    break;
+                case 'stun':
+                    // Stun handled by log only
+                    break;
+                case 'enemyDeath':
+                    StateValidator.checkEnemyDeath({ id: inst.targetId });
+                    break;
+                case 'playerDeath':
+                    // Handled by caller
+                    break;
+                case 'teammateDeath':
+                    const tmDeathEl = domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${inst.targetId}"]`);
+                    if (tmDeathEl) createDeathEffect(tmDeathEl);
+                    hateSystem.clearTargetHate(inst.targetId);
+                    break;
+                case 'sacrificeDamage':
+                    showDamageNumber('player', inst.damage, false);
+                    addHpChangeAnimation('player');
+                    break;
+            }
+
+            // Call onComplete after last instruction
+            if (index === instructions.length - 1 && options.onComplete) {
+                options.onComplete();
+            }
+        }, delay);
+        delay += inst.type === 'damage' || inst.type === 'heal' ? 300 : 100;
+    });
+}
+
+// battle/battleLogic.js
 // 战斗逻辑 - 从卡片正则迁移
 // 原始代码在 <script> 标签中执行，直接用 document.* 操作 DOM
 // 迁移后通过 domRoot 操作 Shadow DOM 内元素
@@ -23,91 +148,6 @@ export function setBattleDomRoot(root) {
 
 // === 以下为原始战斗逻辑（document → domRoot 替换后） ===
 
-      
-      function calculateDerivedStats(str, agi, int, vit) {
-        
-        str = str || 0;
-        agi = agi || 0;
-        int = int || 0;
-        vit = vit || 0;
-        return {
-          
-          hpRegen: 10 + vit + Math.floor((vit * vit) / 100),
-          mpRegen: 5 + Math.floor(int / 4),
-          actionPoints: 2 + Math.floor(vit / 20),
-          
-          speed: 50 + agi * 2,
-          evasionRate: agi * 0.005,
-          damageBonus: str * 0.01,
-          physicalReduction: str * 1,
-          damageTakenRate: 50 / (50 + vit),
-          extraHitRate: agi * 0.01,
-          extraCritRate: int * 0.01,
-          baseCritMultiplier: 1.5 + int * 0.01,
-          critRateResistance: agi * 0.005 + int * 0.005,
-          critDamageResistance: str * 0.005 + int * 0.005,
-        };
-      }
-
-      function calculateFinalHitRate(weaponHitRate, attackerStats, targetStats) {
-        
-        const baseHitRate = weaponHitRate / 100;
-        
-        const extraHitRate = attackerStats.extraHitRate;
-        
-        const targetEvasionRate = targetStats.evasionRate;
-        
-        const finalHitRate = baseHitRate + extraHitRate - targetEvasionRate;
-        
-        return Math.max(0, finalHitRate);
-      }
-      
-      function calculateFinalCritRate(weaponCritRate, attackerStats, targetStats, finalHitRate) {
-        
-        const baseCritRate = weaponCritRate / 100;
-        
-        const extraCritRate = attackerStats.extraCritRate;
-        
-        const overHitCritBonus = Math.max(0, finalHitRate - 1.0) * 0.5;
-        
-        const targetCritResistance = targetStats.critRateResistance;
-        
-        const finalCritRate = baseCritRate + extraCritRate + overHitCritBonus - targetCritResistance;
-        
-        return Math.max(0, finalCritRate);
-      }
-      
-      function calculateFinalCritMultiplier(attackerStats, targetStats, finalCritRate) {
-        
-        const baseCritMultiplier = attackerStats.baseCritMultiplier;
-        
-        const overCritDamageBonus = Math.max(0, finalCritRate - 1.0) * 0.5;
-        
-        const targetCritDamageResistance = targetStats.critDamageResistance;
-        
-        const finalCritMultiplier = baseCritMultiplier + overCritDamageBonus - targetCritDamageResistance;
-        
-        return Math.max(1.0, finalCritMultiplier);
-      }
-      
-      function calculateFinalDamage(weaponDamage, attackerStats, targetStats, isCrit = false, critMultiplier = 1.0) {
-        
-        const damageBonus = attackerStats.damageBonus;
-        
-        const targetDamageTakenRate = targetStats.damageTakenRate;
-        
-        const targetPhysicalReduction = targetStats.physicalReduction;
-        
-        let finalDamage = weaponDamage * (1 + damageBonus) * targetDamageTakenRate;
-        
-        if (isCrit) {
-          finalDamage *= critMultiplier;
-        }
-        
-        finalDamage -= targetPhysicalReduction;
-        
-        return Math.max(0, Math.floor(finalDamage));
-      }
       
       function calculateExperienceForCharacter(characterLevel, teammateCount, defeatedEnemies) {
         let totalExp = 0;
@@ -1558,7 +1598,7 @@ function createBattleButton() {
               const finalCritRate = calculateFinalCritRate(weapon.critRate, attackerStats, targetStats, finalHitRate);
               const critRoll = Math.random();
               
-              const isCrit = critRoll <= Math.min(1.0, finalCritRate);
+              const isCrit = critRoll <= finalCritRate;
               
               let damage = calculateDamage(
                 weapon,
@@ -1728,7 +1768,7 @@ function createBattleButton() {
               );
               const critRoll = Math.random();
               
-              const isCrit = critRoll <= Math.min(1.0, finalCritRate);
+              const isCrit = critRoll <= finalCritRate;
               
               const finalCritMultiplier = isCrit
                 ? calculateFinalCritMultiplier(enemyStats, currentPlayerStats, finalCritRate)
@@ -2013,41 +2053,7 @@ function createBattleButton() {
           });
         });
         
-        const minSpeed = Math.min(...allParticipants.map(p => p.speed));
-        
-        const actionPool = [];
-        
-        allParticipants.forEach(participant => {
-          
-          actionPool.push({
-            type: participant.type,
-            id: participant.id,
-            name: participant.name,
-            entity: participant.entity,
-            speed: participant.speed,
-            actionNumber: 1,
-          });
-          
-          let extraActionCount = 1;
-          let currentSpeed = participant.speed;
-          while (currentSpeed >= minSpeed * 2) {
-            
-            currentSpeed = Math.floor(currentSpeed / 2);
-            extraActionCount++;
-            actionPool.push({
-              type: participant.type,
-              id: participant.id,
-              name: participant.name,
-              entity: participant.entity,
-              speed: currentSpeed,
-              actionNumber: extraActionCount,
-            });
-          }
-        });
-        
-        actionPool.sort((a, b) => b.speed - a.speed);
-        
-        battleState.actionOrder = actionPool;
+        battleState.actionOrder = calculateActionOrderCore(allParticipants);
         
         allParticipants.forEach(participant => {
           battleState.actionsThisRound[`${participant.type}-${participant.id}`] = 0;
@@ -3838,7 +3844,7 @@ function createBattleButton() {
                   }
                   const critRoll = Math.random();
                   
-                  const isCrit = critRoll <= Math.min(1.0, finalCritRate);
+                  const isCrit = critRoll <= finalCritRate;
                   
                   const finalCritMultiplier = isCrit
                     ? calculateFinalCritMultiplier(playerStats, enemyStats, finalCritRate)
@@ -4219,7 +4225,7 @@ function createBattleButton() {
       }
 
       function executeA5ContinuousAttack(weapon) {
-        
+        // Delegate pure calculation to a5MultiHitCore (P4a Core extraction)
         const aliveEnemies = battleState.enemies.filter(e => e.hp > 0);
         if (aliveEnemies.length === 0) {
           logBattleAction(`【终结技】没有可攻击的目标！`);
@@ -4231,156 +4237,63 @@ function createBattleButton() {
           return;
         }
 
-        if (battleState.selectedEnemies && battleState.selectedEnemies.length > 0) {
-          const aliveEnemyIds = aliveEnemies.map(e => e.id);
-          battleState.selectedEnemies = battleState.selectedEnemies.filter(id => aliveEnemyIds.includes(id));
-        }
-
         if (!battleState.selectedEnemies || battleState.selectedEnemies.length === 0) {
           battleState.selectedEnemies = aliveEnemies.map(e => e.id);
           logBattleAction(`【终结技】自动选择所有敌人作为目标！`);
         }
-        
-        logBattleAction(`【终结技】${battleState.player.name || 'User'} 使用 ${weapon.name}！消耗所有AP持续攻击！`);
 
         battleState.currentAttackCount = 0;
+        const playerStats = getPlayerActualStats();
+        const logArr = [];
 
-        function performNextA5Attack() {
-          
-          if (battleState.player.ap <= 0) {
-            logBattleAction(`AP耗尽！${weapon.name} 结束，共攻击 ${battleState.currentAttackCount} 次！`);
-            weapon.used = true;
-            battleState.currentWeapon = null;
-            battleState.selectedEnemies = [];
-            battleState.attackInProgress = false;
-            updateBattleUI({ player: true, enemy: true, weapons: true });
-            updateHateDisplay();
-            moveToNextAction();
-            return;
-          }
+        // Core handles all damage/hit/crit/enchantment calculations
+        const instructions = a5MultiHitCore(battleState.player, weapon, battleState.enemies, playerStats, logArr);
+        logArr.forEach(msg => logBattleAction(msg));
 
-          if (battleState.player.mp < weapon.mpCost) {
-            logBattleAction(`MP不足！${weapon.name} 提前结束，共攻击 ${battleState.currentAttackCount} 次！`);
-            weapon.used = true;
-            battleState.currentWeapon = null;
-            battleState.selectedEnemies = [];
-            battleState.attackInProgress = false;
-            updateBattleUI({ player: true, enemy: true, weapons: true });
-            updateHateDisplay();
-            moveToNextAction();
-            return;
-          }
-
-          const aliveEnemyIds = battleState.enemies.filter(e => e.hp > 0).map(e => e.id);
-          battleState.selectedEnemies = battleState.selectedEnemies.filter(id => aliveEnemyIds.includes(id));
-
-          if (battleState.selectedEnemies.length === 0) {
-            logBattleAction(`所有目标已被击败！${weapon.name} 结束，共攻击 ${battleState.currentAttackCount} 次！`);
-            weapon.used = true;
-            battleState.currentWeapon = null;
-            battleState.selectedEnemies = [];
-            battleState.attackInProgress = false;
-            updateBattleUI({ player: true, enemy: true, weapons: true });
-            updateHateDisplay();
-            moveToNextAction();
-            return;
-          }
-
-          const damageModifier = Math.max(0.5, 1 - battleState.currentAttackCount * 0.1);
-
-          if (battleState.currentAttackCount === 0) {
-            logBattleAction(`第 ${battleState.currentAttackCount + 1} 击（威力100%）`);
-          } else {
-            logBattleAction(`第 ${battleState.currentAttackCount + 1} 击（威力${(damageModifier * 100).toFixed(0)}%）`);
-          }
-
-          battleState.player.ap -= 1;
-          battleState.player.mp -= weapon.mpCost;
-
-          const playerEntity = domRoot.querySelector('.combat-entity.player');
-          if (playerEntity) {
-            playerEntity.classList.add('attack-animation-forward');
-          }
-
-          setTimeout(() => {
-            
-            for (const enemyId of battleState.selectedEnemies) {
-              const enemy = battleState.enemies.find(e => e.id === enemyId && e.hp > 0);
-              if (enemy) {
-                
-                const modifiedWeapon = { ...weapon, attack: Math.floor(weapon.attack * damageModifier) };
-
-                const playerStats = getPlayerActualStats();
-                const enemyStats = getEnemyActualStats(enemy);
-                const finalHitRate = calculateFinalHitRate(modifiedWeapon.hitRate, playerStats, enemyStats);
-                const hitRoll = Math.random();
-                
-                if (hitRoll <= Math.min(1.0, finalHitRate)) {
-                  logBattleAction(`攻击命中 ${enemy.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-                  const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
-                  if (enemyElement) {
-                    enemyElement.classList.add('shake-animation');
-                  }
-                  
-                  let finalCritRate = calculateFinalCritRate(modifiedWeapon.critRate, playerStats, enemyStats, finalHitRate);
-                  const critRoll = Math.random();
-                  const isCrit = critRoll <= Math.min(1.0, finalCritRate);
-                  const finalCritMultiplier = isCrit ? calculateFinalCritMultiplier(playerStats, enemyStats, finalCritRate) : 1.0;
-                  
-                  let damage = calculateFinalDamage(modifiedWeapon.attack, playerStats, enemyStats, isCrit, finalCritMultiplier);
-
-                  const hasEnchantments = weapon.codes && weapon.codes.some(code => code.startsWith('EN:'));
-                  if (hasEnchantments) {
-                    const enchantmentTriggerRoll = Math.random();
-                    const enchantmentTriggerChance = damageModifier * 100;
-                    if (enchantmentTriggerRoll <= damageModifier) {
-                      
-                      const extraDamage = processEnchantmentEffects(weapon, enemy, damage, isCrit);
-                      damage += extraDamage;
-                      if (extraDamage > 0) {
-                        logBattleAction(`【终结技特效】特效触发成功！(触发概率: ${enchantmentTriggerChance.toFixed(0)}%) 额外伤害+${extraDamage}`);
-                      } else {
-                        logBattleAction(`【终结技特效】特效触发成功！(触发概率: ${enchantmentTriggerChance.toFixed(0)}%) 无额外伤害效果`);
-                      }
-                    } else {
-                      logBattleAction(`【终结技特效】特效未触发 (触发概率: ${enchantmentTriggerChance.toFixed(0)}%)`);
-                    }
-                  }
-                  
-                  enemy.hp = Math.max(0, enemy.hp - damage);
-                  
-                  if (isCrit) {
-                    logBattleAction(`暴击！对 ${enemy.name} 造成 ${damage} 点伤害！(暴击率: ${(finalCritRate * 100).toFixed(1)}%, 暴击倍率: ${finalCritMultiplier.toFixed(2)}x)`);
-                  } else {
-                    logBattleAction(`对 ${enemy.name} 造成 ${damage} 点伤害！(暴击率: ${(finalCritRate * 100).toFixed(1)}%)`);
-                  }
-                  
-                  showDamageNumber(damage, enemy.id, isCrit);
-                  
-                  if (enemy.hp <= 0) {
-                    logBattleAction(`${enemy.name} 被击败了！`);
-                    
-                    StateValidator.checkEnemyDeath(enemy);
-                  }
-                } else {
-                  logBattleAction(`攻击未命中 ${enemy.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-                }
-              }
-            }
-
-            if (playerEntity) {
-              playerEntity.classList.remove('attack-animation-forward');
-            }
-
-            updateBattleUI({ player: true, enemy: true });
-
-            battleState.currentAttackCount++;
-
-            setTimeout(performNextA5Attack, 800);
-          }, 200);
+        if (instructions.length === 0) {
+          weapon.used = true;
+          battleState.currentWeapon = null;
+          battleState.selectedEnemies = [];
+          battleState.attackInProgress = false;
+          updateBattleUI({ player: true, enemy: true, weapons: true });
+          updateHateDisplay();
+          moveToNextAction();
+          return;
         }
 
-        performNextA5Attack();
+        // Play back instructions with animation timing
+        let delay = 0;
+        instructions.forEach((inst, index) => {
+          setTimeout(() => {
+            if (inst.type === 'damage') {
+              const playerEntity = domRoot.querySelector('.combat-entity.player');
+              if (playerEntity) playerEntity.classList.add('attack-animation-forward');
+              const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${inst.targetId}"]`);
+              if (enemyElement) enemyElement.classList.add('shake-animation');
+              showDamageNumber(inst.damage, inst.targetId, inst.isCrit);
+              battleState.currentAttackCount++;
+              setTimeout(() => {
+                if (playerEntity) playerEntity.classList.remove('attack-animation-forward');
+                updateBattleUI({ player: true, enemy: true });
+              }, 200);
+            } else if (inst.type === 'enemyDeath') {
+              StateValidator.checkEnemyDeath({ id: inst.targetId });
+            }
+
+            if (index === instructions.length - 1) {
+              setTimeout(() => {
+                weapon.used = true;
+                battleState.currentWeapon = null;
+                battleState.selectedEnemies = [];
+                battleState.attackInProgress = false;
+                updateBattleUI({ player: true, enemy: true, weapons: true });
+                updateHateDisplay();
+                moveToNextAction();
+              }, 400);
+            }
+          }, delay);
+          delay += 300;
+        });
       }
 
       function executeTeammateA5ContinuousAttack(teammate, weapon) {
@@ -4484,7 +4397,7 @@ function createBattleButton() {
                   
                   let finalCritRate = calculateFinalCritRate(modifiedWeapon.critRate, teammateStats, enemyStats, finalHitRate);
                   const critRoll = Math.random();
-                  const isCrit = critRoll <= Math.min(1.0, finalCritRate);
+                  const isCrit = critRoll <= finalCritRate;
                   const finalCritMultiplier = isCrit ? calculateFinalCritMultiplier(teammateStats, enemyStats, finalCritRate) : 1.0;
                   
                   let damage = calculateFinalDamage(modifiedWeapon.attack, teammateStats, enemyStats, isCrit, finalCritMultiplier);
@@ -4541,6 +4454,9 @@ function createBattleButton() {
 function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
   if (!weapon.codes) return 0;
   let totalExtraDamage = 0;
+  const coreLog = [];
+  totalExtraDamage += processEnchantmentEffectsCore(weapon, enemy, damage, isCrit, coreLog, battleState.player, battleState.playerBuffs);
+  coreLog.forEach(msg => logBattleAction(msg));
   weapon.codes.forEach(code => {
     if (!code.startsWith('EN:B')) return;
     const match = code.match(/EN:(B\d+),(.+)/);
@@ -4560,9 +4476,7 @@ function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
       case 'B4': 
         if (isCrit) handleFreeze(params, enemy);
         break;
-      case 'B5': 
-        handleDOT(params, enemy);
-        break;
+      // B5 handled by Core
       case 'B6': 
         handleChanceFreeze(params, enemy);
         break;
@@ -4575,9 +4489,7 @@ function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
       case 'B9': 
         handleManaRestore(params);
         break;
-      case 'B10': 
-        handleHealOverTime(params);
-        break;
+      // B10 handled by Core
       case 'B11': 
         handleStrengthBoost(params);
         break;
@@ -4605,15 +4517,7 @@ function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
       case 'B19': 
         handleCorrosionStack(params, enemy);
         break;
-      case 'B20': 
-        handlePermanentShield(params);
-        break;
-      case 'B21': 
-        handleTemporaryShield(params);
-        break;
-      case 'B22': 
-        handleShieldOverTime(params);
-        break;
+      // B20-B22 handled by Core
     }
   });
   return totalExtraDamage;
@@ -4651,17 +4555,9 @@ function handleFreeze(params, enemy) {
 }
 
 function handleDOT(params, enemy) {
-  const duration = parseInt(params[0]);
-  const damage = parseInt(params[1]);
-  enemy.buffs = enemy.buffs || [];
-  enemy.buffs.push({
-    name: '持续伤害',
-    type: 'dot',
-    value: damage,
-    duration: duration,
-    isPositive: false,
-  });
-  logBattleAction(`持续伤害效果触发！${enemy.name} 将在 ${duration} 回合内每回合受到 ${damage} 点伤害！`);
+  const log = [];
+  handleDOTCore(params, enemy, log);
+  log.forEach(msg => logBattleAction(msg));
 }
 
 function handleChanceFreeze(params, enemy) {
@@ -4709,16 +4605,9 @@ function handleManaRestore(params) {
 }
 
 function handleHealOverTime(params) {
-  const duration = parseInt(params[0]);
-  const heal = parseInt(params[1]);
-  battleState.playerBuffs.push({
-    name: '持续恢复',
-    type: 'healOverTime',
-    value: heal,
-    duration: duration,
-    isPositive: true,
-  });
-  logBattleAction(`持续恢复效果触发！将在 ${duration} 回合内每回合恢复 ${heal} 点生命值！`);
+  const log = [];
+  handleHealOverTimeCore(params, battleState.playerBuffs, log);
+  log.forEach(msg => logBattleAction(msg));
 }
 
 const handleStrengthBoost = params => BuffManager.handleAttributeBoost(params, 'strBoost', '力量', true);
@@ -4781,191 +4670,25 @@ function handleCorrosionStack(params, enemy) {
 }
 
 function handlePermanentShield(params, target = battleState.player, targetName = null) {
-  const shieldValue = parseInt(params[0]);
-  const name = targetName || (target === battleState.player ? '你' : target.name);
-
-  if (!target.shield) {
-    target.shield = 0;
-    target.maxShield = shieldValue;
-  }
-
-  target.shield = target.maxShield;
-  logBattleAction(`${name}的固化护盾触发！护盾值恢复至 ${target.maxShield} 点！`);
+  const log = [];
+  handlePermanentShieldCore(params, target, log, targetName || (target === battleState.player ? '你' : null));
+  log.forEach(msg => logBattleAction(msg));
 }
 
 function handleTemporaryShield(params, target = battleState.player, targetName = null) {
-  const shieldValue = parseInt(params[0]);
-  const name = targetName || (target === battleState.player ? '你' : target.name);
-
-  if (!target.tempShield) {
-    target.tempShield = 0;
-  }
-
-  target.tempShield += shieldValue;
-  logBattleAction(`${name}的瞬发护盾触发！获得 ${shieldValue} 点临时护盾（总计 ${target.tempShield} 点）！`);
+  const log = [];
+  handleTemporaryShieldCore(params, target, log, targetName || (target === battleState.player ? '你' : null));
+  log.forEach(msg => logBattleAction(msg));
 }
 
 function handleShieldOverTime(params, buffsArray = battleState.playerBuffs, targetName = null) {
-  const duration = parseInt(params[0]);
-  const shieldPerRound = parseInt(params[1]);
-  const name = targetName || '你';
-
-  const existingBuff = buffsArray.find(buff => buff.type === 'shieldOverTime');
-  
-  if (existingBuff) {
-    
-    existingBuff.value += shieldPerRound;
-    existingBuff.duration = Math.max(existingBuff.duration, duration); 
-    logBattleAction(
-      `${name}的护盾持续效果叠加！每回合获得护盾值增加至 ${existingBuff.value} 点，持续 ${existingBuff.duration} 回合！`,
-    );
-  } else {
-    
-    buffsArray.push({
-      name: '护盾持续',
-      type: 'shieldOverTime',
-      value: shieldPerRound,
-      duration: duration,
-      isPositive: true,
-    });
-    logBattleAction(`${name}的护盾持续效果触发！将在 ${duration} 回合内每回合获得 ${shieldPerRound} 点护盾！`);
-  }
+  const log = [];
+  handleShieldOverTimeCore(params, buffsArray, log, targetName || '你');
+  log.forEach(msg => logBattleAction(msg));
 }
 
 function getPlayerActualStats() {
-  let str = battleState.player.str || 0;
-  let agi = battleState.player.agi || 0;
-  let int = battleState.player.int || 0;
-  let end = battleState.player.vit || 0; 
-  
-  battleState.playerBuffs.forEach(buff => {
-    switch (buff.type) {
-      case 'strBoost':
-        str += buff.value;
-        break;
-      case 'agiBoost':
-        agi += buff.value;
-        break;
-      case 'intBoost':
-        int += buff.value;
-        break;
-      case 'endBoost':
-        end += buff.value;
-        break;
-    }
-  });
-  
-  const derivedStats = calculateDerivedStats(str, agi, int, end);
-  return {
-    str,
-    agi,
-    int,
-    end,
-    hpRegen: derivedStats.hpRegen,
-    mpRegen: derivedStats.mpRegen,
-    actionPoints: derivedStats.actionPoints,
-    speed: derivedStats.speed,
-    evasionRate: derivedStats.evasionRate,
-    damageBonus: derivedStats.damageBonus,
-    physicalReduction: derivedStats.physicalReduction,
-    damageTakenRate: derivedStats.damageTakenRate,
-    extraHitRate: derivedStats.extraHitRate,
-    extraCritRate: derivedStats.extraCritRate,
-    baseCritMultiplier: derivedStats.baseCritMultiplier,
-    critRateResistance: derivedStats.critRateResistance,
-    critDamageResistance: derivedStats.critDamageResistance,
-  };
-}
-
-function getTeammateActualStats(teammate) {
-  let str = teammate.str || 0;
-  let agi = teammate.agi || 0;
-  let int = teammate.int || 0;
-  let end = teammate.vit || 0; 
-  
-  if (teammate.buffs) {
-    teammate.buffs.forEach(buff => {
-      switch (buff.type) {
-        case 'strBoost':
-          str += buff.value;
-          break;
-        case 'agiBoost':
-          agi += buff.value;
-          break;
-        case 'intBoost':
-          int += buff.value;
-          break;
-        case 'endBoost':
-          end += buff.value;
-          break;
-      }
-    });
-  }
-  
-  const derivedStats = calculateDerivedStats(str, agi, int, end);
-  return {
-    str,
-    agi,
-    int,
-    end,
-    hpRegen: derivedStats.hpRegen,
-    mpRegen: derivedStats.mpRegen,
-    actionPoints: derivedStats.actionPoints,
-    speed: derivedStats.speed,
-    evasionRate: derivedStats.evasionRate,
-    damageBonus: derivedStats.damageBonus,
-    physicalReduction: derivedStats.physicalReduction,
-    damageTakenRate: derivedStats.damageTakenRate,
-    extraHitRate: derivedStats.extraHitRate,
-    extraCritRate: derivedStats.extraCritRate,
-    baseCritMultiplier: derivedStats.baseCritMultiplier,
-    critRateResistance: derivedStats.critRateResistance,
-    critDamageResistance: derivedStats.critDamageResistance,
-  };
-}
-
-function getEnemyActualStats(enemy) {
-  let str = enemy.str || 0;
-  let agi = enemy.agi || 0;
-  let int = enemy.int || 0;
-  let vit = enemy.vit || 0;
-  
-  if (enemy.buffs) {
-    enemy.buffs.forEach(buff => {
-      switch (buff.type) {
-        case 'strBoost':
-          str += buff.value;
-          break;
-        case 'agiBoost':
-          agi += buff.value;
-          break;
-        case 'intBoost':
-          int += buff.value;
-          break;
-        case 'endBoost':
-          vit += buff.value;
-          break;
-      }
-    });
-  }
-  
-  const derivedStats = calculateDerivedStats(str, agi, int, vit);
-  return {
-    str,
-    agi,
-    int,
-    vit,
-    speed: derivedStats.speed,
-    evasionRate: derivedStats.evasionRate,
-    damageBonus: derivedStats.damageBonus,
-    physicalReduction: derivedStats.physicalReduction,
-    damageTakenRate: derivedStats.damageTakenRate,
-    extraHitRate: derivedStats.extraHitRate,
-    extraCritRate: derivedStats.extraCritRate,
-    baseCritMultiplier: derivedStats.baseCritMultiplier,
-    critRateResistance: derivedStats.critRateResistance,
-    critDamageResistance: derivedStats.critDamageResistance,
-  };
+  return getPlayerStatsCore(battleState.player, battleState.playerBuffs, battleState.equipmentStats || {});
 }
 
 function processTeammateEnchantmentEffects(weapon, enemy, damage, isCrit, teammate) {
@@ -5186,7 +4909,7 @@ const handleTeammateVitalityBoost = (params, teammate) =>
                   const finalCritRate = calculateFinalCritRate(skill.critRate, enemyStats, targetStats, finalHitRate);
                   const critRoll = Math.random();
                   
-                  const isCrit = critRoll <= Math.min(1.0, finalCritRate);
+                  const isCrit = critRoll <= finalCritRate;
                   
                   const finalCritMultiplier = isCrit
                     ? calculateFinalCritMultiplier(enemyStats, targetStats, finalCritRate)
@@ -6771,435 +6494,55 @@ function performEnemyAction(enemy) {
   
   disablePlayerControls();
   
+  // Use Core version for pure calculation
+  const logArr = [];
+  const instructions = performEnemyActionCore(enemy, battleState.player, battleState.teammates, logArr);
+  
+  // Route Core log messages to UI log
+  logArr.forEach(msg => logBattleAction(msg));
+  
+  // Apply instructions to DOM with animation timing
   setTimeout(() => {
-    
-    if (enemy.pendingFreeze) {
-      logBattleAction(`${enemy.name} 被晕眩，无法行动！`);
-      enemy.pendingFreezeCount--;
-      if (enemy.pendingFreezeCount <= 0) {
-        enemy.pendingFreeze = false;
-        enemy.pendingFreezeCount = 0;
-        logBattleAction(`${enemy.name} 解除了晕眩状态！`);
-      }
-      
-      moveToNextAction();
-      return;
-    }
-    
-    let totalBurnDamage = 0;
-    const burnBuffs = enemy.buffs ? enemy.buffs.filter(buff => buff.type === 'burnOverTime') : [];
-    if (burnBuffs.length > 0) {
-      
-      burnBuffs.forEach(burnBuff => {
-        totalBurnDamage += burnBuff.value;
-      });
-      if (totalBurnDamage > 0) {
-        enemy.hp = Math.max(0, enemy.hp - totalBurnDamage);
-        logBattleAction(`${enemy.name} 受到余烬效果，损失 ${totalBurnDamage} 点生命值！`);
-        
-        showDamageNumber('enemy', totalBurnDamage, false, enemy.id);
-        
-        const enemyHpBar = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"] .hp-fill-combat`);
-        if (enemyHpBar) {
-          
-          const enemyElement = enemyHpBar.closest('.combat-entity.enemy');
-          const enemyId = enemyElement ? parseInt(enemyElement.getAttribute('data-enemy-id')) : null;
-          if (enemyId !== null && !isNaN(enemyId)) {
-            addHpChangeAnimation('enemy', enemyId);
-          }
-        }
-        
-        if (StateValidator.isDead(enemy)) {
-          logBattleAction(`${enemy.name} 被余烬效果击败了！`);
-          
-          if (StateValidator.checkEnemyDeath(enemy)) {
-            return; 
-          }
-          
-          moveToNextAction();
-          return;
-        }
-      }
-    }
-    
-    const attackName = enemy.attackPattern[enemy.nextAttackIndex];
-    const skill = enemy.skills.find(s => s.name === attackName);
-    if (skill) {
-      logBattleAction(`${enemy.name} 使用 ${skill.name} 攻击！`);
-      
+    // Enemy attack animation
+    const hasAttack = instructions.some(i => i.type === 'damage' || i.type === 'miss');
+    if (hasAttack) {
       const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
-      enemyElement.classList.add('attack-animation-backward');
-      
-      setTimeout(() => {
-        
-        const effectiveHitRate = getEffectiveHitRate(skill.hitRate, enemy);
-        
-        const maxTargets = skill.targetsPerAttack || 1;
-        const targets = getEnemyTargetsByHate(enemy.id, maxTargets);
-        if (targets.length === 0) {
-          logBattleAction(`${enemy.name} 找不到可攻击的目标！`);
-          
-          setTimeout(() => {
-            enemyElement.classList.remove('attack-animation-backward');
-          }, 500);
+      if (enemyElement) {
+        enemyElement.classList.add('attack-animation-backward');
+        setTimeout(() => enemyElement.classList.remove('attack-animation-backward'), 1500);
+      }
+    }
+
+    applyInstructionsToDom(instructions, {
+      onComplete: () => {
+        // Handle player death
+        const playerDeath = instructions.find(i => i.type === 'playerDeath');
+        if (playerDeath) {
+          battleState.lastKilledBy = enemy.skills ? enemy.skills[0]?.name : enemy.name;
+          endBattle(false);
           return;
         }
-        if (maxTargets > 1) {
-          logBattleAction(
-            `${enemy.name} 的 ${skill.name} 瞄准了 ${targets.length} 个目标：${targets.map(t => t.name).join(', ')}`,
-          );
-        }
-        
-        targets.forEach((target, targetIndex) => {
-          
-          const enemyStats = getEnemyActualStats(enemy);
-          let targetStats;
-          if (target.entity === battleState.player) {
-            targetStats = getPlayerActualStats();
-          } else {
-            
-            targetStats = getTeammateActualStats(target.entity);
-          }
-          
-          const finalHitRate = calculateFinalHitRate(effectiveHitRate, enemyStats, targetStats);
-          const hitRoll = Math.random();
-          
-          if (hitRoll <= Math.min(1.0, finalHitRate)) {
-            
-            logBattleAction(`攻击命中 ${target.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-            
-            const targetElement =
-              target.type === 'player'
-                ? domRoot.querySelector('.combat-entity.player')
-                : domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${target.entity.id}"]`);
-            if (targetElement) {
-              targetElement.classList.add('shake-animation');
-            }
-            
-            const finalCritRate = calculateFinalCritRate(skill.critRate, enemyStats, targetStats, finalHitRate);
-            const critRoll = Math.random();
-            
-            const isCrit = critRoll <= Math.min(1.0, finalCritRate);
-            
-            const finalCritMultiplier = isCrit
-              ? calculateFinalCritMultiplier(enemyStats, targetStats, finalCritRate)
-              : 1.0;
-            
-            let damage = calculateFinalDamage(skill.attack, enemyStats, targetStats, isCrit, finalCritMultiplier);
-            
-            if (isCrit) {
-              logBattleAction(
-                `暴击！造成 ${damage} 点伤害！(暴击率: ${(finalCritRate * 100).toFixed(
-                  1,
-                )}%, 暴击倍率: ${finalCritMultiplier.toFixed(2)}x)`,
-              );
-              if (target.type === 'player') {
-                showDamageNumber('player', damage, true);
-              } else {
-                
-                showDamageNumber('teammate', damage, true, null, target.entity.id);
-              }
-            } else {
-              logBattleAction(`造成 ${damage} 点伤害！`);
-              if (target.type === 'player') {
-                showDamageNumber('player', damage, false);
-              } else {
-                
-                showDamageNumber('teammate', damage, false, null, target.entity.id);
-              }
-            }
 
-            if (skill.codes && skill.codes.length > 0) {
-              skill.codes.forEach(code => {
-                if (!code.startsWith('MN:M')) return;
-                const match = code.match(/MN:(M\d+),(.+)/);
-                if (!match) return;
-                
-                const effectType = match[1];
-                const params = match[2].split(',');
-                const targetBuffs = target.type === 'player' ? battleState.playerBuffs : target.entity.buffs;
+        // Handle teammate death (remove from battleState)
+        instructions.filter(i => i.type === 'teammateDeath').forEach(inst => {
+          battleState.teammates = battleState.teammates.filter(t => t.id !== inst.targetId);
+          cleanupActionOrder('teammate', inst.targetId);
+        });
 
-                switch (effectType) {
-                  case 'M1': 
-                    const lifestealPercent = parseFloat(params[0]) / 100;
-                    const healAmount = Math.floor(damage * lifestealPercent);
-                    enemy.hp = Math.min(enemy.hp + healAmount, enemy.maxHp);
-                    logBattleAction(`【怪物特效】吸血攻击！${enemy.name} 恢复 ${healAmount} 点生命值！`);
-                    break;
-                  case 'M2': 
-                    const duration = parseInt(params[0]);
-                    const damagePerTurn = parseInt(params[1]);
-                    targetBuffs.push({
-                      name: '持续伤害',
-                      type: 'dot',
-                      value: damagePerTurn,
-                      duration: duration,
-                      isPositive: false
-                    });
-                    logBattleAction(`【怪物特效】持续伤害！${target.name} 受到诅咒 ${duration} 回合！`);
-                    break;
-                  case 'M3': 
-                    const str_duration = parseInt(params[0]);
-                    const str_value = parseInt(params[1]);
-                    targetBuffs.push({
-                      name: '力量削弱',
-                      type: 'strDebuff',
-                      value: str_value,
-                      duration: str_duration,
-                      isPositive: false
-                    });
-                    if (target.type === 'player') {
-                      battleState.player.str = Math.max(1, battleState.player.str - str_value);
-                    } else {
-                      target.entity.str = Math.max(1, target.entity.str - str_value);
-                    }
-                    logBattleAction(`【怪物特效】力量削弱！${target.name} 力量降低 ${str_value} 点！`);
-                    break;
-                  case 'M4': 
-                    const agi_duration = parseInt(params[0]);
-                    const agi_value = parseInt(params[1]);
-                    targetBuffs.push({
-                      name: '敏捷削弱',
-                      type: 'agiDebuff',
-                      value: agi_value,
-                      duration: agi_duration,
-                      isPositive: false
-                    });
-                    if (target.type === 'player') {
-                      battleState.player.agi = Math.max(1, battleState.player.agi - agi_value);
-                    } else {
-                      target.entity.agi = Math.max(1, target.entity.agi - agi_value);
-                    }
-                    logBattleAction(`【怪物特效】敏捷削弱！${target.name} 敏捷降低 ${agi_value} 点！`);
-                    break;
-                  case 'M5': 
-                    const burn_duration = parseInt(params[0]);
-                    const burn_value = parseInt(params[1]);
-                    targetBuffs.push({
-                      name: '法力燃烧',
-                      type: 'manaBurn',
-                      value: burn_value,
-                      duration: burn_duration,
-                      isPositive: false
-                    });
-                    logBattleAction(`【怪物特效】法力燃烧！${target.name} 将持续损失法力 ${burn_duration} 回合！`);
-                    break;
-                  case 'M6': 
-                    const int_duration = parseInt(params[0]);
-                    const int_value = parseInt(params[1]);
-                    targetBuffs.push({
-                      name: '智力削弱',
-                      type: 'intDebuff',
-                      value: int_value,
-                      duration: int_duration,
-                      isPositive: false
-                    });
-                    if (target.type === 'player') {
-                      battleState.player.int = Math.max(1, battleState.player.int - int_value);
-                    } else {
-                      target.entity.int = Math.max(1, target.entity.int - int_value);
-                    }
-                    logBattleAction(`【怪物特效】智力削弱！${target.name} 智力降低 ${int_value} 点！`);
-                    break;
-                  case 'M7': 
-                    const vit_duration = parseInt(params[0]);
-                    const vit_value = parseInt(params[1]);
-                    targetBuffs.push({
-                      name: '耐力削弱',
-                      type: 'vitDebuff',
-                      value: vit_value,
-                      duration: vit_duration,
-                      isPositive: false
-                    });
-                    if (target.type === 'player') {
-                      battleState.player.vit = Math.max(1, battleState.player.vit - vit_value);
-                    } else {
-                      target.entity.vit = Math.max(1, target.entity.vit - vit_value);
-                    }
-                    logBattleAction(`【怪物特效】耐力削弱！${target.name} 耐力降低 ${vit_value} 点！`);
-                    break;
-                  case 'M8': 
-                    const agi_boost_duration = parseInt(params[0]);
-                    const agi_boost_value = parseInt(params[1]);
-                    if (!enemy.buffs) enemy.buffs = [];
-                    enemy.buffs.push({
-                      name: '敏捷强化',
-                      type: 'agiBoost',
-                      value: agi_boost_value,
-                      duration: agi_boost_duration,
-                      isPositive: true
-                    });
-                    enemy.agi = enemy.agi + agi_boost_value;
-                    logBattleAction(`【怪物特效】敏捷强化！${enemy.name} 敏捷提升 ${agi_boost_value} 点！`);
-                    break;
-                  case 'M9': 
-                    const regen_duration = parseInt(params[0]);
-                    const regen_value = parseInt(params[1]);
-                    if (!enemy.buffs) enemy.buffs = [];
-                    enemy.buffs.push({
-                      name: '持续再生',
-                      type: 'healOverTime',
-                      value: regen_value,
-                      duration: regen_duration,
-                      isPositive: true
-                    });
-                    logBattleAction(`【怪物特效】持续再生！${enemy.name} 将在 ${regen_duration} 回合内每回合恢复 ${regen_value} 点HP！`);
-                    break;
-                  case 'M10': 
-                    const str_boost_duration = parseInt(params[0]);
-                    const str_boost_value = parseInt(params[1]);
-                    if (!enemy.buffs) enemy.buffs = [];
-                    enemy.buffs.push({
-                      name: '力量强化',
-                      type: 'strBoost',
-                      value: str_boost_value,
-                      duration: str_boost_duration,
-                      isPositive: true
-                    });
-                    enemy.str = enemy.str + str_boost_value;
-                    logBattleAction(`【怪物特效】力量强化！${enemy.name} 力量提升 ${str_boost_value} 点！`);
-                    break;
-                  case 'M11': 
-                    const team_duration = parseInt(params[0]);
-                    const team_value = parseInt(params[1]);
-                    battleState.enemies.forEach(e => {
-                      if (!e.buffs) e.buffs = [];
-                      e.buffs.push({
-                        name: '群体增益',
-                        type: 'strBoost',
-                        value: team_value,
-                        duration: team_duration,
-                        isPositive: true
-                      });
-                      e.str = e.str + team_value;
-                    });
-                    logBattleAction(`【怪物特效】群体增益！所有敌人力量提升 ${team_value} 点！`);
-                    break;
-                  case 'M12': 
-                    
-                    const m12Parts = params;
-                    const summon_chance = parseFloat(m12Parts[0] || 100);
-                    const cost_percent = parseFloat(m12Parts[1] || 0);
-                    const summon_name = m12Parts[2] ? m12Parts[2].trim() : null;
-
-                    const hp_change = Math.floor(enemy.maxHp * cost_percent / 100);
-                    if (hp_change < 0) {
-                      
-                      enemy.hp = Math.max(0, enemy.hp + hp_change); 
-                      logBattleAction(`【怪物特效】${enemy.name} 消耗 ${Math.abs(hp_change)} 点HP进行召唤！`);
-                    } else if (hp_change > 0) {
-                      
-                      enemy.hp = Math.min(enemy.hp + hp_change, enemy.maxHp);
-                      logBattleAction(`【怪物特效】${enemy.name} 恢复 ${hp_change} 点HP！`);
-                    }
-
-                    if (Math.random() * 100 < summon_chance) {
-                      
-                      if (!battleState.derivedEnemyTemplates) {
-                        logBattleAction(`【怪物特效】召唤失败！没有可用的召唤模板！`);
-                        break;
-                      }
-
-                      let template;
-                      if (summon_name) {
-                        
-                        template = battleState.derivedEnemyTemplates[summon_name];
-                        if (!template) {
-                          logBattleAction(`【怪物特效】召唤失败！找不到召唤模板"${summon_name}"！`);
-                          break;
-                        }
-                      } else {
-                        
-                        const templateNames = Object.keys(battleState.derivedEnemyTemplates);
-                        if (templateNames.length === 0) {
-                          logBattleAction(`【怪物特效】召唤失败！没有定义衍生敌人（DENN）！`);
-                          break;
-                        }
-                        template = battleState.derivedEnemyTemplates[templateNames[0]];
-                      }
-
-                      const newEnemy = JSON.parse(JSON.stringify(template));
-                      
-                      newEnemy.id = `summoned_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                      
-                      newEnemy.nextAttackIndex = 0;
-                      newEnemy.buffs = [];
-
-                      battleState.enemies.push(newEnemy);
-                      
-                      logBattleAction(`【怪物特效】召唤成功！${newEnemy.name} 加入战斗！（下回合行动）`);
-
-                      updateEnemyPanel();
-                    } else {
-                      logBattleAction(`【怪物特效】召唤失败！（概率: ${summon_chance}%）`);
-                    }
-                    break;
-                }
-              });
-            }
-
-            const damageResult = applyDamageWithShield(target.entity, damage, target.type === 'player' ? '你' : target.entity.name);
-            
-            if (target.type === 'player') {
-              addHpChangeAnimation('player');
-            } else {
-              addHpChangeAnimation('teammate', target.entity.id);
-            }
-            
-            setTimeout(() => {
-              if (targetElement) {
-                targetElement.classList.remove('shake-animation');
-              }
-            }, 800);
-            
-            if (StateValidator.isDead(target.entity)) {
-              if (target.type === 'player') {
-                
-                battleState.lastKilledBy = skill.name;
-                endBattle(false);
-                return;
-              } else {
-                
-                logBattleAction(`${target.name} 被击败了！`);
-                
-                createDeathEffect(targetElement);
-                
-                hateSystem.clearTargetHate(target.entity.id);
-                
-                battleState.teammates = battleState.teammates.filter(t => t.id !== target.entity.id);
-                
-                cleanupActionOrder('teammate', target.entity.id);
-                
-                updatePlayerPanel();
-              }
-            }
-          } else {
-            
-            logBattleAction(`攻击未命中 ${target.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-          }
-        }); 
-        
-        enemy.nextAttackIndex = (enemy.nextAttackIndex + 1) % enemy.attackPattern.length;
-        
-        enemyElement.classList.remove('attack-animation-backward');
-        
+        // UI updates
         memoryManager.safeSetTimeout(() => {
           updatePlayerPanel();
           updateEnemyPanel();
-          updateHateDisplay(); 
-        }, 1500); 
-        
-        // 持久化：敌人行动后保存状态
+          updateHateDisplay();
+        }, 1500);
+
         notifyBattleStateChange();
-        
+
         setTimeout(() => {
           moveToNextAction();
         }, 500);
-      }, 500);
-    } else {
-      
-      moveToNextAction();
-    }
+      }
+    });
   }, 800);
 }
 
@@ -7507,175 +6850,73 @@ function updateTeammateWeaponsList() {
 }
 
 function executeTeammateAttackSequence(teammate, weapon) {
-  
+  // Delegate pure calculation to executeTeammateAttackCore (P4a Core extraction)
   battleState.currentAttackCount = 0;
-  
-  function performNextAttack() {
-    
-    if (teammate.mp < weapon.mpCost) {
-      logBattleAction(`${teammate.name} 蓝量不足！无法继续攻击。已完成 ${battleState.currentAttackCount} 次攻击。`);
-      
-      weapon.used = true;
+  const logArr = [];
 
-      battleState.currentWeapon = null;
-      
-      battleState.attackInProgress = false;
-      
-      updatePlayerPanel();
-      updateEnemyPanel();
-      updateTeammateWeaponsList();
-      return;
+  // Core handles MP check, apt loop, hit/crit/damage, corrosion, enemy death
+  const instructions = executeTeammateAttackCore(teammate, battleState.enemies, logArr);
+  logArr.forEach(msg => logBattleAction(msg));
+
+  // Apply teammate enchantments (UI-layer, uses battleState)
+  if (instructions.some(i => i.type === 'damage')) {
+    const target = battleState.enemies.find(e => e.hp > 0);
+    if (target) {
+      const extraDamage = processTeammateEnchantmentEffects(weapon, target, 0, false, teammate);
+      // processTeammateEnchantmentEffects handles its own logging
     }
-    
-    if (
-      StateValidator.shouldEndAttack(
-        battleState.currentAttackCount,
-        weapon.attacksPerTurn,
-        battleState.selectedEnemies.length > 0,
-      )
-    ) {
-      
-      weapon.used = true;
-
-      battleState.currentWeapon = null;
-      
-      battleState.attackInProgress = false;
-      
-      updatePlayerPanel();
-      updateEnemyPanel();
-      updateTeammateWeaponsList();
-      
-      return;
-    }
-    
-    battleState.currentAttackCount++;
-    
-    const attackNumber = battleState.currentAttackCount;
-    
-    if (weapon.attacksPerTurn > 1) {
-      logBattleAction(`${teammate.name} 使用 ${weapon.name} 进行第 ${attackNumber}/${weapon.attacksPerTurn} 次攻击！`);
-    } else {
-      logBattleAction(`${teammate.name} 使用 ${weapon.name} 攻击！`);
-    }
-    
-    const teammateElement = domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${teammate.id}"]`);
-    teammateElement.classList.add('attack-animation-forward');
-    
-    setTimeout(() => {
-      
-      for (const enemyId of battleState.selectedEnemies) {
-        const enemy = battleState.enemies.find(e => e.id === enemyId);
-        if (enemy) {
-          
-          const teammateStats = getTeammateActualStats(teammate);
-          const enemyStats = getEnemyActualStats(enemy);
-          
-          const finalHitRate = calculateFinalHitRate(weapon.hitRate, teammateStats, enemyStats);
-          const hitRoll = Math.random();
-          
-          if (hitRoll <= Math.min(1.0, finalHitRate)) {
-            
-            logBattleAction(`攻击命中 ${enemy.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-            
-            const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemyId}"]`);
-            enemyElement.classList.add('shake-animation');
-            
-            const finalCritRate = calculateFinalCritRate(weapon.critRate, teammateStats, enemyStats, finalHitRate);
-            const critRoll = Math.random();
-            
-            const isCrit = critRoll <= Math.min(1.0, finalCritRate);
-            
-            const finalCritMultiplier = isCrit
-              ? calculateFinalCritMultiplier(teammateStats, enemyStats, finalCritRate)
-              : 1.0;
-            
-            let damage = calculateFinalDamage(weapon.attack, teammateStats, enemyStats, isCrit, finalCritMultiplier);
-
-            if (enemy.stacks && enemy.stacks.corrosion) {
-              const corrosionData = enemy.stacks.corrosion;
-              const corrosionCount = typeof corrosionData === 'object' ? corrosionData.count : corrosionData;
-              const bonusPerStack = typeof corrosionData === 'object' ? corrosionData.bonusPerStack : 5;
-              
-              const totalCorrosionBonus = corrosionCount * bonusPerStack;
-              const bonusDamage = Math.floor(damage * (totalCorrosionBonus / 100));
-              damage += bonusDamage;
-              logBattleAction(`腐蚀效果！${corrosionCount} 层腐蚀（${bonusPerStack}%/层）造成额外 ${bonusDamage} 点伤害（+${totalCorrosionBonus}%）！`);
-            }
-
-            if (isCrit) {
-              logBattleAction(
-                `暴击！造成 ${damage} 点伤害！(暴击率: ${(finalCritRate * 100).toFixed(
-                  1,
-                )}%, 暴击倍率: ${finalCritMultiplier.toFixed(2)}x)`,
-              );
-              showDamageNumber('enemy', damage, true, enemyId);
-            } else {
-              logBattleAction(`造成 ${damage} 点伤害！`);
-              showDamageNumber('enemy', damage, false, enemyId);
-            }
-            
-            const extraDamage = processTeammateEnchantmentEffects(weapon, enemy, damage, isCrit, teammate);
-            damage += extraDamage;
-            
-            enemy.hp = Math.max(0, enemy.hp - damage);
-            
-            addDamageHate(teammate.id, teammate.name, enemyId, damage);
-            
-            addHpChangeAnimation('enemy', enemyId);
-            
-            if (StateValidator.checkEnemyDeath(enemy)) {
-              return; 
-            }
-            
-            setTimeout(() => {
-              if (enemyElement) {
-                enemyElement.classList.remove('shake-animation');
-              }
-            }, 800);
-          } else {
-            
-            logBattleAction(`攻击未命中 ${enemy.name}！(最终命中率: ${(finalHitRate * 100).toFixed(1)}%)`);
-          }
-        }
-      }
-      
-      teammate.mp = Math.max(0, teammate.mp - weapon.mpCost);
-      if (weapon.mpCost > 0) {
-        logBattleAction(`${teammate.name} 消耗 ${weapon.mpCost} 点法力值。剩余法力值: ${teammate.mp}`);
-      }
-      
-      teammateElement.classList.remove('attack-animation-forward');
-      
-      memoryManager.safeSetTimeout(() => {
-        updatePlayerPanel();
-        updateEnemyPanel();
-        updateHateDisplay(); 
-      }, 1500); 
-      
-      if (
-        battleState.currentAttackCount < weapon.attacksPerTurn &&
-        battleState.selectedEnemies.length > 0 &&
-        battleState.enemies.length > 0
-      ) {
-        
-        setTimeout(performNextAttack, 800);
-      } else {
-        
-        weapon.used = true;
-
-        battleState.currentWeapon = null;
-        
-        battleState.attackInProgress = false;
-        
-        updateTeammateWeaponsList();
-        
-      }
-    }, 500); 
   }
-  
-  performNextAttack();
-}
 
+  // Apply hate for damage dealt
+  instructions.filter(i => i.type === 'damage').forEach(inst => {
+    addDamageHate(teammate.id, teammate.name, inst.targetId, inst.damage);
+  });
+
+  // Play back instructions with animation timing
+  const teammateElement = domRoot.querySelector(`.combat-entity.teammate[data-teammate-id="${teammate.id}"]`);
+  if (teammateElement) teammateElement.classList.add('attack-animation-forward');
+
+  let delay = 500;
+  instructions.forEach((inst, index) => {
+    setTimeout(() => {
+      if (inst.type === 'damage') {
+        const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${inst.targetId}"]`);
+        if (enemyElement) {
+          enemyElement.classList.add('shake-animation');
+          setTimeout(() => enemyElement.classList.remove('shake-animation'), 800);
+        }
+        showDamageNumber('enemy', inst.damage, inst.isCrit, inst.targetId);
+        addHpChangeAnimation('enemy', inst.targetId);
+      } else if (inst.type === 'enemyDeath') {
+        StateValidator.checkEnemyDeath({ id: inst.targetId });
+      }
+
+      if (index === instructions.length - 1) {
+        setTimeout(() => {
+          if (teammateElement) teammateElement.classList.remove('attack-animation-forward');
+          weapon.used = true;
+          battleState.currentWeapon = null;
+          battleState.attackInProgress = false;
+          updatePlayerPanel();
+          updateEnemyPanel();
+          updateTeammateWeaponsList();
+          updateHateDisplay();
+        }, 800);
+      }
+    }, delay);
+    delay += 300;
+  });
+
+  // If no instructions (MP insufficient or no enemies), finalize immediately
+  if (instructions.length === 0) {
+    weapon.used = true;
+    battleState.currentWeapon = null;
+    battleState.attackInProgress = false;
+    updatePlayerPanel();
+    updateEnemyPanel();
+    updateTeammateWeaponsList();
+  }
+}
 let memoryManager = {
   
   particlePool: [],
@@ -8170,115 +7411,56 @@ function getHealingTargets(weapon, weaponTemplate, attacker = null) {
 }
 
 function performSingleHealing(weapon, target) {
-  const targetName = target.type === 'player' ? battleState.player.name || 'User' : target.entity.name;
-  
-  let healAmount = weapon.attack;
-  
-  const critRoll = Math.random() * 100;
-  const isCrit = critRoll <= weapon.critRate;
-  if (isCrit) {
-    const playerStats = getPlayerActualStats();
-    const critMultiplier = playerStats.baseCritMultiplier;
-    healAmount = Math.floor(healAmount * critMultiplier);
-    logBattleAction(`暴击治疗！对 ${targetName} 恢复 ${healAmount} 点生命值！`);
-  } else {
-    logBattleAction(`对 ${targetName} 恢复 ${healAmount} 点生命值！`);
-  }
-  
-  if (target.type === 'player') {
-    const oldHp = battleState.player.hp;
-    battleState.player.hp = Math.min(battleState.player.hp + healAmount, battleState.player.maxHp);
-    const actualHeal = battleState.player.hp - oldHp;
-    showHealNumber(actualHeal);
-  } else if (target.type === 'teammate') {
-    const oldHp = target.entity.hp;
-    target.entity.hp = Math.min(target.entity.hp + healAmount, target.entity.maxHp);
-    const actualHeal = target.entity.hp - oldHp;
-    logBattleAction(`实际恢复了 ${actualHeal} 点生命值！`);
-  } else if (target.type === 'enemy') {
-    const oldHp = target.entity.hp;
-    target.entity.hp = Math.min(target.entity.hp + healAmount, target.entity.maxHp);
-    const actualHeal = target.entity.hp - oldHp;
-    showHealNumberOnEnemy(actualHeal, target.entity.id);
-  }
-  
-  addHealHate('player', battleState.player.name || 'User', healAmount);
+  // Delegate pure calculation to healCore (P4a Core extraction)
+  const playerStats = getPlayerActualStats();
+  const logArr = [];
+  const instructions = healCore(target, weapon, playerStats, logArr);
+  logArr.forEach(msg => logBattleAction(msg));
+  applyInstructionsToDom(instructions, {});
+  // Hate system side-effect (UI-layer concern, not combat calculation)
+  addHealHate('player', battleState.player.name || 'User', weapon.attack);
 }
 
 function performSingleManaRestore(weapon, target) {
-  const targetName = target.type === 'player' ? battleState.player.name || 'User' : target.entity.name;
-  
-  let manaAmount = weapon.attack;
-  
-  const critRoll = Math.random() * 100;
-  const isCrit = critRoll <= weapon.critRate;
-  if (isCrit) {
-    const playerStats = getPlayerActualStats();
-    const critMultiplier = playerStats.baseCritMultiplier;
-    manaAmount = Math.floor(manaAmount * critMultiplier);
-    logBattleAction(`暴击恢复！对 ${targetName} 恢复 ${manaAmount} 点法力值！`);
-  } else {
-    logBattleAction(`对 ${targetName} 恢复 ${manaAmount} 点法力值！`);
-  }
-  
-  if (target.type === 'player') {
-    const oldMp = battleState.player.mp;
-    battleState.player.mp = Math.min(battleState.player.mp + manaAmount, battleState.player.maxMp);
-    const actualRestore = battleState.player.mp - oldMp;
-    logBattleAction(`实际恢复了 ${actualRestore} 点法力值！`);
-  } else if (target.type === 'teammate') {
-    const oldMp = target.entity.mp;
-    target.entity.mp = Math.min(target.entity.mp + manaAmount, target.entity.maxMp);
-    const actualRestore = target.entity.mp - oldMp;
-    logBattleAction(`实际恢复了 ${actualRestore} 点法力值！`);
-  }
+  // Delegate pure calculation to manaRestoreCore (P4a Core extraction)
+  const playerStats = getPlayerActualStats();
+  const logArr = [];
+  const instructions = manaRestoreCore(target, weapon, playerStats, logArr);
+  logArr.forEach(msg => logBattleAction(msg));
+  applyInstructionsToDom(instructions, {});
 }
 
 function performSingleSacrificeBoost(weapon, target, attacker = null) {
-  
-  let actualAttacker, attackerName, isPlayerAttacker;
-
-  if (attacker) {
-    
-    actualAttacker = attacker;
-    isPlayerAttacker = attacker === battleState.player;
-    attackerName = isPlayerAttacker ? battleState.player.name || 'User' : attacker.name;
-  } else {
-    
-    actualAttacker = target.type === 'player' ? battleState.player : target.entity;
-    isPlayerAttacker = target.type === 'player';
-    attackerName = target.type === 'player' ? battleState.player.name || 'User' : target.entity.name;
-  }
-
-  const targetName = target.type === 'player' ? battleState.player.name || 'User' : target.entity.name;
-
-  logBattleAction(`${attackerName} 对 ${targetName} 使用 ${weapon.name} 进行牺牲增益！`);
-  
-  const sacrificeDamage = Math.floor(weapon.attack * 0.5);
-  actualAttacker.hp = Math.max(1, actualAttacker.hp - sacrificeDamage);
-  logBattleAction(`${attackerName} 牺牲 ${sacrificeDamage} 点生命值！`);
-
+  // Delegate pure calculation to sacrificeBoostCore (P4a Core extraction)
+  // Core handles player path (sacrificeBoostActive + HP reduction).
+  // UI wrapper handles teammate path (teammate.buffs) and attacker resolution.
   if (target.type === 'player') {
-    
-    if (!battleState.sacrificeBoostActive) {
-      battleState.sacrificeBoostActive = {
-        attack: weapon.attack,
-        hitRate: weapon.hitRate,
-        critRate: weapon.critRate,
-        attacksPerTurn: weapon.attacksPerTurn,
-        targetsPerAttack: weapon.targetsPerAttack,
-        weaponName: weapon.name,
-      };
-      logBattleAction(`${targetName} 获得强大增益！本回合所有攻击都将获得 ${weapon.name} 的属性加成！`);
-      logBattleAction(
-        `增益效果：攻击+${weapon.attack}，命中+${weapon.hitRate}%，暴击+${weapon.critRate}%，次数+${weapon.attacksPerTurn}，目标+${weapon.targetsPerAttack}`,
-      );
+    const player = attacker && attacker === battleState.player ? attacker : battleState.player;
+    const logArr = [];
+    const instructions = sacrificeBoostCore(player, weapon, logArr);
+    logArr.forEach(msg => logBattleAction(msg));
+    // Sync Core's player.sacrificeBoostActive to battleState
+    if (player.sacrificeBoostActive) {
+      battleState.sacrificeBoostActive = player.sacrificeBoostActive;
     }
+    applyInstructionsToDom(instructions, {});
   } else {
-    
+    // Teammate path — keep original logic (Core only handles player sacrifice boost)
     const teammate = target.entity;
-    if (!teammate.buffs) teammate.buffs = [];
+    let attackerName;
+    if (attacker) {
+      attackerName = attacker === battleState.player ? (battleState.player.name || 'User') : attacker.name;
+    } else {
+      attackerName = target.type === 'player' ? (battleState.player.name || 'User') : teammate.name;
+    }
+    const targetName = teammate.name;
+    logBattleAction(`${attackerName} 对 ${targetName} 使用 ${weapon.name} 进行牺牲增益！`);
+    const sacrificeDamage = Math.floor(weapon.attack * 0.5);
+    const actualAttacker = attacker || teammate;
+    actualAttacker.hp = Math.max(1, actualAttacker.hp - sacrificeDamage);
+    logBattleAction(`${attackerName} 牺牲 ${sacrificeDamage} 点生命值！`);
 
+    if (!teammate.buffs) teammate.buffs = [];
     const existingSacrificeBoost = teammate.buffs.find(buff => buff.type === 'sacrificeBoost');
     if (!existingSacrificeBoost) {
       const sacrificeBoostBuff = {
@@ -8295,11 +7477,8 @@ function performSingleSacrificeBoost(weapon, target, attacker = null) {
         tooltipText: `攻击+${weapon.attack}，命中+${weapon.hitRate}%，暴击+${weapon.critRate}%，次数+${weapon.attacksPerTurn}，目标+${weapon.targetsPerAttack}`,
       };
       teammate.buffs.push(sacrificeBoostBuff);
-
       logBattleAction(`${targetName} 获得强大增益！本回合所有攻击都将获得 ${weapon.name} 的属性加成！`);
-      logBattleAction(
-        `增益效果：攻击+${weapon.attack}，命中+${weapon.hitRate}%，暴击+${weapon.critRate}%，次数+${weapon.attacksPerTurn}，目标+${weapon.targetsPerAttack}`,
-      );
+      logBattleAction(`增益效果：攻击+${weapon.attack}，命中+${weapon.hitRate}%，暴击+${weapon.critRate}%，次数+${weapon.attacksPerTurn}，目标+${weapon.targetsPerAttack}`);
     }
   }
 }

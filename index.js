@@ -7,7 +7,7 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { DOMPurify } from '../../../../lib.js';
 import { power_user } from '../../../power-user.js';
-import { renderBattlePanel } from './battle/battleRenderer.js';
+import { renderBattlePanel, updateBattlePanelAfterCombat, clearBattleHostRegistry, removeBattleHost } from './battle/battleRenderer.js';
 import { serializeBattleState, restoreBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 // memory.js 已移除
 
@@ -78,6 +78,15 @@ const EQUIP_RARITY_TABLE = [
     { roll: [7,13],  name: '绿色', mult: 1.2, affixes: 1 },
     { roll: [14,18], name: '蓝色', mult: 1.5, affixes: 2 },
     { roll: [19,20], name: '紫色', mult: 2.0, affixes: 2 },
+];
+
+/** 掉落物类型骰子表 (1D10): 消耗品/材料/药草/杂物/装备 */
+const LOOT_TYPE_TABLE = [
+    { roll: [1,3],  type: '消耗品', label: '药水/食物' },
+    { roll: [4,5],  type: '材料',   label: '矿石/皮革/木材' },
+    { roll: [6,7],  type: '药草',   label: '草药' },
+    { roll: [8,9],  type: '杂物',   label: '哥布林耳朵/狼牙等' },
+    { roll: [10,10],type: '装备',   label: '随机装备（触发generateEquipment）' },
 ];
 
 /** 装备插槽骰子表 (1D10): 1-2=主手, 3=副手, 4=头部, 5=胸部, 6=手部, 7=腿部, 8-10=饰品 */
@@ -179,6 +188,38 @@ const ARC_NAME_PREFIXES = {
     alo_new: ['\u65B0\u751Falo-', '\u65B0\u751Falo', '\u65B0\u751FALO'],
     ggo:     ['ggo-', 'ggo', 'GGO'],
     real:    ['\u73B0\u5B9E', '\u771F\u5B9E\u4E16\u754C'],
+};
+
+// ============================================================
+// P4c: 自定义技能系统 (Custom Skill System)
+// ============================================================
+
+/**
+ * 自定义技能定义表 — ID → 技能定义
+ * state.customSkills 只存 ID 数组（不存完整对象，因为函数无法序列化到 chatMetadata）
+ * 运行时通过此表查找完整定义
+ */
+const CUSTOM_SKILL_DEFS = {
+    'starburst_stream': {
+        name: '星爆气流斩',
+        _custom: true,
+        weapon_type: '双剑',
+        skill_level: 50,
+        rarity: '紫色',
+        atk: 350, hit: 92, crit: 25, apt: 16, tpa: 1,
+        mp_cost: 45, cooldown: 5, wn: 'A1',
+        affix_codes: ['EN:B1,15', 'EN:B5,3,30'],
+        _customHandler: function(player, skill, enemies, log) {
+            const target = enemies.find(e => e.hp > 0);
+            if (!target) return;
+            const bonusDmg = Math.floor(skill.atk * 0.5);
+            target.hp -= Math.max(1, bonusDmg - (target.str || 0));
+            log.push('星爆气流斩·双重打击：追加伤害！');
+        },
+        _unlock: { type: 'floor', floor: 75, arc: 'sao' },
+        description: '双刀流奥义——十六连击的究极剑技。',
+        effects_description: '生命窃取15% | 持续伤害3回合x30点 | 命中后追加50%ATK伤害',
+    },
 };
 
 // 骰子工具函数
@@ -506,6 +547,10 @@ function isSaoCard() {
 }
 
 function getSaoData() {
+    // 测试环境短路：允许 E2E 测试注入 mock state
+    if (typeof globalThis !== 'undefined' && globalThis.__SAO_INTERNAL__ && globalThis.__SAO_INTERNAL__.__testSaoData !== null) {
+        return globalThis.__SAO_INTERNAL__.__testSaoData;
+    }
     const ctx = getContext();
     const meta = ctx.chatMetadata;
     if (!meta) return null;  // 群聊或异常情况
@@ -517,18 +562,20 @@ function getSaoData() {
             meta[MODULE_NAME] = {
                 state: legacy.state || null,
                 arc: legacy.arc || 'sao',
+                calendar: null,
                 _migrated: true,
             };
             log('从角色卡迁移 v1 数据到 chatMetadata');
         } else {
             meta[MODULE_NAME] = {
-                state: null, arc: 'sao',
+                state: null, arc: 'sao', calendar: null,
             };
         }
     }
     const d = meta[MODULE_NAME];
     // 兼容旧字段
     if (!d.quests) d.quests = [];
+    if (d.calendar === undefined) d.calendar = null;
     return d;
 }
 
@@ -720,14 +767,23 @@ async function callModel(role, messages, maxTokens = 512, opts = {}) {
         }
     }
 
-    const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${cfg.key}`,
-        },
-        body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let resp;
+    try {
+        resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${cfg.key}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
 
     if (!resp.ok) {
         const errText = await resp.text().catch(() => '');
@@ -1231,6 +1287,11 @@ async function applyExtractedData(extracted) {
         if (Array.isArray(s.skills) && s.skills.length > 0) {
             if (!data.state.skills) data.state.skills = [];
             for (const newSk of s.skills) {
+                // P4c: 保护自定义技能不被提取数据覆盖
+                const isCustom = (data.state.customSkills || []).some(id =>
+                    CUSTOM_SKILL_DEFS[id]?.name === newSk.name
+                );
+                if (isCustom) continue; // 跳过，不覆盖自定义技能
                 const existingIdx = data.state.skills.findIndex(sk => sk.name === newSk.name);
                 if (existingIdx >= 0) {
                     // 用新数据完全覆盖旧条目（保留完整战斗属性）
@@ -1400,6 +1461,59 @@ async function generateEquipment(context) {
 }
 
 /**
+ * P3: 词缀参数生成器 — 纯函数，根据词缀代码和稀有度返回完整 EN:CODE,params 字符串
+ * @param {string} affixCode - 裸词缀代码，如 'B5', 'S3'
+ * @param {string} rarity - 稀有度名称，如 '白色', '绿色', '蓝色', '紫色'
+ * @returns {string} 完整词缀字符串，如 'EN:B5,3,35' 或 'EN:S3'
+ */
+function generateAffixParams(affixCode, rarity) {
+    const code = affixCode.split(',')[0];
+    const tier = rarity || '白色';
+    const PARAM_TABLE = {
+        'B1':  { '白色': '5',    '绿色': '8',    '蓝色': '12',   '紫色': '18' },
+        'B2':  { '白色': '2,10', '绿色': '2,15', '蓝色': '3,20', '紫色': '3,30' },
+        'B3':  { '白色': '2,8',  '绿色': '2,12', '蓝色': '2,18', '紫色': '3,25' },
+        'B4':  { '白色': '1',    '绿色': '1',    '蓝色': '1',    '紫色': '2' },
+        'B5':  { '白色': '3,10', '绿色': '3,20', '蓝色': '3,35', '紫色': '4,50' },
+        'B6':  { '白色': '10,1', '绿色': '15,1', '蓝色': '20,1', '紫色': '30,2' },
+        'B7':  { '白色': '15,10','绿色': '20,15','蓝色': '25,25','紫色': '35,40' },
+        'B8':  { '白色': '2,10', '绿色': '2,15', '蓝色': '3,20', '紫色': '3,30' },
+        'B9':  { '白色': '3',    '绿色': '5',    '蓝色': '8',    '紫色': '12' },
+        'B10': { '白色': '3,10', '绿色': '3,20', '蓝色': '3,35', '紫色': '4,50' },
+        'B11': { '白色': '2,2',  '绿色': '2,4',  '蓝色': '3,6',  '紫色': '3,10' },
+        'B12': { '白色': '2,2',  '绿色': '2,4',  '蓝色': '3,6',  '紫色': '3,10' },
+        'B13': { '白色': '2,2',  '绿色': '2,4',  '蓝色': '3,6',  '紫色': '3,10' },
+        'B14': { '白色': '2,2',  '绿色': '2,4',  '蓝色': '3,6',  '紫色': '3,10' },
+        'B15': { '白色': '10',   '绿色': '15',   '蓝色': '25',   '紫色': '40' },
+        'B16': { '白色': '10',   '绿色': '15',   '蓝色': '25',   '紫色': '40' },
+        'B17': { '白色': '15',   '绿色': '25',   '蓝色': '40',   '紫色': '60' },
+        'B18': { '白色': '3,5',  '绿色': '3,10', '蓝色': '4,15', '紫色': '5,25' },
+        'B19': { '白色': '3,3',  '绿色': '3,5',  '蓝色': '4,8',  '紫色': '5,12' },
+        'B20': { '白色': '20',   '绿色': '40',   '蓝色': '70',   '紫色': '120' },
+        'B21': { '白色': '30',   '绿色': '50',   '蓝色': '80',   '紫色': '150' },
+        'B22': { '白色': '3,10', '绿色': '3,20', '蓝色': '3,35', '紫色': '4,50' },
+    };
+    const entry = PARAM_TABLE[code];
+    const params = entry ? (entry[tier] || entry['白色']) : '';
+    return params ? `EN:${code},${params}` : `EN:${code}`;
+}
+
+/**
+ * P3: 从词缀代码中解析数值参数 — 若代码本身携带参数则直接使用，否则运行时补全
+ * @param {string} affixCode - 完整词缀字符串，如 'EN:B5,3,35' 或裸 'B5'
+ * @param {object} skill - 技能对象（用于取 rarity 兜底）
+ * @returns {number[]} 数值参数数组
+ */
+function resolveAffixArgs(affixCode, skill) {
+    const parts = affixCode.split(',');
+    if (parts.length > 1) return parts.slice(1).map(Number);
+    log(`[resolveAffixArgs] 词缀代码无参数，运行时补全: ${affixCode}`, 'warn');
+    const code = parts[0].replace(/^EN:/, '');
+    const completed = generateAffixParams(code, skill?.rarity || '白色');
+    return completed.split(',').slice(1).map(Number);
+}
+
+/**
  * 生成剑技 (FIX 3: 使用骰子表确定性计算数值，仅名称/描述由模型生成)
  * @param {object} context - { weaponType, skillLevel, playerLevel }
  * @returns {Promise<object|null>} 剑技对象
@@ -1452,12 +1566,12 @@ async function generateSkill(context) {
             const statNames = ['\u529B\u91CF', '\u654F\u6377', '\u667A\u529B', '\u8010\u529B', '\u5168\u5C5E\u6027'];
             const picked = statNames[Math.floor(Math.random() * statNames.length)];
             const val = Math.max(1, Math.floor(PL / 10));
-            affixCodes.push(`S${affixRoll}`);
+            affixCodes.push(generateAffixParams(`S${affixRoll}`, rarityEntry.name));
             affixNames.push(`${picked}+${val}`);
         } else {
             // 特殊效果 B1-B22
             const bCode = affixRoll - 8; // 1-22
-            affixCodes.push(`B${bCode}`);
+            affixCodes.push(generateAffixParams(`B${bCode}`, rarityEntry.name));
             affixNames.push(`\u7279\u6B8A\u6548\u679C${bCode}`);
         }
     }
@@ -1507,7 +1621,7 @@ ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
 }
 
 /**
- * 生成战利品/物品
+ * 生成战利品/物品（混合模式：JS骰子确定数值，LLM仅生成名称/描述）
  * @param {object} context - { enemyLevel, floor, enemyType }
  * @returns {Promise<object|null>} 物品对象或 null
  */
@@ -1515,23 +1629,85 @@ async function generateLoot(context) {
     const settings = getSettings();
     if (!settings.enabled) return null;
 
-    const systemPrompt = '你是 SAO 物品生成器。根据敌人等级和类型生成掉落物。如果敌人不值得掉落物品，返回 {"loot":[]}。只输出 JSON。';
-    const userPrompt = `生成掉落物，返回 JSON:
-{"loot":[{"name":string,"type":string,"qty":number,"rarity":string,"description":string}],
- "cor":number,"exp":number}
-敌人等级: ${context.enemyLevel}
-楼层: ${context.floor}
-敌人类型: ${context.enemyType || '普通怪物'}`;
+    const enemyLevel = context.enemyLevel || 1;
+
+    // === JS dice for all numeric values ===
+    // Drop chance: 30% + enemyLevel * 1%
+    const dropChance = Math.min(0.8, 0.3 + enemyLevel * 0.01);
+    if (Math.random() > dropChance) {
+        return { loot: [], cor: 0, exp: 0 };
+    }
+
+    // Number of drops: 1D3
+    const numDrops = rollDice(3);
+
+    // Cor: baseCor = enemyLevel * (10 + 1D20)
+    const baseCor = enemyLevel * (10 + rollDice(20));
+
+    // Exp: baseExp = enemyLevel * (20 + 1D20)
+    const baseExp = enemyLevel * (20 + rollDice(20));
+
+    // Generate loot items (JS dice for type/rarity, LLM for names)
+    const lootItems = [];
+    for (let i = 0; i < numDrops; i++) {
+        const typeRoll = rollDice(10);
+        const typeEntry = LOOT_TYPE_TABLE.find(e => typeRoll >= e.roll[0] && typeRoll <= e.roll[1]) || LOOT_TYPE_TABLE[0];
+        const rarityEntry = lookupRoll(EQUIP_RARITY_TABLE, rollDice(20));
+
+        if (typeEntry.type === '装备') {
+            // Equipment drop — placeholder; actual equipment gen is separate (generateEquipment)
+            lootItems.push({
+                type: '装备',
+                rarity: rarityEntry.name,
+                name: '',
+                description: '',
+            });
+        } else {
+            lootItems.push({
+                type: typeEntry.type,
+                rarity: rarityEntry.name,
+                name: '',
+                description: '',
+                qty: rollDice(3),
+            });
+        }
+    }
+
+    // === LLM for naming/description only (256 tokens) ===
+    const namePrompt = `为SAO掉落物生成名称和描述，返回JSON:
+{"items":[{"name":string,"description":string}]}
+掉落物信息:
+${lootItems.map((item, i) => `${i+1}. 类型:${item.type} 稀有度:${item.rarity}${item.qty ? ' 数量:'+item.qty : ''}`).join('\n')}
+敌人等级: ${enemyLevel}
+要求: 名称要有SAO风格，描述简短（20-50字）`;
 
     try {
         const result = await callModel('combat', [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-        ], 512);
+            { role: 'system', content: '你是SAO物品命名器。只输出JSON。' },
+            { role: 'user', content: namePrompt },
+        ], 256, { jsonSchema: true });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
-        if (jsonMatch) { log('物品生成完成'); return JSON.parse(jsonMatch[0]); }
-        return null;
-    } catch (e) { log('物品生成失败: ' + e.message, 'error'); return null; }
+        if (jsonMatch) {
+            const nameDesc = JSON.parse(jsonMatch[0]);
+            if (nameDesc.items) {
+                nameDesc.items.forEach((nd, i) => {
+                    if (lootItems[i]) {
+                        lootItems[i].name = nd.name || lootItems[i].type;
+                        lootItems[i].description = nd.description || '';
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        log('物品命名失败，使用默认名称: ' + e.message, 'warn');
+        // Fallback: use type as name
+        lootItems.forEach(item => {
+            if (!item.name) item.name = item.type + '·' + item.rarity;
+        });
+    }
+
+    log(`战利品生成完成: ${lootItems.length} 个物品, ${baseCor} 珂尔, ${baseExp} 经验`);
+    return { loot: lootItems, cor: baseCor, exp: baseExp };
 }
 
 /**
@@ -1585,6 +1761,12 @@ function formatCompactState(state) {
         const sk = state.skills.slice(0, 5).map(s => `${s.name}Lv${s.level}`).join(',');
         parts.push(`[技能]${sk}`);
     }
+    // P3: 上轮战斗结算摘要（narrativeHint，让 LLM 自我修正叙事连续性，见 10.2 节）
+    // 注意：不在 formatCompactState 中 delete——swipe/重新生成时 GENERATION_AFTER_COMMANDS 会再次触发，
+    // 若已 delete 则 hint 丢失。改为在下一轮 MESSAGE_RECEIVED 处理器中清除（确认生成成功后）。
+    if (state.lastCombatHint) {
+        parts.push(state.lastCombatHint);
+    }
     return parts.join(' | ');
 }
 
@@ -1605,6 +1787,11 @@ function injectMemoryAndState() {
 
     // 当前章节
     parts.push(`[章节]${settings.currentArc}`);
+
+    // P2b: inject calendar date if available
+    if (data?.calendar?.currentDate) {
+        parts.push(`[日期]${data.calendar.currentDate}`);
+    }
 
     if (parts.length > 0) {
         ctx.setExtensionPrompt('sao_companion_inject', parts.join('\n'), 1, 4, false, 0);
@@ -2285,7 +2472,7 @@ function renderCalendar(messageEl, rawText) {
     `;
 }
 
-function renderAllTags(messageEl, rawText) {
+function renderAllTags(messageEl, rawText, messageId) {
     const hasTags = /<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
     if (hasTags) {
         hideSaoLightDomTags(messageEl)
@@ -2295,7 +2482,7 @@ function renderAllTags(messageEl, rawText) {
     try { renderEquipment(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderEquipment ERROR:', e.message, e.stack); }
     try { renderSwordSkill(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderSwordSkill ERROR:', e.message, e.stack); }
     try { renderMap(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderMap ERROR:', e.message, e.stack); }
-    try { renderBattlePanel(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
+    try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
     if (hasTags) {
         cleanupSaoLightDom(messageEl)
     }
@@ -3062,17 +3249,2551 @@ function renderMap(messageEl, rawText) {
 }
 
 
+// === Calendar Module (P2a: data structure + first-init) ===
+
+/**
+ * 解析 YYYY-MM-DD 格式日期字符串为 Date 对象
+ */
+function parseDate(dateStr) {
+    if (!dateStr) return null;
+    const m = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    // fallback: try Date constructor
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * 格式化 Date 对象为 YYYY-MM-DD 字符串
+ */
+function formatDate(dateObj) {
+    if (!dateObj || isNaN(dateObj.getTime())) return '';
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
+}
+
+/**
+ * 日期加减天数，返回新 Date 对象
+ */
+function addDays(dateObj, n) {
+    const result = new Date(dateObj);
+    result.setDate(result.getDate() + n);
+    return result;
+}
+
+/**
+ * 尝试从中文文本中解析日期
+ * 支持: YYYY-MM-DD, YYYY年MM月DD日, MM月DD日 (假设当前年)
+ * 返回 { date: 'YYYY-MM-DD', title: string } 或 null
+ */
+function parseTimelineEvent(line, fallbackYear) {
+    if (!line || typeof line !== 'string') return null;
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    // 格式1: YYYY-MM-DD 或 YYYY/MM/DD 后跟分隔符和事件
+    let m = trimmed.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\s*[:：\-\s]\s*(.+)$/);
+    if (m) {
+        const date = m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+        return { date, title: m[4].trim() };
+    }
+
+    // 格式2: YYYY年MM月DD日 后跟分隔符和事件
+    m = trimmed.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日?\s*[:：\-\s]\s*(.+)$/);
+    if (m) {
+        const date = m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+        return { date, title: m[4].trim() };
+    }
+
+    // 格式3: MM月DD日 后跟分隔符和事件 (假设当前年或 fallbackYear)
+    m = trimmed.match(/^(\d{1,2})月(\d{1,2})日?\s*[:：\-\s]\s*(.+)$/);
+    if (m) {
+        const year = fallbackYear || new Date().getFullYear();
+        const date = year + '-' + String(m[1]).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+        return { date, title: m[3].trim() };
+    }
+
+    // 格式4: 纯日期行（如 "2024-12-15"），无事件描述 → 跳过
+    m = trimmed.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+    if (m) return null;
+
+    // 无法解析 → 跳过
+    return null;
+}
+
+/**
+ * 从时间线条目名称中提取年份（如 "2024年12月" → 2024）
+ */
+function extractYearFromEntryName(name) {
+    if (!name) return null;
+    const m = name.match(/^(\d{4})年/);
+    return m ? parseInt(m[1]) : null;
+}
+
+/**
+ * 日历懒初始化：首次访问时从世界书提取时间线条目
+ * P2a: 仅从 world book timeline entries 初始化 days；appointments 为空
+ */
+function initCalendarIfNeeded() {
+    try {
+        const data = getSaoData();
+        if (!data) return;
+
+        // 已初始化（days 非空）
+        if (data.calendar && data.calendar.days && Object.keys(data.calendar.days).length > 0) {
+            return;
+        }
+
+        // 创建空日历结构
+        if (!data.calendar) {
+            data.calendar = {
+                currentDate: null,
+                days: {},
+                appointments: [],
+                lastCalUpdateDate: null,
+                lastCalUpdateMsgId: null,
+            };
+        }
+        const cal = data.calendar;
+
+        // A4: 从最新 AI 消息的 <time> 标签解析当前日期（必须在时间线提取之前，以便过滤 ±1 月）
+        const ctx = getContext();
+        if (ctx.chat && ctx.chat.length > 0) {
+            for (let i = ctx.chat.length - 1; i >= 0; i--) {
+                const msg = ctx.chat[i];
+                if (msg && !msg.is_user && msg.mes) {
+                    const timeMatch = msg.mes.match(/<time>([\s\S]*?)<\/time>/);
+                    if (timeMatch) {
+                        const timeText = timeMatch[1];
+                        const parts = timeText.replace(/[『』]/g, '').split(/\s*-\s*/);
+                        if (parts.length > 0) {
+                            const datePart = parts[0].trim();
+                            // 尝试解析日期部分
+                            const parsedDate = parseDate(datePart);
+                            if (parsedDate) {
+                                cal.currentDate = formatDate(parsedDate);
+                            } else {
+                                // 尝试中文日期格式 YYYY年MM月DD日
+                                const cm = datePart.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
+                                if (cm) {
+                                    cal.currentDate = cm[1] + '-' + String(cm[2]).padStart(2, '0') + '-' + String(cm[3]).padStart(2, '0');
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
+        const char = getCurrentCharacter();
+        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
+        if (!entries || !Array.isArray(entries)) {
+            log('日历初始化：未找到世界书条目');
+            // A4: 即使没有世界书条目，也要确保日历结构完整
+            cal.lastCalUpdateDate = cal.currentDate;
+            log('日历首次初始化完成（无世界书条目），currentDate=' + cal.currentDate);
+            return;
+        }
+
+        let extractedCount = 0;
+        // A4: 预计算 currentDate 的月索引用于 ±1 月过滤
+        let currentMonthIdx = null;
+        if (cal.currentDate) {
+            const [cy, cm] = cal.currentDate.split('-').map(Number);
+            currentMonthIdx = cy * 12 + (cm - 1);
+        }
+
+        for (const e of entries) {
+            const entryName = (e.comment || e.name || '').trim();
+            // 匹配时间线条目名称：YYYY年MM月
+            if (!/^\d{4}年\d{1,2}月/.test(entryName)) continue;
+
+            // A4: ±1 月过滤：如果 currentDate 已知，跳过超出范围的条目
+            if (currentMonthIdx !== null) {
+                const yearMatch = entryName.match(/^(\d{4})年(\d{1,2})月/);
+                if (yearMatch) {
+                    const entryMonthIdx = parseInt(yearMatch[1]) * 12 + (parseInt(yearMatch[2]) - 1);
+                    if (Math.abs(entryMonthIdx - currentMonthIdx) > 1) continue;
+                }
+            }
+
+            const fallbackYear = extractYearFromEntryName(entryName);
+            const content = e.content || '';
+            if (!content) continue;
+
+            // 解析内容中的日期+事件行
+            const lines = content.split(/\r?\n/);
+            for (const line of lines) {
+                const parsed = parseTimelineEvent(line, fallbackYear);
+                if (!parsed) continue;
+
+                if (!cal.days[parsed.date]) {
+                    cal.days[parsed.date] = { events: [], isUpdated: false };
+                }
+                cal.days[parsed.date].events.push({
+                    type: 'canon',
+                    time: null,
+                    title: parsed.title,
+                    description: parsed.title,
+                    source: 'timeline',
+                });
+                extractedCount++;
+            }
+        }
+
+        cal.lastCalUpdateDate = cal.currentDate;
+        log('日历首次初始化完成，提取了 ' + extractedCount + ' 个时间线条目');
+    } catch (e) {
+        log('日历初始化失败: ' + e.message, 'warn');
+    }
+}
+
+// === Calendar Module (P2b: incremental update + appointment extraction) ===
+
+/**
+ * 约定/会面类关键词正则模式
+ * 用于从 AI 消息中自动提取约定事项
+ */
+const APPOINTMENT_PATTERNS = [
+    /约[定好].*?(明天|后天|下周|\d+月?\d*[日号]?)/,
+    /(明天|后天|下周|过几天).*?(见|会面|等)/,
+    /(上午|下午|晚上|\d{1,2}:\d{2}).*?(见|会面|约)/,
+    /说好.*?(到时候|属于我们)/,
+    /答应.*?(一起|同行|前往)/,
+];
+
+/**
+ * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
+ * 返回正数表示 date2 > date1，负数表示 date2 < date1
+ */
+function daysBetween(dateStr1, dateStr2) {
+    const d1 = parseDate(dateStr1);
+    const d2 = parseDate(dateStr2);
+    if (!d1 || !d2) return 0;
+    const msPerDay = 86400000;
+    return Math.round((d2.getTime() - d1.getTime()) / msPerDay);
+}
+
+/**
+ * 从文本中提取约定/会面类事件（纯正则，无 LLM）
+ * @param {string} text - 消息文本
+ * @param {object} calendar - 日历数据对象
+ * @returns {number} 新增约定数量
+ */
+function extractAppointments(text, calendar) {
+    if (!text || !calendar) return 0;
+
+    const currentDate = calendar.currentDate;
+    if (!currentDate) return 0;
+
+    let addedCount = 0;
+
+    // 用于去重：收集已有的 date+time+description 组合
+    const existingKeys = new Set();
+    for (const apt of (calendar.appointments || [])) {
+        existingKeys.add(apt.date + '|' + (apt.time || '') + '|' + (apt.description || ''));
+    }
+
+    for (const pattern of APPOINTMENT_PATTERNS) {
+        const matches = text.matchAll(new RegExp(pattern, 'g'));
+        for (const match of matches) {
+            const fullMatch = match[0];
+
+            // 启发式提取相对日期
+            let dateOffset = 0;
+            if (/明天/.test(fullMatch)) dateOffset = 1;
+            else if (/后天/.test(fullMatch)) dateOffset = 2;
+            else if (/下周/.test(fullMatch)) dateOffset = 7;
+            else if (/过几天/.test(fullMatch)) dateOffset = 3;
+            else {
+                // 尝试提取绝对日期：X月X日/号
+                const absDateMatch = fullMatch.match(/(\d{1,2})月(\d{1,2})[日号]/);
+                if (absDateMatch) {
+                    const baseDate = parseDate(currentDate);
+                    if (baseDate) {
+                        const month = parseInt(absDateMatch[1]) - 1;
+                        const day = parseInt(absDateMatch[2]);
+                        const target = new Date(baseDate.getFullYear(), month, day);
+                        // 如果目标日期已过，推到明年
+                        if (target < baseDate) target.setFullYear(target.getFullYear() + 1);
+                        dateOffset = Math.round((target.getTime() - baseDate.getTime()) / 86400000);
+                    }
+                }
+            }
+
+            // 启发式提取时间
+            let timeStr = '';
+            const timeMatch = fullMatch.match(/(\d{1,2}):(\d{2})/);
+            if (timeMatch) {
+                timeStr = timeMatch[1].padStart(2, '0') + ':' + timeMatch[2];
+            } else if (/上午/.test(fullMatch)) {
+                timeStr = '10:00';
+            } else if (/下午/.test(fullMatch)) {
+                timeStr = '14:00';
+            } else if (/晚上/.test(fullMatch)) {
+                timeStr = '20:00';
+            }
+
+            // 描述：截取匹配文本（最多 50 字符）
+            const description = fullMatch.length > 50 ? fullMatch.substring(0, 50) : fullMatch;
+
+            // 计算绝对日期
+            const baseDateObj = parseDate(currentDate);
+            if (!baseDateObj) continue;
+            const aptDate = formatDate(addDays(baseDateObj, dateOffset));
+
+            // 去重
+            const dedupKey = aptDate + '|' + timeStr + '|' + description;
+            if (existingKeys.has(dedupKey)) continue;
+            existingKeys.add(dedupKey);
+
+            // 创建约定对象
+            const appointment = {
+                id: 'apt_' + Date.now() + '_' + addedCount,
+                date: aptDate,
+                time: timeStr,
+                description: description,
+                participants: [],
+                location: '',
+                source: 'auto',
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+            };
+
+            // 添加到 appointments 数组
+            if (!calendar.appointments) calendar.appointments = [];
+            calendar.appointments.push(appointment);
+
+            // 添加到对应日期的 events
+            if (!calendar.days[aptDate]) {
+                calendar.days[aptDate] = { events: [], isUpdated: false };
+            }
+            calendar.days[aptDate].events.push({
+                type: 'appointment',
+                time: timeStr,
+                title: description,
+                description: description,
+                source: 'auto',
+            });
+
+            addedCount++;
+            log('提取到约定: ' + aptDate + ' ' + timeStr + ' - ' + description);
+        }
+    }
+
+    return addedCount;
+}
+
+/**
+ * 日历增量更新（P2b：纯正则，无 LLM）
+ * 在每条 AI 消息处理时调用，推进日历日期、提取约定、GC 过期数据
+ * @param {string} messageText - AI 消息原始文本
+ */
+function updateCalendarIncremental(messageText) {
+    try {
+        const data = getSaoData();
+        if (!data) return;
+
+        // 确保日历已初始化
+        initCalendarIfNeeded();
+        const calendar = data.calendar;
+        if (!calendar) return;
+
+        // 从 <time> 标签解析当前游戏日期
+        const timeMatch = messageText.match(/<time>([\s\S]*?)<\/time>/);
+        let newDate = null;
+        if (timeMatch) {
+            const timeText = timeMatch[1];
+            const parts = timeText.replace(/[『』]/g, '').split(/\s*-\s*/);
+            if (parts.length > 0) {
+                const datePart = parts[0].trim();
+                newDate = parseDate(datePart);
+                if (!newDate) {
+                    // 尝试中文日期格式 YYYY年MM月DD日
+                    const cm = datePart.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
+                    if (cm) {
+                        newDate = new Date(parseInt(cm[1]), parseInt(cm[2]) - 1, parseInt(cm[3]));
+                    }
+                }
+            }
+        }
+
+        // 无论是否找到日期，都尝试提取约定
+        const newAptCount = extractAppointments(messageText, calendar);
+
+        if (!newDate) {
+            // 无 <time> 标签或无法解析日期 → 只做了约定提取
+            saveSaoDataNow();
+            return;
+        }
+
+        const newDateStr = formatDate(newDate);
+        const lastDate = calendar.currentDate || newDateStr;
+        const daysPassed = daysBetween(lastDate, newDateStr);
+
+        if (daysPassed > 30) {
+            // 长时间未游玩：清空 days 并重新初始化
+            log('日历：超过 30 天未游玩 (' + daysPassed + ' 天)，重新初始化');
+            calendar.days = {};
+            calendar.currentDate = newDateStr;
+            calendar.lastCalUpdateDate = newDateStr;
+            // 重新初始化会从世界书提取时间线
+            initCalendarIfNeeded();
+            // GC 约定：移除已过期且非 pending 的
+            calendar.appointments = (calendar.appointments || []).filter(apt =>
+                apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
+            );
+            saveSaoDataNow();
+            log('日历重新初始化完成，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
+            return;
+        }
+
+        if (daysPassed < 0) {
+            // 日期回退：仅警告，不执行 GC
+            log('日历：日期回退 (' + lastDate + ' → ' + newDateStr + ')，跳过 GC', 'warn');
+            calendar.currentDate = newDateStr;
+            calendar.lastCalUpdateDate = newDateStr;
+            saveSaoDataNow();
+            return;
+        }
+
+        if (daysPassed <= 0) {
+            // 同一天：只做约定提取，跳过日推进
+            calendar.currentDate = newDateStr;
+            calendar.lastCalUpdateDate = newDateStr;
+            // GC 约定：移除已过期（超过 30 天）且非 pending 的
+            calendar.appointments = (calendar.appointments || []).filter(apt =>
+                apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
+            );
+            saveSaoDataNow();
+            log('日历同日更新，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
+            return;
+        }
+
+        // daysPassed > 0：推进日期，GC 过期 days
+        calendar.currentDate = newDateStr;
+        calendar.lastCalUpdateDate = newDateStr;
+
+        // GC：删除 currentDate-30 天之前的 days
+        const gcCutoff = formatDate(addDays(newDate, -30));
+        for (const dateKey of Object.keys(calendar.days)) {
+            if (dateKey < gcCutoff) {
+                delete calendar.days[dateKey];
+            }
+        }
+
+        // 标记跳过的天数（介于 lastDate 和 newDate 之间的无事件天）
+        if (daysPassed > 1) {
+            const skippedStart = addDays(parseDate(lastDate), 1);
+            for (let i = 0; i < daysPassed - 1; i++) {
+                const skipDate = formatDate(addDays(skippedStart, i));
+                if (!calendar.days[skipDate]) {
+                    calendar.days[skipDate] = { events: [], isUpdated: true };
+                }
+            }
+        }
+
+        // GC 约定：移除已过期（超过 30 天）且非 pending 的
+        calendar.appointments = (calendar.appointments || []).filter(apt =>
+            apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
+        );
+
+        saveSaoDataNow();
+
+        log('日历更新: ' + lastDate + ' → ' + newDateStr + ' (+' + daysPassed + '天)，新增约定: ' + newAptCount);
+    } catch (e) {
+        log('日历增量更新失败: ' + e.message, 'warn');
+    }
+}
+
+// === Function Calling Tool Actions (P1) ===
+
+/**
+ * 格式化完整状态（用于 function calling 工具返回）
+ * 在 formatCompactState 基础上追加：装备详细属性、背包物品、技能战斗属性
+ */
+function formatFullState(state) {
+    if (!state) return 'No SAO state available.';
+    const parts = [];
+
+    // Core stats (reuse formatCompactState's core)
+    if (state.player_name) parts.push(`[玩家]${state.player_name}`);
+    if (state.level != null) parts.push(`Lv${state.level}`);
+    if (state.hp != null) parts.push(`HP:${state.hp}/${state.max_hp || '?'}`);
+    if (state.mp != null) parts.push(`MP:${state.mp}/${state.max_mp || '?'}`);
+    if (state.floor != null) parts.push(`${state.floor}F`);
+    if (state.location) parts.push(`@${state.location}`);
+    if (state.cor != null) parts.push(`珂尔:${state.cor}`);
+
+    // Equipment detailed stats
+    if (state.equipment) {
+        parts.push('\n[装备详情]');
+        for (const [slot, eq] of Object.entries(state.equipment)) {
+            if (!eq || !eq.name) continue;
+            const stats = eq.stats || {};
+            parts.push(`  ${slot}: ${eq.name} (STR+${stats.str||0} AGI+${stats.agi||0} INT+${stats.int||0} VIT+${stats.vit||0} HP+${stats.max_hp||0})`);
+        }
+    }
+
+    // Inventory
+    if (state.inventory?.length) {
+        parts.push('\n[背包]');
+        state.inventory.slice(0, 10).forEach(item => {
+            parts.push(`  ${item.name || item.type || '?'} x${item.qty || 1}`);
+        });
+        if (state.inventory.length > 10) parts.push(`  ... 共${state.inventory.length}件`);
+    }
+
+    // Skills with combat attributes
+    if (state.skills?.length) {
+        parts.push('\n[技能详情]');
+        const effectTable = getEffectCodeTable();
+        state.skills.forEach(skill => {
+            const atk = skill.atk || skill.base_damage || 0;
+            const hit = skill.hit || skill.hit_rate || 0;
+            const crit = skill.crit || skill.crit_rate || 0;
+            const apt = skill.apt || skill.hits || 1;
+            const tpa = skill.tpa || skill.targets || 1;
+            const mpCost = skill.mpCost || skill.mp_cost || 0;
+            const cd = skill.cd || skill.cooldown || 0;
+            const wn = skill.wn || skill.core_code || 'A1';
+            let line = `  ${skill.name || '?'}(Lv${skill.level||skill.skill_level||1}) ATK:${atk} 命中:${hit}% 暴击:${crit}% 连击:${apt} 目标:${tpa} MP:${mpCost} CD:${cd}轮 ${wn}`;
+            // Affix descriptions
+            const affixCodes = skill.affix_codes || skill.en || [];
+            if (affixCodes.length > 0) {
+                const affixDescs = affixCodes.map(code => {
+                    const bareCode = code.replace(/^EN:/, '').split(',')[0];
+                    const entry = effectTable[bareCode];
+                    if (entry?.fmt) {
+                        const params = code.split(',').slice(1).map(Number);
+                        return entry.fmt(params);
+                    }
+                    return bareCode;
+                });
+                line += ` [${affixDescs.join(', ')}]`;
+            }
+            parts.push(line);
+        });
+    }
+
+    // Last combat hint
+    if (state.lastCombatHint) parts.push('\n' + state.lastCombatHint);
+
+    return parts.join('\n');
+}
+
+/**
+ * 格式化日历数据供 LLM 消费（P2a: 从 calendar.days 提取事件）
+ */
+function formatCalendarForLLM(cal, startDate, rangeDays) {
+    if (!cal || !cal.days) return '日历数据尚未初始化';
+    try {
+        const start = startDate || cal.currentDate;
+        if (!start) return '当前日期未知';
+        const range = Math.min(rangeDays || 7, 30);
+        const startDateObj = parseDate(start);
+        if (!startDateObj) return '日期格式无效: ' + start;
+
+        const lines = [];
+        for (let i = 0; i < range; i++) {
+            const dateObj = addDays(startDateObj, i);
+            const dateStr = formatDate(dateObj);
+            const day = cal.days[dateStr];
+            const isToday = (dateStr === cal.currentDate);
+            lines.push(dateStr + (isToday ? ' (今天)' : '') + ':');
+            if (day && day.events && day.events.length) {
+                for (const ev of day.events) {
+                    const typeLabel = ev.type === 'canon' ? '[原作事件]' :
+                                      ev.type === 'appointment' ? '[约定]' : '[变化剧情]';
+                    const timeStr = ev.time ? ' ' + ev.time : '';
+                    lines.push('  - ' + typeLabel + timeStr + ' ' + (ev.title || ev.description || ''));
+                }
+            } else {
+                lines.push('  (无事件)');
+            }
+        }
+        return lines.join('\n');
+    } catch (e) {
+        return '日历格式化失败: ' + e.message;
+    }
+}
+
+/**
+ * 从多个数据源查找角色信息
+ * 优先级: state.relationships → character_book → char.data.description
+ */
+function getCharacterInfoFromSources(name, aspect) {
+    try {
+        const data = getSaoData();
+        const char = getCurrentCharacter();
+        const results = [];
+
+        // 1. 关系数据（如果存在）
+        if (aspect === 'relationship' || aspect === 'full') {
+            const rel = data && data.state && data.state.relationships && data.state.relationships[name];
+            if (rel) {
+                results.push('[关系] ' + (typeof rel === 'string' ? rel : JSON.stringify(rel)));
+            }
+        }
+
+        // 2. character_book 条目
+        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
+        if (entries) {
+            const nameLower = name.toLowerCase();
+            for (const e of entries) {
+                const entryName = (e.comment || e.name || '').toLowerCase();
+                const keys = (e.keys || []).map(k => k.toLowerCase());
+                if (entryName.includes(nameLower) || keys.some(k => k.includes(nameLower))) {
+                    let content = (e.content || '').substring(0, 500);
+                    results.push('[世界书] ' + content);
+                    break;
+                }
+            }
+        }
+
+        // 3. 角色卡描述（fallback）
+        if (results.length === 0 && char && char.data && char.data.description) {
+            const desc = char.data.description.substring(0, 500);
+            results.push('[角色卡描述] ' + desc);
+        }
+
+        return results.length ? results.join('\n\n') : '未找到角色 "' + name + '" 的相关信息';
+    } catch (e) {
+        return '获取角色信息失败: ' + e.message;
+    }
+}
+
+/**
+ * 从世界书查找楼层信息
+ */
+function getFloorInfo(floor, topic) {
+    try {
+        const char = getCurrentCharacter();
+        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
+        if (!entries) return '世界书数据不可用';
+
+        const floorStr = String(floor);
+        const floorPatterns = [floorStr + 'F', floorStr + '层', floorStr + '楼'];
+        const results = [];
+
+        for (const e of entries) {
+            const entryName = (e.comment || e.name || '').toLowerCase();
+            const matched = floorPatterns.some(p => entryName.includes(p.toLowerCase()));
+            if (!matched) continue;
+
+            let content = e.content || '';
+            // 可选 topic 过滤
+            if (topic) {
+                const topicLower = topic.toLowerCase();
+                if (!content.toLowerCase().includes(topicLower) && !entryName.includes(topicLower)) {
+                    continue;
+                }
+            }
+            results.push(content.substring(0, 500));
+            if (results.length >= 3) break;
+        }
+
+        return results.length ? results.join('\n---\n') : '未找到第' + floorStr + '层的相关信息' + (topic ? '（话题: ' + topic + '）' : '');
+    } catch (e) {
+        return '获取楼层信息失败: ' + e.message;
+    }
+}
+
+/**
+ * 格式化所有技能概览
+ */
+function formatAllSkillsBrief(skills) {
+    if (!skills || !skills.length) return '当前无已学习技能';
+    try {
+        const lines = skills.map((sk, i) => {
+            let s = (i + 1) + '. ' + sk.name;
+            if (sk.skill_level) s += ' Lv' + sk.skill_level;
+            if (sk.core_code) s += ' [' + sk.core_code + ']';
+            return s;
+        });
+        return lines.join('\n');
+    } catch (e) {
+        return '格式化技能列表失败: ' + e.message;
+    }
+}
+
+/**
+ * 格式化单个技能详细信息
+ */
+function formatSkillDetail(skill) {
+    if (!skill) return '技能数据为空';
+    try {
+        const parts = ['技能: ' + skill.name];
+        if (skill.skill_level) parts.push('等级: ' + skill.skill_level);
+        if (skill.base_damage != null) parts.push('攻击力(ATK): ' + skill.base_damage);
+        if (skill.hit_rate != null) parts.push('命中率(Hit): ' + skill.hit_rate);
+        if (skill.crit_rate != null) parts.push('暴击率(Crit): ' + skill.crit_rate);
+        if (skill.hits != null) parts.push('连击数(Apt): ' + skill.hits);
+        if (skill.targets != null) parts.push('目标数(TPA): ' + skill.targets);
+        if (skill.mp_cost != null) parts.push('MP消耗: ' + skill.mp_cost);
+        if (skill.cooldown != null) parts.push('冷却: ' + skill.cooldown);
+
+        // 词缀描述
+        const table = getEffectCodeTable();
+        if (table) {
+            if (skill.core_code) {
+                const prefix = skill.core_code[0];
+                const entry = table[prefix] && table[prefix][skill.core_code];
+                if (entry) parts.push('核心效果: [' + skill.core_code + '] ' + entry.label);
+            }
+            if (skill.affix_codes && skill.affix_codes.length) {
+                const affixDescs = skill.affix_codes.map(code => {
+                    const p = code[0];
+                    const e = table[p] && table[p][code];
+                    return e ? code + '(' + e.label + ')' : code;
+                });
+                parts.push('词缀: ' + affixDescs.join(', '));
+            }
+            if (skill.effects_description) {
+                parts.push('效果描述: ' + skill.effects_description);
+            }
+        }
+
+        return parts.join('\n');
+    } catch (e) {
+        return '格式化技能详情失败: ' + e.message;
+    }
+}
+
+/**
+ * 搜索世界书条目（按话题关键词）
+ * 名称/关键词/内容加权匹配，返回 top 3
+ */
+function searchWorldBookEntries(topic) {
+    try {
+        const char = getCurrentCharacter();
+        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
+        if (!entries) return '世界书数据不可用';
+
+        const topicLower = topic.toLowerCase();
+        const scored = [];
+
+        for (const e of entries) {
+            const name = (e.comment || e.name || '').toLowerCase();
+            const content = (e.content || '').toLowerCase();
+            const keys = (e.keys || []).map(k => k.toLowerCase());
+
+            let score = 0;
+            // 名称匹配（最高权重）
+            if (name.includes(topicLower)) score += 3;
+            // 关键词匹配
+            if (keys.some(k => k.includes(topicLower) || topicLower.includes(k))) score += 2;
+            // 内容匹配
+            if (content.includes(topicLower)) score += 1;
+
+            if (score > 0) {
+                scored.push({ entry: e, score: score });
+            }
+        }
+
+        // 按分数排序，取 top 3
+        scored.sort((a, b) => b.score - a.score);
+        const top = scored.slice(0, 3);
+
+        if (top.length === 0) return '未找到与"' + topic + '"相关的世界书条目';
+
+        return top.map(item => {
+            const e = item.entry;
+            const ename = e.comment || e.name || '未命名条目';
+            const econtent = (e.content || '').substring(0, 500);
+            return '[' + ename + '] ' + econtent;
+        }).join('\n---\n');
+    } catch (e) {
+        return '搜索世界书失败: ' + e.message;
+    }
+}
+
+// --- Tool Registration Functions (P1) ---
+
+function registerGetPlayerStatus(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_player_status',
+        displayName: 'Get Player Status',
+        formatMessage: () => '读取玩家状态...',
+        description: '获取玩家的完整状态：属性(HP/MP/STR/AGI/INT/VIT)、装备详情、背包物品、技能战斗属性。当需要查看玩家当前状态时使用。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+        action: wrapToolAction(async () => {
+            try {
+                const data = getSaoData();
+                if (!data || !data.state) return '玩家状态数据尚未初始化';
+                return formatFullState(data.state);
+            } catch (e) {
+                log('get_player_status 失败: ' + e.message, 'warn');
+                return '获取数据失败: ' + e.message;
+            }
+        }, 'get_player_status'),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+function registerGetCalendar(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_calendar',
+        displayName: 'Get Calendar',
+        formatMessage: () => '查询日历...',
+        description: '获取游戏内日历信息：查看日期范围内的事件和日程安排。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                date: { type: 'string', description: '起始日期 (YYYY-MM-DD 格式)，默认今天' },
+                range_days: { type: 'integer', description: '查询天数范围，默认 7 天' },
+            },
+            required: [],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                initCalendarIfNeeded();
+                const data = getSaoData();
+                const cal = data && data.calendar;
+                return formatCalendarForLLM(cal, args && args.date, args && args.range_days);
+            } catch (e) {
+                log('get_calendar 失败: ' + e.message, 'warn');
+                return '获取数据失败: ' + e.message;
+            }
+        }, 'get_calendar'),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+function registerGetCharacterInfo(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_character_info',
+        displayName: 'Get Character Info',
+        formatMessage: () => '查询角色信息...',
+        description: '获取角色信息：查看 NPC 或角色的基本资料、关系状态。支持按名称搜索角色卡世界书中的条目。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: '角色名称（必填）' },
+                aspect: { type: 'string', description: '查询方面', 'enum': ['basic', 'relationship', 'full'] },
+            },
+            required: ['name'],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                const name = args && args.name;
+                if (!name) return '请提供角色名称';
+                return getCharacterInfoFromSources(name, (args && args.aspect) || 'full');
+            } catch (e) {
+                log('get_character_info 失败: ' + e.message, 'warn');
+                return '获取数据失败: ' + e.message;
+            }
+        }, 'get_character_info'),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+function registerGetFloorInfo(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_floor_info',
+        displayName: 'Get Floor Info',
+        formatMessage: () => '查询楼层信息...',
+        description: '获取艾恩葛朗特楼层信息：查看特定楼层的迷宫、BOSS、城镇、地点等情报。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                floor: { type: 'integer', description: '楼层数（必填），如 1、2、50' },
+                topic: { type: 'string', description: '可选话题过滤，如 "boss"、"迷宫"、"城镇"' },
+            },
+            required: ['floor'],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                if (!args || args.floor == null) return '请提供楼层数';
+                return getFloorInfo(args.floor, args.topic);
+            } catch (e) {
+                log('get_floor_info 失败: ' + e.message, 'warn');
+                return '获取数据失败: ' + e.message;
+            }
+        }, 'get_floor_info'),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+function registerGetSkillInfo(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_skill_info',
+        displayName: 'Get Skill Info',
+        formatMessage: () => '查询技能信息...',
+        description: '获取技能信息：查看已学习技能列表，或查询特定技能的详细战斗属性（ATK/命中/暴击/连击/词缀效果）。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                skill_name: { type: 'string', description: '技能名称。不提供则返回所有技能概览列表' },
+            },
+            required: [],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                const data = getSaoData();
+                const skills = data && data.state && data.state.skills;
+                if (!skills || !skills.length) return '当前无已学习技能';
+
+                const skillName = args && args.skill_name;
+                if (!skillName) {
+                    return formatAllSkillsBrief(skills);
+                }
+
+                const skill = skills.find(s => s.name === skillName);
+                if (!skill) {
+                    const available = skills.map(s => s.name).join(', ');
+                    return '未找到技能 "' + skillName + '"。可用技能: ' + available;
+                }
+                return formatSkillDetail(skill);
+            } catch (e) {
+                log('get_skill_info 失败: ' + e.message, 'warn');
+                return '获取数据失败: ' + e.message;
+            }
+        }, 'get_skill_info'),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+function registerGetWorldLore(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_world_lore',
+        displayName: 'Get World Lore',
+        formatMessage: () => '查询世界观...',
+        description: '搜索世界观设定：从角色卡世界书中按关键词搜索世界观、背景、设定、规则等条目信息。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                topic: { type: 'string', description: '搜索话题关键词（必填），如 "艾恩葛朗特"、"刀剑技能"、"珂尔"' },
+            },
+            required: ['topic'],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                const topic = args && args.topic;
+                if (!topic) return '请提供搜索话题';
+                return searchWorldBookEntries(topic);
+            } catch (e) {
+                log('get_world_lore 失败: ' + e.message, 'warn');
+                return '获取数据失败: ' + e.message;
+            }
+        }, 'get_world_lore'),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+// === End Function Calling Tool Actions (P1) ===
+
+// === Function Calling Tool System (P0: framework only, tools registered in P1) ===
+
+const SAO_TOOL_NAMES = ['get_player_status', 'get_calendar', 'get_character_info',
+                        'get_floor_info', 'get_skill_info', 'get_world_lore'];
+
+function registerTools() {
+    const ctx = SillyTavern.getContext();
+    // 软门控：不支持时静默跳过，不报错，不注册工具
+    if (typeof ctx.registerFunctionTool !== 'function') {
+        log('当前环境不支持 function calling，工具未注册（保持现有世界书注入模式）');
+        return false;
+    }
+    if (typeof ctx.isToolCallingSupported === 'function' && !ctx.isToolCallingSupported()) {
+        log('当前 API/设置不支持 function calling，工具未注册（保持现有世界书注入模式）');
+        return false;
+    }
+    // P1: 注册 6 个 function calling 工具
+    registerGetPlayerStatus(ctx);
+    registerGetCalendar(ctx);
+    registerGetCharacterInfo(ctx);
+    registerGetFloorInfo(ctx);
+    registerGetSkillInfo(ctx);
+    registerGetWorldLore(ctx);
+    log('function calling 工具系统已就绪（6 个工具已注册）');
+    return true;
+}
+
+function unregisterAllTools(ctx) {
+    if (typeof ctx.unregisterFunctionTool !== 'function') return;
+    for (const name of SAO_TOOL_NAMES) {
+        try { ctx.unregisterFunctionTool(name); } catch (e) { /* ignore */ }
+    }
+}
+
+function initToolSystem() {
+    const ctx = SillyTavern.getContext();
+    let toolsRegistered = registerTools();
+
+    // 用户设置变化（含 function_calling 开关）
+    eventSource.on(event_types.SETTINGS_UPDATED, () => {
+        if (!isSaoCard()) return;
+        const nowSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
+        if (nowSupported && !toolsRegistered) {
+            toolsRegistered = registerTools();
+            log('运行时检测到 function calling 支持，工具已注册');
+        } else if (!nowSupported && toolsRegistered) {
+            unregisterAllTools(ctx);
+            toolsRegistered = false;
+            log('运行时检测到 function calling 不支持，工具已注销');
+        }
+    });
+
+    // API 模式切换（Chat Completion ↔ Text Completion）
+    eventSource.on(event_types.MAIN_API_CHANGED, () => {
+        if (!isSaoCard()) return;
+        if (toolsRegistered) unregisterAllTools(ctx);
+        toolsRegistered = registerTools();
+    });
+}
+
+// === P7: World Book Migration ===
+
+/**
+ * 工具调用计数器 — 记录成功/失败次数到 localStorage
+ * 用于 checkMigrationReadiness 判断工具稳定性
+ */
+function recordToolCall(success) {
+    const key = success ? 'sao_tool_call_count' : 'sao_tool_fail_count';
+    const current = parseInt(localStorage.getItem(key) || '0');
+    localStorage.setItem(key, String(current + 1));
+}
+
+/**
+ * 工具 action 包装器 — 自动记录调用成功/失败
+ * 用法: action: wrapToolAction(async (params) => { ... }, 'tool_name')
+ */
+function wrapToolAction(originalAction, _toolName) {
+    return async (params) => {
+        try {
+            const result = await originalAction(params);
+            recordToolCall(true);
+            return result;
+        } catch (e) {
+            recordToolCall(false);
+            throw e;
+        }
+    };
+}
+
+/**
+ * 备份世界书 enabled 状态到 localStorage
+ * 仅保存 uid/name/enabled，不保存内容（~10-50KB）
+ */
+function backupWorldBook() {
+    const char = getCurrentCharacter();
+    if (!char?.data?.character_book?.entries) return false;
+    const backup = char.data.character_book.entries.map(e => ({
+        uid: e.uid,
+        name: e.comment || e.name || '',
+        enabled: e.enabled !== false, // default true
+    }));
+    localStorage.setItem('sao_wb_backup_' + (char.name || 'default'), JSON.stringify(backup));
+    log(`世界书备份完成: ${backup.length} 个条目`);
+    return true;
+}
+
+/**
+ * 从 localStorage 恢复世界书 enabled 状态
+ */
+function restoreWorldBook() {
+    const char = getCurrentCharacter();
+    if (!char?.data?.character_book?.entries) return false;
+    const key = 'sao_wb_backup_' + (char.name || 'default');
+    const stored = localStorage.getItem(key);
+    if (!stored) { log('无世界书备份可恢复', 'warn'); return false; }
+    try {
+        const backup = JSON.parse(stored);
+        const entries = char.data.character_book.entries;
+        for (const b of backup) {
+            const entry = entries.find(e => e.uid === b.uid);
+            if (entry) entry.enabled = b.enabled;
+        }
+        // 保存到角色卡
+        const ctx = getContext();
+        if (typeof ctx.saveWorldInfo === 'function') {
+            const bookName = char.data.character_book.name || char.name;
+            ctx.saveWorldInfo(bookName, char.data.character_book, true);
+        }
+        log(`世界书恢复完成: ${backup.length} 个条目`);
+        return true;
+    } catch (e) {
+        log('世界书恢复失败: ' + e.message, 'error');
+        return false;
+    }
+}
+
+/**
+ * 检查世界书迁移 (Phase B) 就绪状态
+ * 返回各条件是否满足及总体 readiness
+ */
+function checkMigrationReadiness() {
+    // 1. 工具系统已注册
+    const ctx = getContext();
+    const toolsRegistered = typeof ctx.registerFunctionTool === 'function' &&
+        (typeof ctx.isToolCallingSupported !== 'function' || ctx.isToolCallingSupported());
+
+    // 2. 至少 10 次成功工具调用
+    const toolCallCount = parseInt(localStorage.getItem('sao_tool_call_count') || '0');
+    const minCallsMet = toolCallCount >= 10;
+
+    // 3. 失败率 < 20%
+    const toolFailCount = parseInt(localStorage.getItem('sao_tool_fail_count') || '0');
+    const failRateOk = toolCallCount === 0 || (toolFailCount / toolCallCount) < 0.2;
+
+    // 4. 用户确认 — 此处只报告状态，需手动触发
+    const ready = toolsRegistered && minCallsMet && failRateOk;
+
+    return {
+        toolsRegistered,
+        minCallsMet,
+        failRateOk,
+        ready,
+        toolCallCount,
+        toolFailCount,
+        failRate: toolCallCount > 0 ? (toolFailCount / toolCallCount * 100).toFixed(1) + '%' : 'N/A',
+    };
+}
+
+/**
+ * 执行世界书迁移 — 禁用信息查询类条目（时间线/角色/楼层）
+ * 保留: constant=true 条目、regex 脚本、展示条目
+ */
+function executeWorldBookMigration() {
+    const readiness = checkMigrationReadiness();
+    if (!readiness.ready) {
+        log(`世界书迁移条件未满足: ${JSON.stringify(readiness)}`, 'warn');
+        return false;
+    }
+
+    // 先备份
+    if (!backupWorldBook()) {
+        log('世界书备份失败，迁移中止', 'error');
+        return false;
+    }
+
+    const char = getCurrentCharacter();
+    if (!char?.data?.character_book?.entries) return false;
+
+    // 已知 NPC 名称列表（用于识别角色信息条目）
+    const npcNames = ['亚丝娜', '克莱因', '艾基尔', '希兹克利夫', '结衣', '西莉卡', '莉兹贝特', '诗乃'];
+
+    let disabledCount = 0;
+    char.data.character_book.entries.forEach(e => {
+        const name = e.comment || e.name || '';
+        const isConstant = e.constant === true;
+        const isRegex = e.selective === true && e.disable === true; // regex 脚本
+        // 时间线条目（日期模式）
+        const isTimeline = /^\d{4}年\d{1,2}月/.test(name);
+        // 角色信息条目（已知 NPC 名称）
+        const isCharInfo = npcNames.some(n => name.includes(n));
+        // 楼层信息条目
+        const isFloorInfo = /^\d+F|^\d+层|^\d+楼/.test(name);
+
+        if (!isConstant && !isRegex && (isTimeline || isCharInfo || isFloorInfo)) {
+            if (e.enabled !== false) {
+                e.enabled = false;
+                disabledCount++;
+            }
+        }
+    });
+
+    // 保存
+    const ctx = getContext();
+    if (typeof ctx.saveWorldInfo === 'function') {
+        const bookName = char.data.character_book.name || char.name;
+        ctx.saveWorldInfo(bookName, char.data.character_book, true);
+    }
+    log(`世界书迁移完成: 禁用 ${disabledCount} 个信息查询类条目`);
+    return true;
+}
+
+// === P4b: Combat Resolution (resolveCombatRound + helpers) ===
+// 纯状态战斗结算 — 无 DOM 依赖，读取 state._zd_parsed，返回 combatResult
+
+import {
+    getPlayerStatsCore,
+    calculateActionOrderCore,
+    handleDOTCore,
+    handleHealOverTimeCore,
+    handlePermanentShieldCore,
+    handleTemporaryShieldCore,
+    handleShieldOverTimeCore,
+    processEnchantmentEffectsCore,
+    selectTargets,
+    hasDebuff,
+} from './battle/battleCore.js';
+import {
+    calculateDerivedStats,
+    calculateFinalHitRate,
+    calculateFinalCritRate,
+    calculateFinalCritMultiplier,
+    calculateFinalDamage,
+    getTeammateActualStats,
+    getEnemyActualStats,
+} from './battle/battleMath.js';
+
+/**
+ * 规范化武器/技能字段名 + EN: 前缀
+ * @param {Object} rawSkill - zd_parsed 中的原始技能对象
+ * @param {Object} skillCooldowns - state.skillCooldowns
+ * @returns {Object} 规范化后的技能对象
+ */
+function normalizeWeapon(rawSkill, skillCooldowns) {
+    if (!rawSkill) return null;
+    const name = rawSkill.name || '未知';
+    const codes = [];
+    // 规范化 EN 前缀
+    if (Array.isArray(rawSkill.en)) {
+        rawSkill.en.forEach(c => {
+            codes.push(c.startsWith('EN:') ? c : `EN:${c}`);
+        });
+    }
+    // P4c: 处理自定义技能的 affix_codes
+    if (Array.isArray(rawSkill.affix_codes)) {
+        rawSkill.affix_codes.forEach(c => {
+            codes.push(c.startsWith('EN:') || c.startsWith('WN:') ? c : `EN:${c}`);
+        });
+    }
+    if (rawSkill.wn) {
+        codes.push(rawSkill.wn.startsWith('WN:') ? rawSkill.wn : `WN:${rawSkill.wn}`);
+    }
+    // 查冷却
+    const cdKey = name;
+    const currentCooldown = (skillCooldowns && skillCooldowns[cdKey]) || 0;
+
+    const normalized = {
+        name,
+        attack: rawSkill.atk || 0,
+        hitRate: rawSkill.hit || 0,
+        critRate: rawSkill.crit || 0,
+        attacksPerTurn: rawSkill.apt || 1,
+        targetsPerAttack: rawSkill.tpa || 1,
+        mpCost: rawSkill.mpCost || rawSkill.mp_cost || 0,
+        cooldown: rawSkill.cd || rawSkill.cooldown || 0,
+        currentCooldown,
+        codes,
+        wn: rawSkill.wn || 'A1',
+        used: false,
+        isHealing: name.includes('治疗'),
+    };
+    // P4c: 透传自定义技能元数据（函数字段，不可序列化但运行时可用）
+    if (rawSkill._custom) normalized._custom = true;
+    if (rawSkill._customHandler) normalized._customHandler = rawSkill._customHandler;
+    return normalized;
+}
+
+/**
+ * 从 zd_parsed.player 构建玩家战斗实体
+ * @param {Object} zdPlayer - _zd_parsed.player
+ * @param {Array} zdSkills - _zd_parsed.skills
+ * @param {Object} equipmentStats - 装备属性加成
+ * @returns {Object} 玩家战斗实体
+ */
+function buildPlayerEntity(zdPlayer, zdSkills, equipmentStats) {
+    const data = getSaoData();
+    const cooldowns = data?.state?.skillCooldowns || {};
+    const weapons = (zdSkills || []).map(s => normalizeWeapon(s, cooldowns)).filter(Boolean);
+
+    // P4c: 注入已解锁的自定义技能到武器列表
+    const customSkillIds = data?.state?.customSkills || [];
+    for (const id of customSkillIds) {
+        const def = CUSTOM_SKILL_DEFS[id];
+        if (!def) continue;
+        // 避免重复注入（按名称去重）
+        if (!weapons.some(w => w.name === def.name)) {
+            const normalized = normalizeWeapon(def, cooldowns);
+            if (normalized) weapons.push(normalized);
+        }
+    }
+
+    const str = (zdPlayer.str || 0) + (equipmentStats?.str || 0);
+    const agi = (zdPlayer.agi || 0) + (equipmentStats?.agi || 0);
+    const int = (zdPlayer.int || 0) + (equipmentStats?.int || 0);
+    const vit = (zdPlayer.vit || 0) + (equipmentStats?.vit || 0);
+
+    const derived = calculateDerivedStats(str, agi, int, vit);
+
+    return {
+        name: zdPlayer.name || '玩家',
+        hp: zdPlayer.hp || 0,
+        maxHp: zdPlayer.max_hp || 100,
+        mp: zdPlayer.mp || 0,
+        maxMp: zdPlayer.max_mp || 50,
+        str, agi, int, vit,
+        speed: derived.speed,
+        evasionRate: derived.evasionRate,
+        damageBonus: derived.damageBonus,
+        physicalReduction: derived.physicalReduction,
+        damageTakenRate: derived.damageTakenRate,
+        extraHitRate: derived.extraHitRate,
+        extraCritRate: derived.extraCritRate,
+        baseCritMultiplier: derived.baseCritMultiplier,
+        critRateResistance: derived.critRateResistance,
+        critDamageResistance: derived.critDamageResistance,
+        weapons,
+        buffs: [],
+        shield: 0,
+        tempShield: 0,
+        marks: {},
+        stacks: {},
+    };
+}
+
+/**
+ * 从 zd_parsed.teammate 构建队友战斗实体
+ * @param {Object} zdTeammate - _zd_parsed.teammates[i]
+ * @returns {Object} 队友战斗实体
+ */
+function buildTeammateEntity(zdTeammate) {
+    const stats = getTeammateActualStats({
+        str: zdTeammate.str || 0,
+        agi: zdTeammate.agi || 0,
+        int: zdTeammate.int || 0,
+        vit: zdTeammate.vit || 0,
+        buffs: [],
+    });
+    const weapons = (zdTeammate.skills || []).map(s => normalizeWeapon(s, {})).filter(Boolean);
+
+    return {
+        name: zdTeammate.name || '队友',
+        hp: zdTeammate.hp || 0,
+        maxHp: zdTeammate.max_hp || 100,
+        mp: zdTeammate.mp || 0,
+        maxMp: zdTeammate.max_mp || 50,
+        str: stats.str,
+        agi: stats.agi,
+        int: stats.int,
+        vit: stats.end,
+        speed: stats.speed,
+        evasionRate: stats.evasionRate,
+        damageBonus: stats.damageBonus,
+        physicalReduction: stats.physicalReduction,
+        damageTakenRate: stats.damageTakenRate,
+        extraHitRate: stats.extraHitRate,
+        extraCritRate: stats.extraCritRate,
+        baseCritMultiplier: stats.baseCritMultiplier,
+        critRateResistance: stats.critRateResistance,
+        critDamageResistance: stats.critDamageResistance,
+        weapons,
+        buffs: [],
+        shield: 0,
+        tempShield: 0,
+        marks: {},
+        stacks: {},
+        skills: weapons, // alias for action selection
+    };
+}
+
+/**
+ * 从 zd_parsed.enemy 构建敌人战斗实体
+ * @param {Object} zdEnemy - _zd_parsed.enemies[i]
+ * @returns {Object} 敌人战斗实体
+ */
+function buildEnemyEntity(zdEnemy) {
+    const stats = getEnemyActualStats({
+        str: zdEnemy.str || 0,
+        agi: zdEnemy.agi || 0,
+        int: zdEnemy.int || 0,
+        vit: zdEnemy.vit || 0,
+        buffs: [],
+    });
+
+    const skills = (zdEnemy.skills || []).map(s => ({
+        name: s.name || '攻击',
+        attack: s.atk || 0,
+        hitRate: s.hit || 0,
+        critRate: s.crit || 0,
+        attacksPerTurn: s.apt || 1,
+        targetsPerAttack: s.tpa || 1,
+        codes: Array.isArray(s.mn) ? s.mn.map(c => c.startsWith('MN:') ? c : `MN:${c}`) : [],
+    }));
+
+    return {
+        name: zdEnemy.name || '敌人',
+        hp: zdEnemy.hp || 0,
+        maxHp: zdEnemy.max_hp || 100,
+        level: zdEnemy.level || 1,
+        str: stats.str,
+        agi: stats.agi,
+        int: stats.int,
+        vit: stats.vit,
+        speed: stats.speed,
+        evasionRate: stats.evasionRate,
+        damageBonus: stats.damageBonus,
+        physicalReduction: stats.physicalReduction,
+        damageTakenRate: stats.damageTakenRate,
+        extraHitRate: stats.extraHitRate,
+        extraCritRate: stats.extraCritRate,
+        baseCritMultiplier: stats.baseCritMultiplier,
+        critRateResistance: stats.critRateResistance,
+        critDamageResistance: stats.critDamageResistance,
+        skills,
+        attackPattern: zdEnemy.attackPattern || [],
+        nextAttackIndex: 0,
+        buffs: [],
+        marks: {},
+        stacks: {},
+    };
+}
+
+/**
+ * 从消息文本中检测玩家使用的技能
+ * @param {string} messageText - 消息文本
+ * @param {Array} skills - zd_parsed.skills
+ * @param {Object} player - 玩家战斗实体
+ * @returns {Object|null} 匹配到的武器对象或 null（默认普攻）
+ */
+function detectPlayerAction(messageText, skills, player) {
+    if (!messageText || !player?.weapons?.length) return null;
+    const text = messageText.toLowerCase();
+    // 按名称匹配（最长匹配优先）
+    let bestMatch = null;
+    let bestLen = 0;
+    for (const w of player.weapons) {
+        if (w.currentCooldown > 0) continue; // 跳过冷却中的技能
+        const name = (w.name || '').toLowerCase();
+        if (name.length > bestLen && text.includes(name)) {
+            bestMatch = w;
+            bestLen = name.length;
+        }
+    }
+    return bestMatch;
+}
+
+/**
+ * 敌人技能选择（简化版：按 attackPattern 或随机选第一个可用技能）
+ * @param {Object} enemy - 敌人战斗实体
+ * @returns {Object|null} 选中的技能
+ */
+function selectEnemySkill(enemy) {
+    if (!enemy.skills || enemy.skills.length === 0) return null;
+    // 按 attackPattern 选择
+    if (enemy.attackPattern && enemy.attackPattern.length > 0) {
+        const idx = enemy.nextAttackIndex % enemy.attackPattern.length;
+        const patternName = enemy.attackPattern[idx];
+        enemy.nextAttackIndex++;
+        const found = enemy.skills.find(s => s.name === patternName);
+        if (found) return found;
+    }
+    // fallback: 第一个技能
+    return enemy.skills[0];
+}
+
+/**
+ * 检查实体是否有指定 debuff — 已改用 battleCore.js 的 hasDebuff（更宽松：turns===undefined 视为有效）
+ */
+
+/**
+ * 从装备栏聚合属性加成
+ * @returns {Object} {str, agi, int, vit}
+ */
+function getEquipmentStatsFromState() {
+    const data = getSaoData();
+    const equip = data?.state?.equipment;
+    if (!equip) return { str: 0, agi: 0, int: 0, vit: 0 };
+    let str = 0, agi = 0, int = 0, vit = 0;
+    for (const slot of Object.values(equip)) {
+        if (!slot || !slot.stats) continue;
+        str += slot.stats.str || 0;
+        agi += slot.stats.agi || 0;
+        int += slot.stats.int || 0;
+        vit += slot.stats.vit || 0;
+    }
+    return { str, agi, int, vit };
+}
+
+/**
+ * 将冷却状态写回 state.skillCooldowns
+ * @param {Object} player - 玩家战斗实体
+ */
+function persistCooldowns(player) {
+    if (!player?.weapons) return;
+    const data = getSaoData();
+    if (!data) return;
+    if (!data.state) data.state = {};
+    if (!data.state.skillCooldowns) data.state.skillCooldowns = {};
+    // §5.8 Step 1: 先递减所有已有冷却条目（处理LLM遗漏的技能）
+    for (const name of Object.keys(data.state.skillCooldowns)) {
+        data.state.skillCooldowns[name]--;
+        if (data.state.skillCooldowns[name] <= 0) {
+            delete data.state.skillCooldowns[name];
+        }
+    }
+    // Step 2: 用当前武器实际值覆盖
+    for (const w of player.weapons) {
+        if (w.currentCooldown > 0) {
+            data.state.skillCooldowns[w.name] = w.currentCooldown;
+        } else {
+            delete data.state.skillCooldowns[w.name];
+        }
+    }
+}
+
+/**
+ * 生成战斗结算叙事提示
+ * @param {Object} player - 玩家战斗实体
+ * @param {Array} enemies - 敌人实体数组
+ * @param {Array} teammates - 队友实体数组
+ * @param {Array} log - 战斗日志
+ * @returns {string} 叙事提示字符串
+ */
+function buildCombatNarrativeHint(player, enemies, teammates, log) {
+    if (!log || log.length === 0) return '';
+
+    // 从日志中提取关键信息
+    const dmgEntries = [];
+    const healEntries = [];
+    for (const entry of log) {
+        const dmgMatch = entry.match(/对(.+?)造成(\d+)点?伤害/);
+        if (dmgMatch) dmgEntries.push({ target: dmgMatch[1], dmg: parseInt(dmgMatch[2]) });
+        const healMatch = entry.match(/恢复了(\d+)点?(?:HP|生命)/);
+        if (healMatch) healEntries.push({ heal: parseInt(healMatch[1]) });
+    }
+
+    // 构建简洁提示
+    const parts = ['[上轮结算]'];
+    if (dmgEntries.length > 0) {
+        const d = dmgEntries[0];
+        const target = enemies.find(e => e.name === d.target);
+        const remainHp = target ? Math.max(0, target.hp) : '?';
+        const maxHp = target ? target.maxHp : '?';
+        parts.push(`你对${d.target}造成${d.dmg}伤害，${d.target}剩余HP:${remainHp}/${maxHp}`);
+    }
+    if (player.hp <= 0) {
+        parts.push('你已倒下');
+    }
+    if (enemies.every(e => e.hp <= 0)) {
+        parts.push('所有敌人已被击败');
+    }
+    // 玩家状态
+    parts.push(`你的HP:${Math.max(0, player.hp)}/${player.maxHp},MP:${Math.max(0, player.mp)}/${player.maxMp}`);
+
+    return parts.join('。');
+}
+
+// --- Battle Engine Core functions (§5.13 helper functions) ---
+
+/**
+ * 选择目标 — 已改用 battleCore.js 的 selectTargets
+ */
+
+/**
+ * 对敌人施加伤害（含护盾吸收）（§5.13 applyDamageToEnemy）
+ * @param {Object} target - 目标实体
+ * @param {number} damage - 伤害值
+ * @param {Array} log - 日志数组
+ * @param {string} attackerName - 攻击者名称
+ * @param {string} weaponName - 武器名称
+ * @param {boolean} isCrit - 是否暴击
+ */
+function applyDamageToEnemy(target, damage, log, attackerName, weaponName, isCrit) {
+    let remaining = damage;
+    // 正确顺序：临时护盾 → 永久护盾 → HP（与 battleCore.js 一致）
+    if (remaining > 0 && (target.tempShield || target.shieldTemp) > 0) {
+        const tempVal = target.tempShield || target.shieldTemp || 0;
+        const absorbed = Math.min(tempVal, remaining);
+        if (target.tempShield) target.tempShield -= absorbed;
+        if (target.shieldTemp) target.shieldTemp -= absorbed;
+        remaining -= absorbed;
+        log.push(`${target.name} 的临时护盾吸收了 ${absorbed} 点伤害`);
+    }
+    if (remaining > 0 && target.shield > 0) {
+        const absorbed = Math.min(target.shield, remaining);
+        target.shield -= absorbed;
+        remaining -= absorbed;
+        log.push(`${target.name} 的护盾吸收了 ${absorbed} 点伤害`);
+    }
+    if (remaining > 0) {
+        target.hp = Math.max(0, target.hp - remaining);
+        const critStr = isCrit ? ' 暴击!' : '';
+        log.push(`${attackerName} 使用 ${weaponName} 对 ${target.name} 造成 ${remaining} 点伤害${critStr} (剩余HP:${target.hp}/${target.maxHp || '?'})`);
+    }
+    return remaining;
+}
+
+/**
+ * A1 标准攻击（apt×tpa 循环）（§5.13 executeStandardAttack）
+ * @param {Object} player - 玩家实体
+ * @param {Object} weapon - 武器对象（normalized）
+ * @param {Array} enemies - 敌人数组
+ * @param {Object} stats - getPlayerStatsCore 返回值
+ * @param {Array} log - 日志数组
+ */
+function executeStandardAttack(player, weapon, enemies, stats, log) {
+    const targets = selectTargets(enemies, weapon.targetsPerAttack || 1);
+    if (targets.length === 0) { log.push('无存活目标'); return; }
+    for (let hit = 0; hit < (weapon.attacksPerTurn || 1); hit++) {
+        for (const target of targets) {
+            if (target.hp <= 0) continue;
+            const targetStats = {
+                evasionRate: target.evasionRate || 0,
+                critRateResistance: target.critRateResistance || 0,
+                critDamageResistance: target.critDamageResistance || 0,
+                damageTakenRate: target.damageTakenRate || 1,
+                physicalReduction: target.physicalReduction || 0,
+            };
+            const hitRate = calculateFinalHitRate(weapon.hitRate || 90, stats, targetStats);
+            const isHit = Math.random() < hitRate;
+            if (!isHit) { log.push(`${player.name} 的攻击未命中 ${target.name}`); continue; }
+            const critRate = calculateFinalCritRate(weapon.critRate || 5, stats, targetStats, hitRate);
+            const isCrit = Math.random() < critRate;
+            const critMult = isCrit ? calculateFinalCritMultiplier(stats, targetStats, critRate) : 1.0;
+            const damage = calculateFinalDamage(weapon.attack || 50, stats, targetStats, isCrit, critMult);
+            applyDamageToEnemy(target, damage, log, player.name, weapon.name, isCrit);
+            // Execute instant affixes after hit (B1/B7/B9/B15/B16/B17)
+            executeAffixEffects(weapon, player, enemies, stats, log, 'instant', target, damage, isCrit);
+        }
+    }
+}
+
+// === A-class combat helpers (post-processing chain adapters) ===
+// 注：以下函数为后处理链专用（扁平参数+直接 mutation）；逻辑与 battleCore.js 保持行为一致，差异仅在于返回 instruction 数组与否。
+
+/**
+ * A2 生命恢复核心（§5.3）
+ */
+function healCore(target, amount, isCrit, multiplier, log) {
+    const heal = Math.floor(amount * (isCrit ? multiplier : 1.0));
+    target.hp = Math.min(target.maxHp || target.hp + heal, (target.hp || 0) + heal);
+    log.push(`恢复了 ${heal} 点HP${isCrit ? ' 暴击治疗!' : ''} (HP:${target.hp}/${target.maxHp || '?'})`);
+}
+
+/**
+ * A3 法力恢复核心（§5.3）
+ */
+function manaRestoreCore(target, amount, isCrit, multiplier, log) {
+    const restore = Math.floor(amount * (isCrit ? multiplier : 1.0));
+    target.mp = Math.min(target.maxMp || target.mp + restore, (target.mp || 0) + restore);
+    log.push(`恢复了 ${restore} 点MP${isCrit ? ' 暴击恢复!' : ''} (MP:${target.mp}/${target.maxMp || '?'})`);
+}
+
+/**
+ * A4 牺牲增益核心（§5.3）
+ */
+function sacrificeBoostCore(player, weapon, log) {
+    const cost = Math.floor((player.hp || 100) * 0.25);
+    player.hp = Math.max(1, (player.hp || 100) - cost);
+    player.sacrificeBoostActive = {
+        attack: (weapon.attack || 50) * 0.5,
+        hitRate: 20,
+        critRate: 15,
+        attacksPerTurn: 1,
+        targetsPerAttack: 1,
+    };
+    log.push(`牺牲了 ${cost} HP 获得增益 (attack+${player.sacrificeBoostActive.attack}, hit+20%, crit+15%)`);
+}
+
+/**
+ * A5 终结技·连续打击核心（§5.3）
+ */
+function a5MultiHitCore(player, weapon, enemies, log) {
+    let count = 0;
+    let damageMultiplier = 1.0;
+    while ((player.ap || 0) > 0 && enemies.some(e => e.hp > 0)) {
+        const target = enemies.find(e => e.hp > 0);
+        if (!target) break;
+
+        // 每击独立命中判定
+        const playerStats = {
+            extraHitRate: player.extraHitRate || 0,
+            extraCritRate: player.extraCritRate || 0,
+            baseCritMultiplier: player.baseCritMultiplier || 1.5,
+            damageBonus: player.damageBonus || 0,
+        };
+        const targetStats = {
+            evasionRate: target.evasionRate || 0,
+            critRateResistance: target.critRateResistance || 0,
+            critDamageResistance: target.critDamageResistance || 0,
+            damageTakenRate: target.damageTakenRate || 1,
+            physicalReduction: target.physicalReduction || 0,
+        };
+
+        const hitRate = calculateFinalHitRate(weapon.hitRate || 90, playerStats, targetStats);
+        if (Math.random() > hitRate) {
+            log.push(`${weapon.name} 第${count + 1}击未命中 ${target.name}！(命中率:${(hitRate * 100).toFixed(1)}%)`);
+            player.ap--;
+            count++;
+            damageMultiplier = Math.max(0.5, damageMultiplier - 0.1);
+            continue;
+        }
+
+        // 每击独立暴击判定
+        const critRate = calculateFinalCritRate(weapon.critRate || 5, playerStats, targetStats, hitRate);
+        const isCrit = Math.random() <= critRate;
+        const critMult = isCrit ? calculateFinalCritMultiplier(playerStats, targetStats, critRate) : 1.0;
+
+        const baseDmg = Math.floor((weapon.attack || 50) * damageMultiplier);
+        const damage = Math.floor(baseDmg * critMult);
+
+        // 每击独立词缀触发（攻击词缀在 instant timing）
+        if (weapon.codes && weapon.codes.some(c => c.startsWith('EN:'))) {
+            executeAffixEffects(weapon, player, enemies, playerStats, log, 'instant', target, damage, isCrit);
+        }
+
+        applyDamageToEnemy(target, damage, log, player.name, weapon.name + `(${count + 1}击)`, isCrit);
+        player.ap--;
+        count++;
+        damageMultiplier = Math.max(0.5, damageMultiplier - 0.1);
+    }
+    if (count === 0) {
+        // 没有 AP 时仍执行一次
+        const target = enemies.find(e => e.hp > 0);
+        if (target) {
+            const damage = Math.floor((weapon.attack || 50) * 0.8);
+            applyDamageToEnemy(target, damage, log, player.name, weapon.name + '(终结)', false);
+            count = 1;
+        }
+    }
+    log.push(`${weapon.name} 连击 ${count} 次`);
+}
+
+/**
+ * 执行词缀效果（§5.4.3 executeAffixEffects）
+ * @param {Object} weapon - 武器对象
+ * @param {Object} player - 玩家实体
+ * @param {Array} enemies - 敌人数组
+ * @param {Object} stats - 玩家计算属性
+ * @param {Array} log - 日志数组
+ * @param {string} timing - 时机：'instant'|'persistent'|'debuff'|'buff'|'shield'
+ * @param {Object} target - 目标（可选）
+ * @param {number} damage - 伤害（可选）
+ * @param {boolean} isCrit - 是否暴击
+ */
+function executeAffixEffects(weapon, player, enemies, stats, log, timing, target, damage, isCrit) {
+    const codes = weapon.codes || [];
+    for (const code of codes) {
+        if (!code.startsWith('EN:B')) continue;
+        const args = resolveAffixArgs(code, weapon);
+        const effectCode = code.split(',')[0].replace(/^EN:/, '');
+        applyAffixEffect(effectCode, args, player, enemies, stats, log, timing, target, damage, isCrit);
+    }
+}
+
+/**
+ * 应用单个词缀效果（§5.4.3 applyAffixEffect，B1-B22 完整执行链）
+ */
+function applyAffixEffect(effectCode, args, player, enemies, stats, log, timing, target, damage, isCrit) {
+    const TIMING_MAP = {
+        'instant': ['B1', 'B7', 'B9', 'B15', 'B16', 'B17'],
+        'persistent': ['B5', 'B10', 'B18', 'B22'],
+        'debuff': ['B2', 'B4', 'B6', 'B8', 'B19'],
+        'buff': ['B3', 'B11', 'B12', 'B13', 'B14'],
+        'shield': ['B20', 'B21'],
+    };
+    let effectTiming = null;
+    for (const [t, codes] of Object.entries(TIMING_MAP)) {
+        if (codes.includes(effectCode)) { effectTiming = t; break; }
+    }
+    if (!effectTiming || effectTiming !== timing) return;
+
+    switch (effectCode) {
+        case 'B1': // 生命窃取
+            if (damage > 0) {
+                const heal = Math.floor(damage * (args[0] || 5) / 100);
+                player.hp = Math.min(player.maxHp || 9999, (player.hp || 0) + heal);
+                log.push(`生命窃取: 恢复 ${heal} HP`);
+            }
+            break;
+        case 'B7': // 概率追加伤害
+            if (Math.random() < ((args[0] || 15) / 100) && target) {
+                const bonusDmg = Math.floor(damage * (args[1] || 10) / 100);
+                applyDamageToEnemy(target, bonusDmg, log, player.name, '额外伤害', false);
+            }
+            break;
+        case 'B9': // 法力恢复
+            player.mp = Math.min(player.maxMp || 9999, (player.mp || 0) + (args[0] || 3));
+            log.push(`法力恢复: +${args[0] || 3} MP`);
+            break;
+        case 'B15': // 易伤标记
+            if (target) {
+                target.vulnerabilityMark = (target.vulnerabilityMark || 0) + (args[0] || 10);
+                log.push(`标记 ${target.name} 易伤 +${args[0] || 10}%`);
+            }
+            break;
+        case 'B16': // 破绽标记
+            if (target) {
+                target.weaknessMark = (target.weaknessMark || 0) + (args[0] || 10);
+                log.push(`标记 ${target.name} 破绽 +${args[0] || 10}%`);
+            }
+            break;
+        case 'B17': // 死点标记
+            if (target) {
+                target.deathMark = (target.deathMark || 0) + (args[0] || 15);
+                log.push(`标记 ${target.name} 死点 +${args[0] || 15}%`);
+            }
+            break;
+        case 'B2': // 命中降低
+            if (target) {
+                target.buffs = target.buffs || [];
+                target.buffs.push({type: 'hitRateDebuff', turns: args[0] || 2, value: args[1] || 10});
+                log.push(`${target.name} 命中降低 ${args[1] || 10}% 持续 ${args[0] || 2} 回合`);
+            }
+            break;
+        case 'B3': // 暴击提升
+            player.buffs = player.buffs || [];
+            player.buffs.push({type: 'critBoost', turns: args[0] || 2, value: args[1] || 8});
+            log.push(`暴击提升 ${args[1] || 8}% 持续 ${args[0] || 2} 回合`);
+            break;
+        case 'B4': // 冰冻（晕眩）
+            if (target) {
+                target.buffs = target.buffs || [];
+                target.buffs.push({type: 'stun', turns: args[0] || 1});
+                log.push(`${target.name} 被晕眩 ${args[0] || 1} 回合`);
+            }
+            break;
+        case 'B6': // 概率冰冻
+            if (target && Math.random() < (args[0] || 10) / 100) {
+                target.buffs = target.buffs || [];
+                target.buffs.push({type: 'stun', turns: args[1] || 1});
+                log.push(`${target.name} 被晕眩 ${args[1] || 1} 回合`);
+            }
+            break;
+        case 'B8': // 易伤
+            if (target) {
+                target.buffs = target.buffs || [];
+                target.buffs.push({type: 'vulnerability', turns: args[0] || 2, value: args[1] || 10});
+                log.push(`${target.name} 易伤 ${args[1] || 10}% 持续 ${args[0] || 2} 回合`);
+            }
+            break;
+        case 'B11': // 力量提升
+            player.buffs = player.buffs || [];
+            player.buffs.push({type: 'strBoost', turns: args[0] || 2, value: args[1] || 2});
+            log.push(`力量提升 ${args[1] || 2} 持续 ${args[0] || 2} 回合`);
+            break;
+        case 'B12': // 敏捷提升
+            player.buffs = player.buffs || [];
+            player.buffs.push({type: 'agiBoost', turns: args[0] || 2, value: args[1] || 2});
+            log.push(`敏捷提升 ${args[1] || 2} 持续 ${args[0] || 2} 回合`);
+            break;
+        case 'B13': // 智力提升
+            player.buffs = player.buffs || [];
+            player.buffs.push({type: 'intBoost', turns: args[0] || 2, value: args[1] || 2});
+            log.push(`智力提升 ${args[1] || 2} 持续 ${args[0] || 2} 回合`);
+            break;
+        case 'B14': // 耐力提升
+            player.buffs = player.buffs || [];
+            player.buffs.push({type: 'endBoost', turns: args[0] || 2, value: args[1] || 2});
+            log.push(`耐力提升 ${args[1] || 2} 持续 ${args[0] || 2} 回合`);
+            break;
+        case 'B19': // 腐蚀叠加
+            if (target) {
+                target.corrosionStacks = (target.corrosionStacks || 0) + 1;
+                target.corrosionPercent = (target.corrosionPercent || 0) + (args[1] || 3);
+                log.push(`${target.name} 腐蚀 ${target.corrosionStacks}层 (${target.corrosionPercent}%)`);
+            }
+            break;
+        case 'B20': // 永久护盾
+            player.shield = (player.shield || 0) + (args[0] || 20);
+            log.push(`获得 ${args[0] || 20} 点永久护盾`);
+            break;
+        case 'B21': // 临时护盾
+            player.tempShield = (player.tempShield || 0) + (args[0] || 30);
+            log.push(`获得 ${args[0] || 30} 点临时护盾`);
+            break;
+        // B5/B10/B18/B22 are persistent effects handled by processEndOfRoundCore via processEnchantmentEffectsCore
+    }
+}
+
+/**
+ * 完整版：执行玩家行动（§5.12 executePlayerActionCore，含 A1-A5 路由）
+ */
+function executePlayerActionCore(player, skill, enemies, teammates, log, stateUpdates) {
+    const stats = getPlayerStatsCore(player, player.buffs || [], player.equipmentStats || {});
+    let activeWeapon = skill ? normalizeWeapon(skill, player._skillCooldowns || {}) : null;
+
+    const normalAttackTemplate = {
+        name: '普通攻击',
+        attack: stats.str || 50,
+        hitRate: 90,
+        critRate: 5,
+        attacksPerTurn: 1,
+        targetsPerAttack: 1,
+        mpCost: 0,
+        cooldown: 0,
+        currentCooldown: 0,
+        codes: [],
+        wn: 'A1',
+    };
+
+    if (activeWeapon) {
+        if (activeWeapon.mpCost > 0 && player.mp < activeWeapon.mpCost) {
+            log.push(`MP不足(${player.mp}/${activeWeapon.mpCost})，使用普通攻击`);
+            activeWeapon = normalAttackTemplate;
+        } else if (activeWeapon.currentCooldown > 0) {
+            log.push(`技能冷却中(${activeWeapon.currentCooldown}回合)，使用普通攻击`);
+            activeWeapon = normalAttackTemplate;
+        } else {
+            if (activeWeapon.mpCost > 0) player.mp -= activeWeapon.mpCost;
+            if (activeWeapon.cooldown > 0) activeWeapon.currentCooldown = activeWeapon.cooldown;
+        }
+    } else {
+        activeWeapon = normalAttackTemplate;
+    }
+
+    // Apply sacrificeBoostActive stat bonuses (§5.13 step 6a)
+    if (player.sacrificeBoostActive) {
+        const boost = player.sacrificeBoostActive;
+        const boostedStats = {
+            ...stats,
+            damageBonus: (stats.damageBonus || 0) + (boost.attack || 0) / 100,
+            extraHitRate: (stats.extraHitRate || 0) + (boost.hitRate || 0) / 100,
+            extraCritRate: (stats.extraCritRate || 0) + (boost.critRate || 0) / 100,
+        };
+        // Route by core code (wn)
+        const wn = activeWeapon.wn || 'A1';
+        switch (wn) {
+            case 'A2': healCore(player, activeWeapon.attack, false, 1.0, log); break;
+            case 'A3': manaRestoreCore(player, activeWeapon.attack, false, 1.0, log); break;
+            case 'A4': sacrificeBoostCore(player, activeWeapon, log); break;
+            case 'A5': a5MultiHitCore(player, activeWeapon, enemies, log); break;
+            default: case 'A1': executeStandardAttack(player, activeWeapon, enemies, boostedStats, log); break;
+        }
+    } else {
+        // Route by core code (wn)
+        const wn = activeWeapon.wn || 'A1';
+        switch (wn) {
+            case 'A2': healCore(player, activeWeapon.attack, false, 1.0, log); break;
+            case 'A3': manaRestoreCore(player, activeWeapon.attack, false, 1.0, log); break;
+            case 'A4': sacrificeBoostCore(player, activeWeapon, log); break;
+            case 'A5': a5MultiHitCore(player, activeWeapon, enemies, log); break;
+            default: case 'A1': executeStandardAttack(player, activeWeapon, enemies, stats, log); break;
+        }
+    }
+
+    // Execute affix effects (buff/debuff/shield timing)
+    executeAffixEffects(activeWeapon, player, enemies, stats, log, 'buff', null, 0, false);
+    executeAffixEffects(activeWeapon, player, enemies, stats, log, 'debuff', enemies[0] || null, 0, false);
+    executeAffixEffects(activeWeapon, player, enemies, stats, log, 'shield', null, 0, false);
+
+    // P4c: Custom handler hook
+    if (activeWeapon._customHandler) {
+        activeWeapon._customHandler(player, activeWeapon, enemies, log);
+    }
+}
+
+/**
+ * 简化版：执行队友攻击（对第一个存活敌人）
+ * NOTE: Simplified single-hit version for post-processing chain.
+ */
+function executeTeammateAttackCore(teammate, enemies, log) {
+    const target = enemies.find(e => e.hp > 0);
+    if (!target) return;
+
+    const weapon = teammate.weapons?.[0];
+    if (!weapon) return;
+
+    // MP 检查：MP不足则跳过攻击
+    const mpCost = weapon.mpCost || weapon.mp_cost || 0;
+    if ((teammate.mp || 0) < mpCost) {
+        log.push(`${teammate.name} MP不足，无法使用 ${weapon.name}！`);
+        return;
+    }
+    // 扣除 MP
+    if (mpCost > 0) {
+        teammate.mp -= mpCost;
+        log.push(`${teammate.name} 消耗 ${mpCost} 点MP，剩余 ${teammate.mp}`);
+    }
+
+    const targetStats = {
+        evasionRate: target.evasionRate || 0,
+        critRateResistance: target.critRateResistance || 0,
+        critDamageResistance: target.critDamageResistance || 0,
+        damageTakenRate: target.damageTakenRate || 1,
+        physicalReduction: target.physicalReduction || 0,
+    };
+    const attackerStats = {
+        extraHitRate: teammate.extraHitRate || 0,
+        extraCritRate: teammate.extraCritRate || 0,
+        baseCritMultiplier: teammate.baseCritMultiplier || 1.5,
+        damageBonus: teammate.damageBonus || 0,
+    };
+
+    // apt 多击循环：每击独立命中判定
+    const apt = weapon.apt || 1;
+    for (let hit = 0; hit < apt; hit++) {
+        if (target.hp <= 0) break;
+
+        const finalHitRate = calculateFinalHitRate(weapon.hitRate, attackerStats, targetStats);
+        if (Math.random() > finalHitRate) {
+            log.push(`${teammate.name} 攻击 ${target.name} 第${hit + 1}击未命中！`);
+            continue;
+        }
+
+        const finalCritRate = calculateFinalCritRate(weapon.critRate, attackerStats, targetStats, finalHitRate);
+        const isCrit = Math.random() <= finalCritRate;
+        const critMultiplier = isCrit
+            ? calculateFinalCritMultiplier(attackerStats, targetStats, finalCritRate)
+            : 1.0;
+
+        let damage = calculateFinalDamage(weapon.attack, attackerStats, targetStats, isCrit, critMultiplier);
+
+        // 腐蚀层加成：若目标有 corrosion stacks，伤害加成
+        if (target.stacks && target.stacks.corrosion) {
+            const corrosionData = target.stacks.corrosion;
+            const corrosionCount = typeof corrosionData === 'object' ? (corrosionData.count || 0) : corrosionData;
+            const bonusPerStack = typeof corrosionData === 'object' ? (corrosionData.bonusPerStack || 5) : 5;
+            const totalCorrosionBonus = corrosionCount * bonusPerStack;
+            const bonusDamage = Math.floor(damage * (totalCorrosionBonus / 100));
+            damage += bonusDamage;
+            if (bonusDamage > 0) {
+                log.push(`腐蚀效果！${corrosionCount} 层腐蚀（${bonusPerStack}%/层）额外造成 ${bonusDamage} 点伤害（+${totalCorrosionBonus}%）！`);
+            }
+        }
+
+        target.hp = Math.max(0, target.hp - damage);
+
+        const critText = isCrit ? '（暴击！）' : '';
+        const hitLabel = apt > 1 ? ` 第${hit + 1}击` : '';
+        log.push(`${teammate.name} 使用 ${weapon.name}${hitLabel} 对 ${target.name} 造成 ${damage} 点伤害${critText}，${target.name} HP:${target.hp}/${target.maxHp}`);
+    }
+}
+
+/**
+ * 完整版：执行敌人行动（§5.5 performEnemyActionCore，含晕眩/燃烧/attackPattern/M1-M10 怪物技能）
+ * NOTE: This post-processing-chain version uses hasDebuff('stun') + burnOverTime buff model.
+ */
+function performEnemyActionCore(enemy, player, teammates, log) {
+    if (enemy.hp <= 0) return;
+
+    // Stun check（保留 buff 数组模型，不改 stun 模型）
+    if (hasDebuff(enemy, 'stun')) {
+        log.push(`${enemy.name} 被晕眩，无法行动`);
+        return;
+    }
+
+    // Burn DoT — 改用 burnOverTime buff 模型（与 processEndOfRoundCore 的 dot 处理对齐）
+    const burnBuffs = (enemy.buffs || []).filter(b => b.type === 'burnOverTime');
+    if (burnBuffs.length > 0) {
+        let totalBurn = 0;
+        for (const b of burnBuffs) totalBurn += (b.value || 0);
+        if (totalBurn > 0) {
+            enemy.hp = Math.max(0, enemy.hp - totalBurn);
+            log.push(`${enemy.name} 受到余烬效果，损失 ${totalBurn} 点生命值！`);
+            if (enemy.hp <= 0) { log.push(`${enemy.name} 被余烬效果击败！`); return; }
+        }
+    }
+
+    // 攻击模式选择：优先用 attackPattern 循环
+    let skill = null;
+    if (enemy.attackPattern && enemy.attackPattern.length > 0 && enemy.skills) {
+        const idx = (enemy.nextAttackIndex || 0) % enemy.attackPattern.length;
+        const patternName = enemy.attackPattern[idx];
+        enemy.nextAttackIndex = idx + 1;
+        skill = enemy.skills.find(s => s.name === patternName) || null;
+    }
+    if (!skill) skill = selectEnemySkill(enemy);
+    if (!skill) return;
+
+    log.push(`${enemy.name} 使用 ${skill.name} 攻击！`);
+
+    // Target selection: 随机选取 player 或 teammate
+    const possibleTargets = [];
+    if (player.hp > 0) possibleTargets.push({ type: 'player', entity: player, name: player.name || '玩家' });
+    for (const t of (teammates || [])) {
+        if (t.hp > 0) possibleTargets.push({ type: 'teammate', entity: t, name: t.name });
+    }
+    if (possibleTargets.length === 0) return;
+
+    const maxTargets = skill.targetsPerAttack || 1;
+    const shuffled = possibleTargets.slice().sort(() => Math.random() - 0.5);
+    const targets = shuffled.slice(0, maxTargets);
+
+    const attackerStats = {
+        extraHitRate: enemy.extraHitRate || 0,
+        extraCritRate: enemy.extraCritRate || 0,
+        baseCritMultiplier: enemy.baseCritMultiplier || 1.5,
+        damageBonus: enemy.damageBonus || 0,
+    };
+
+    for (const tInfo of targets) {
+        const target = tInfo.entity;
+        const targetStats = {
+            evasionRate: target.evasionRate || 0,
+            critRateResistance: target.critRateResistance || 0,
+            critDamageResistance: target.critDamageResistance || 0,
+            damageTakenRate: target.damageTakenRate || 1,
+            physicalReduction: target.physicalReduction || 0,
+        };
+
+        const finalHitRate = calculateFinalHitRate(skill.hitRate || 70, attackerStats, targetStats);
+        if (Math.random() > finalHitRate) {
+            log.push(`${enemy.name} 使用 ${skill.name} 攻击 ${tInfo.name}，未命中！`);
+            continue;
+        }
+
+        const finalCritRate = calculateFinalCritRate(skill.critRate || 5, attackerStats, targetStats, finalHitRate);
+        const isCrit = Math.random() < finalCritRate;
+        const critMultiplier = isCrit
+            ? calculateFinalCritMultiplier(attackerStats, targetStats, finalCritRate)
+            : 1.0;
+
+        const damage = calculateFinalDamage(skill.attack || 30, attackerStats, targetStats, isCrit, critMultiplier);
+
+        if (isCrit) {
+            log.push(`暴击！造成 ${damage} 点伤害！(暴击率:${(finalCritRate * 100).toFixed(1)}%, 倍率:${critMultiplier.toFixed(2)}x)`);
+        }
+
+        // === M1-M10 怪物技能处理 ===
+        if (skill.codes && skill.codes.length > 0) {
+            for (const code of skill.codes) {
+                if (!code.startsWith('MN:M')) continue;
+                const mMatch = code.match(/MN:(M\d+),(.+)/);
+                if (!mMatch) continue;
+                const effectType = mMatch[1];
+                const mParams = mMatch[2].split(',');
+                const targetBuffs = target.buffs || (target.buffs = []);
+
+                switch (effectType) {
+                    case 'M1': { // 吸血：造成伤害后 enemy 回血
+                        const healAmt = Math.floor(damage * (parseFloat(mParams[0]) / 100));
+                        enemy.hp = Math.min((enemy.hp || 0) + healAmt, enemy.maxHp || 9999);
+                        log.push(`【怪物特效】吸血攻击！${enemy.name} 恢复 ${healAmt} 点生命值！`);
+                        break;
+                    }
+                    case 'M2': { // DoT：推 dot buff 到 target
+                        targetBuffs.push({ name: '持续伤害', type: 'dot', value: parseInt(mParams[1]), duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: false });
+                        log.push(`【怪物特效】持续伤害！${tInfo.name} 受到诅咒 ${mParams[0]} 回合！`);
+                        break;
+                    }
+                    case 'M3': { // str debuff
+                        const val = parseInt(mParams[1]);
+                        targetBuffs.push({ name: '力量削弱', type: 'strDebuff', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: false });
+                        target.str = Math.max(1, (target.str || 0) - val);
+                        log.push(`【怪物特效】力量削弱！${tInfo.name} 力量降低 ${val} 点！`);
+                        break;
+                    }
+                    case 'M4': { // agi debuff
+                        const val = parseInt(mParams[1]);
+                        targetBuffs.push({ name: '敏捷削弱', type: 'agiDebuff', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: false });
+                        target.agi = Math.max(1, (target.agi || 0) - val);
+                        log.push(`【怪物特效】敏捷削弱！${tInfo.name} 敏捷降低 ${val} 点！`);
+                        break;
+                    }
+                    case 'M5': { // mana burn
+                        const val = parseInt(mParams[1]);
+                        targetBuffs.push({ name: '法力燃烧', type: 'manaBurn', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: false });
+                        log.push(`【怪物特效】法力燃烧！${tInfo.name} 将持续损失法力 ${mParams[0]} 回合！`);
+                        break;
+                    }
+                    case 'M6': { // int debuff
+                        const val = parseInt(mParams[1]);
+                        targetBuffs.push({ name: '智力削弱', type: 'intDebuff', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: false });
+                        target.int = Math.max(1, (target.int || 0) - val);
+                        log.push(`【怪物特效】智力削弱！${tInfo.name} 智力降低 ${val} 点！`);
+                        break;
+                    }
+                    case 'M7': { // vit debuff
+                        const val = parseInt(mParams[1]);
+                        targetBuffs.push({ name: '耐力削弱', type: 'vitDebuff', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: false });
+                        target.vit = Math.max(1, (target.vit || 0) - val);
+                        log.push(`【怪物特效】耐力削弱！${tInfo.name} 耐力降低 ${val} 点！`);
+                        break;
+                    }
+                    case 'M8': { // agi self-buff
+                        const val = parseInt(mParams[1]);
+                        if (!enemy.buffs) enemy.buffs = [];
+                        enemy.buffs.push({ name: '敏捷强化', type: 'agiBoost', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: true });
+                        enemy.agi = (enemy.agi || 0) + val;
+                        log.push(`【怪物特效】敏捷强化！${enemy.name} 敏捷提升 ${val} 点！`);
+                        break;
+                    }
+                    case 'M9': { // healOverTime self-buff
+                        const val = parseInt(mParams[1]);
+                        if (!enemy.buffs) enemy.buffs = [];
+                        enemy.buffs.push({ name: '持续再生', type: 'healOverTime', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: true });
+                        log.push(`【怪物特效】持续再生！${enemy.name} 将在 ${mParams[0]} 回合内每回合恢复 ${val} 点HP！`);
+                        break;
+                    }
+                    case 'M10': { // str self-buff
+                        const val = parseInt(mParams[1]);
+                        if (!enemy.buffs) enemy.buffs = [];
+                        enemy.buffs.push({ name: '力量强化', type: 'strBoost', value: val, duration: parseInt(mParams[0]), turns: parseInt(mParams[0]), isPositive: true });
+                        enemy.str = (enemy.str || 0) + val;
+                        log.push(`【怪物特效】力量强化！${enemy.name} 力量提升 ${val} 点！`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Apply damage with shield absorption（tempShield → shield → HP，复用 applyDamageToEnemy）
+        applyDamageToEnemy(target, damage, log, enemy.name, skill.name, isCrit);
+    }
+}
+
+/**
+ * 完整版：回合结束处理（§5.12 processEndOfRoundCore）
+ * DoT/HoT/SoT + buff 递减 + 牺牲增益清理 + 护盾过期 + HP/MP 恢复 + 冷却递减
+ */
+function processEndOfRoundCore(player, enemies, teammates, log) {
+    // 1. DoT (B5/B18) on enemies + trauma stacks (ported from battleCore.js:936)
+    for (const enemy of enemies) {
+        if (enemy.hp <= 0) continue;
+        const dotBuff = (enemy.buffs || []).find(b => b.type === 'dot');
+        if (dotBuff) {
+            enemy.hp = Math.max(0, enemy.hp - dotBuff.value);
+            log.push(`${enemy.name} 受到持续伤害 ${dotBuff.value} 点，HP:${enemy.hp}`);
+        }
+        // Trauma stack damage (B18, ported from battleCore.js:953)
+        if (enemy.stacks && enemy.stacks.trauma) {
+            const traumaData = enemy.stacks.trauma;
+            const traumaCount = typeof traumaData === 'object' ? (traumaData.count || 0) : traumaData;
+            const damagePerStack = typeof traumaData === 'object' ? (traumaData.damagePerStack || 3) : 3;
+            const traumaDamage = traumaCount * damagePerStack;
+            if (traumaDamage > 0) {
+                enemy.hp = Math.max(0, enemy.hp - traumaDamage);
+                log.push(`${enemy.name} 受到创伤伤害 ${traumaDamage} 点（${traumaCount} 层 x ${damagePerStack} 点/层），HP:${enemy.hp}`);
+            }
+        }
+    }
+
+    // 1b. DoT + manaBurn on player and teammates (ported from battleCore.js:912)
+    const allAllies = [player, ...teammates];
+    for (const ally of allAllies) {
+        for (const buff of (ally.buffs || [])) {
+            if (buff.type === 'dot') {
+                ally.hp = Math.max(0, ally.hp - buff.value);
+                log.push(`${ally.name || '玩家'} 受到持续伤害 ${buff.value} 点，HP:${ally.hp}`);
+            }
+            if (buff.type === 'manaBurn') {
+                const oldMp = ally.mp || 0;
+                ally.mp = Math.max(0, oldMp - buff.value);
+                const actualLoss = oldMp - ally.mp;
+                if (actualLoss > 0) {
+                    log.push(`${ally.name || '玩家'} 法力燃烧！损失 ${actualLoss} 点MP！`);
+                }
+            }
+        }
+    }
+
+    // 2. HoT (B10) — 玩家 + 队友 + 敌人 healOverTime
+    const hotBuff = (player.buffs || []).find(b => b.type === 'healOverTime');
+    if (hotBuff && hotBuff.value > 0) {
+        player.hp = Math.min(player.maxHp || 9999, player.hp + hotBuff.value);
+        log.push(`${player.name} 持续恢复 ${hotBuff.value} 点HP (HP:${player.hp}/${player.maxHp || '?'})`);
+    }
+    for (const t of teammates) {
+        const tHot = (t.buffs || []).find(b => b.type === 'healOverTime');
+        if (tHot && tHot.value > 0) {
+            t.hp = Math.min(t.maxHp || 9999, t.hp + tHot.value);
+            log.push(`${t.name} 持续恢复 ${tHot.value} 点HP`);
+        }
+    }
+    // 敌人 healOverTime（与 battleCore.js line 957-962 对齐）
+    for (const enemy of enemies) {
+        if (enemy.hp <= 0) continue;
+        const eHot = (enemy.buffs || []).find(b => b.type === 'healOverTime');
+        if (eHot && eHot.value > 0) {
+            const oldHp = enemy.hp;
+            enemy.hp = Math.min(enemy.hp + eHot.value, enemy.maxHp || 9999);
+            const healed = enemy.hp - oldHp;
+            if (healed > 0) log.push(`${enemy.name} 持续再生恢复 ${healed} 点HP (HP:${enemy.hp}/${enemy.maxHp || '?'})`);
+        }
+    }
+
+    // 3. Shield over time (B22)
+    const sotBuff = (player.buffs || []).find(b => b.type === 'shieldOverTime');
+    if (sotBuff && sotBuff.value > 0) {
+        player.shield = (player.shield || 0) + sotBuff.value;
+        log.push(`${player.name} 获得 ${sotBuff.value} 点护盾`);
+    }
+
+    // 4. Clear expired temp shields (B21)
+    if (player.tempShieldTurns !== undefined) {
+        player.tempShieldTurns--;
+        if (player.tempShieldTurns <= 0) {
+            player.tempShield = 0;
+            log.push('临时护盾过期');
+        }
+    }
+
+    // 5. Decrement buff turns/duration for all entities (含 stat 恢复)
+    const decrementAndClean = (entity) => {
+        if (!entity.buffs) return;
+        entity.buffs = entity.buffs.filter(b => {
+            if (b.turns !== undefined) {
+                b.turns--;
+                if (b.turns <= 0) {
+                    // stat 降 debuff 过期时恢复属性
+                    if (b.type === 'strDebuff') entity.str = (entity.str || 0) + (b.value || 0);
+                    if (b.type === 'agiDebuff') entity.agi = (entity.agi || 0) + (b.value || 0);
+                    if (b.type === 'intDebuff') entity.int = (entity.int || 0) + (b.value || 0);
+                    if (b.type === 'vitDebuff') entity.vit = (entity.vit || 0) + (b.value || 0);
+                    // stat buff 过期时回退加成
+                    if (b.type === 'strBoost') entity.str = Math.max(1, (entity.str || 0) - (b.value || 0));
+                    if (b.type === 'agiBoost') entity.agi = Math.max(1, (entity.agi || 0) - (b.value || 0));
+                    return false;
+                }
+                return true;
+            }
+            if (b.duration !== undefined) {
+                b.duration--;
+                if (b.duration <= 0) {
+                    if (b.type === 'strDebuff') entity.str = (entity.str || 0) + (b.value || 0);
+                    if (b.type === 'agiDebuff') entity.agi = (entity.agi || 0) + (b.value || 0);
+                    if (b.type === 'intDebuff') entity.int = (entity.int || 0) + (b.value || 0);
+                    if (b.type === 'vitDebuff') entity.vit = (entity.vit || 0) + (b.value || 0);
+                    if (b.type === 'strBoost') entity.str = Math.max(1, (entity.str || 0) - (b.value || 0));
+                    if (b.type === 'agiBoost') entity.agi = Math.max(1, (entity.agi || 0) - (b.value || 0));
+                    return false;
+                }
+                return true;
+            }
+            return true;
+        });
+    };
+    decrementAndClean(player);
+    enemies.forEach(decrementAndClean);
+    teammates.forEach(decrementAndClean);
+
+    // 6. Clear sacrificeBoostActive (§5.13 step 6b)
+    if (player.sacrificeBoostActive) {
+        player.sacrificeBoostActive = null;
+        log.push('牺牲增益效果结束');
+    }
+
+    // CD decrement handled by persistCooldowns() in resolveCombatRound — do not double-decrement here
+
+    // 8. HP/MP natural regen
+    if (player.hp > 0) {
+        const stats = getPlayerStatsCore(player, player.buffs || [], player.equipmentStats || {});
+        if (stats.hpRegen) {
+            player.hp = Math.min(player.maxHp || 9999, player.hp + stats.hpRegen);
+        }
+        if (stats.mpRegen) {
+            player.mp = Math.min(player.maxMp || 9999, player.mp + stats.mpRegen);
+        }
+    }
+
+    // 9. Teammate HP/MP regen（与 battleCore.js line 1030-1035 对齐）
+    for (const tm of teammates) {
+        if (tm.hp <= 0) continue;
+        const tmHpRegen = tm.hpRegen || 0;
+        const tmMpRegen = tm.mpRegen || 0;
+        if (tmHpRegen > 0) {
+            tm.hp = Math.min(tm.maxHp || 9999, tm.hp + tmHpRegen);
+        }
+        if (tmMpRegen > 0) {
+            tm.mp = Math.min(tm.maxMp || 9999, (tm.mp || 0) + tmMpRegen);
+        }
+    }
+}
+
+/**
+ * resolveCombatRound — 主入口：从 _zd_parsed 解析并执行一个战斗回合
+ * @param {string} messageText - 消息文本（用于检测玩家技能选择）
+ * @returns {Object|null} combatResult 或 null（无战斗数据时）
+ */
+function resolveCombatRound(messageText) {
+    const data = getSaoData();
+    const zd = data?.state?._zd_parsed;
+    if (!zd?.player || !zd?.enemies?.length) {
+        return null; // 无战斗数据，no-op
+    }
+
+    const roundLog = [];
+    const stateUpdates = {};
+
+    // 构建实体
+    const player = buildPlayerEntity(zd.player, zd.skills, getEquipmentStatsFromState());
+    const teammates = (zd.teammates || []).map(t => buildTeammateEntity(t));
+    const enemies = zd.enemies.filter(e => e.hp > 0).map(e => buildEnemyEntity(e));
+
+    if (enemies.length === 0) {
+        return {
+            log: ['无存活敌人'],
+            stateUpdates,
+            playerAfter: { hp: player.hp, maxHp: player.maxHp, mp: player.mp, maxMp: player.maxMp },
+            enemiesAfter: [],
+            teammatesAfter: teammates.map(t => ({ name: t.name, hp: t.hp, maxHp: t.maxHp })),
+            narrativeHint: '',
+        };
+    }
+
+    // 检测玩家行动
+    const playerSkill = detectPlayerAction(messageText, zd.skills, player);
+
+    // 构建参与者列表
+    const allEntities = [
+        { type: 'player', id: 'player', name: player.name, entity: player, speed: player.speed, skill: playerSkill },
+        ...teammates.map((t, i) => ({
+            type: 'teammate', id: `teammate-${i}`, name: t.name, entity: t, speed: t.speed, skill: t.skills?.[0] || null,
+        })),
+        ...enemies.map((e, i) => ({
+            type: 'enemy', id: `enemy-${i}`, name: e.name, entity: e, speed: e.speed, skill: selectEnemySkill(e),
+        })),
+    ];
+
+    // 按速度排序
+    const actionOrder = calculateActionOrderCore(allEntities);
+
+    // 执行回合
+    for (const actor of actionOrder) {
+        const entity = actor.entity;
+        if (entity.hp <= 0) continue; // 已死亡跳过
+
+        if (hasDebuff(entity, 'stun')) {
+            roundLog.push(`${entity.name} 被晕眩，无法行动`);
+            continue;
+        }
+
+        try {
+            if (actor.type === 'player') {
+                executePlayerActionCore(player, actor.skill, enemies, teammates, roundLog, stateUpdates);
+            } else if (actor.type === 'teammate') {
+                executeTeammateAttackCore(entity, enemies, roundLog);
+            } else if (actor.type === 'enemy') {
+                performEnemyActionCore(entity, player, teammates, roundLog);
+            }
+        } catch (e) {
+            roundLog.push(`[异常] ${entity.name} 行动失败: ${e.message}`);
+        }
+
+        // 检查战斗结束条件
+        if (enemies.every(e => e.hp <= 0)) { roundLog.push('所有敌人已被击败！'); break; }
+        if (player.hp <= 0) { roundLog.push('玩家倒下了...'); break; }
+    }
+
+    // 回合结束处理
+    processEndOfRoundCore(player, enemies, teammates, roundLog);
+
+    // 持久化冷却
+    persistCooldowns(player);
+
+    // 同步 zd 数据回 state（HP/MP 变化）
+    if (data.state && zd.player) {
+        zd.player.hp = Math.max(0, player.hp);
+        zd.player.mp = Math.max(0, player.mp);
+    }
+    // 同步敌人 HP
+    for (let i = 0; i < zd.enemies.length; i++) {
+        const zdEnemy = zd.enemies[i];
+        const combatEnemy = enemies.find(e => e.name === zdEnemy.name);
+        if (combatEnemy) {
+            zdEnemy.hp = Math.max(0, combatEnemy.hp);
+        }
+    }
+    // 同步队友 HP
+    for (let i = 0; i < (zd.teammates || []).length; i++) {
+        const zdTm = zd.teammates[i];
+        const combatTm = teammates.find(t => t.name === zdTm.name);
+        if (combatTm) {
+            zdTm.hp = Math.max(0, combatTm.hp);
+        }
+    }
+
+    // 构建叙事提示
+    const narrativeHint = buildCombatNarrativeHint(player, enemies, teammates, roundLog);
+
+    return {
+        playerAfter: { hp: player.hp, maxHp: player.maxHp, mp: player.mp, maxMp: player.maxMp },
+        enemiesAfter: enemies.map(e => ({ name: e.name, hp: Math.max(0, e.hp), maxHp: e.maxHp, defeated: e.hp <= 0 })),
+        teammatesAfter: teammates.map(t => ({ name: t.name, hp: t.hp, maxHp: t.maxHp })),
+        narrativeHint,
+        log: roundLog,
+        stateUpdates,
+    };
+}
+
+// === P4c: Custom Skill System ===
+
+/**
+ * 按名称查找技能（优先自定义技能，再查常规技能）
+ * @param {string} name - 技能名称
+ * @param {Object} state - data.state
+ * @returns {Object|null} 技能定义或 null
+ */
+function findSkillByName(name, state) {
+    // 1. Custom skills first (already acquired)
+    for (const id of (state.customSkills || [])) {
+        const def = CUSTOM_SKILL_DEFS[id];
+        if (def && def.name === name) return def;
+    }
+    // 2. Regular skills
+    return (state.skills || []).find(s => s.name === name) || null;
+}
+
+/**
+ * 技能获取通知
+ * @param {Object} def - CUSTOM_SKILL_DEFS 中的技能定义
+ */
+function injectSkillAcquisition(def) {
+    if (typeof toastr !== 'undefined') {
+        toastr.success(`获得技能：${def.name}`, 'SAO Companion');
+    }
+    log(`[技能获取] ${def.name} — ${def.description}`);
+}
+
+/**
+ * 检查自定义技能解锁条件
+ * 在 MESSAGE_RECEIVED 中 extractAll/applyExtractedData 之后调用
+ * @param {string} messageText - 当前消息文本（用于 keyword 类型解锁）
+ */
+function checkCustomSkillUnlocks(messageText) {
+    const data = getSaoData();
+    if (!data?.state) return;
+    if (!data.state.customSkills) data.state.customSkills = [];
+    const alreadyHas = new Set(data.state.customSkills);
+    for (const [id, def] of Object.entries(CUSTOM_SKILL_DEFS)) {
+        if (alreadyHas.has(id)) continue;
+        let unlocked = false;
+        switch (def._unlock.type) {
+            case 'floor': unlocked = data.state.floor >= def._unlock.floor; break;
+            case 'chapter': unlocked = data.arc === def._unlock.arc; break;
+            case 'keyword': unlocked = messageText.includes(def._unlock.keyword); break;
+            case 'manual': unlocked = false; break;
+            // TODO: implement grantCustomSkill(skillId) + window.SAO.grantCustomSkill (per architecture doc 6.6.1) when the first manual-type custom skill is added to CUSTOM_SKILL_DEFS.
+        }
+        if (unlocked) {
+            data.state.customSkills.push(id); // store ID only, not full def
+            log(`获得自定义技能: ${def.name}`);
+            injectSkillAcquisition(def);
+        }
+    }
+}
+
+/**
+ * 移除已解锁的自定义技能
+ * @param {string} skillId - CUSTOM_SKILL_DEFS 中的技能 ID
+ */
+function removeCustomSkill(skillId) {
+    const data = getSaoData();
+    if (!data?.state?.customSkills) return;
+    data.state.customSkills = data.state.customSkills.filter(id => id !== skillId);
+    saveSaoDataNow();
+}
+
 function bindEvents() {
     eventSource.on(event_types.CHAT_CHANGED, () => {
         // 切换角色卡时重置效果代码表缓存，使其重新从新卡解析
         resetEffectCodeTable();
         // 无论是否 SAO 卡，先清理战斗副作用（幂等，非 SAO 卡或未初始化时为空操作）
         destroyBattleSideEffects();
+        // A3: 清理 battle host 注册表，防止切换聊天后内存泄漏
+        clearBattleHostRegistry();
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
             stabilizeSaoRegexScripts();
             enableCompatMode();
             injectMemoryAndState();
+            initCalendarIfNeeded();
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
                 refreshStatus();
@@ -3142,6 +5863,54 @@ function bindEvents() {
             // 多任务提取（状态）— 只读取文本、写入 chatMetadata，不修改消息
             const extracted = await extractAll(rawText);
             if (extracted) await applyExtractedData(extracted);
+
+            // P2b: Calendar incremental update (v1 pure regex, no LLM)
+            updateCalendarIncremental(rawText);
+
+            // P4b: Combat resolution (no DOM dependency)
+            const combatResult = resolveCombatRound(rawText);
+            if (combatResult) {
+                const data = getSaoData();
+                if (data) {
+                    // Step [3b]: generateLoot (only if combat occurred and enemies defeated)
+                    if (combatResult.enemiesAfter?.some(e => e.defeated)) {
+                        try {
+                            const lootResult = await generateLoot({ enemyLevel: combatResult.enemiesAfter[0]?.level || 1 });
+                            if (lootResult) {
+                                combatResult.loot = lootResult;
+                            }
+                        } catch (e) {
+                            console.error('[SAO] generateLoot failed:', e);
+                            // Loot generation failure is non-fatal — combat result still valid
+                        }
+                    }
+                    data._lastCombatResult = combatResult;
+                    if (combatResult.narrativeHint) {
+                        if (!data.state) data.state = {};
+                        data.state.lastCombatHint = combatResult.narrativeHint;
+                    }
+                }
+                log(`战斗结算完成: ${combatResult.log.length} 条日志`);
+            }
+            // FIX3: 本轮无战斗提示时清除过期的 lastCombatHint
+            if (!combatResult?.narrativeHint) {
+                const hintData = getSaoData();
+                if (hintData?.state?.lastCombatHint) {
+                    delete hintData.state.lastCombatHint;
+                }
+            }
+
+            // P4c: Custom skill unlock check
+            checkCustomSkillUnlocks(rawText);
+
+            // Centralized turn counter increment (per spec §4.4, at end of chain before save)
+            const saoData = getSaoData();
+            if (saoData?.state) {
+                saoData.state.calendarTurnCounter = (saoData.state.calendarTurnCounter || 0) + 1;
+            }
+
+            // Persist all state changes from this processing cycle
+            await saveSaoDataNow();
         });
 
         // 状态提取完成后刷新面板（如果已打开）
@@ -3155,7 +5924,13 @@ function bindEvents() {
         if (!event_types.CHARACTER_MESSAGE_RENDERED) {
             setTimeout(() => {
                 const fallbackEl = getMessageElement(messageId);
-                if (fallbackEl) renderAllTags(fallbackEl, rawText);
+                if (fallbackEl) renderAllTags(fallbackEl, rawText, messageId);
+                // P4b fallback: update battle panel + clear _lastCombatResult
+                const fbData = getSaoData();
+                if (fbData?._lastCombatResult) {
+                    updateBattlePanelAfterCombat(messageId, fbData._lastCombatResult);
+                    delete fbData._lastCombatResult;
+                }
             }, 100);
         }
     }));
@@ -3207,6 +5982,8 @@ function bindEvents() {
     if (event_types.MESSAGE_SWIPED) {
         eventSource.on(event_types.MESSAGE_SWIPED, (messageId) => {
             if (!isSaoCard()) return;
+            // A3: 清理当前消息的 battle host，防止切换分支后内存泄漏（不再整表清除，保护其他活跃战斗面板）
+            removeBattleHost(messageId);
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
@@ -3235,7 +6012,12 @@ function bindEvents() {
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
             const msgEl = getMessageElement(messageId);
-            if (msgEl) renderAllTags(msgEl, msg.mes || '');
+            if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
+            const data = getSaoData();
+            if (data?._lastCombatResult) {
+                updateBattlePanelAfterCombat(messageId, data._lastCombatResult);
+                delete data._lastCombatResult;
+            }
         });
     }
 
@@ -3730,6 +6512,363 @@ function initPanelLogic() {
         }
     };
 
+    // ============================================================
+    // P2c: Calendar tab UI
+    // ============================================================
+
+    let _calViewDate = null;
+    let _calSelectedDate = null;
+
+    function getCalendar() {
+        return getSaoData()?.calendar;
+    }
+
+    function initCalendarTabState() {
+        const cal = getCalendar();
+        if (!cal) return;
+        const current = cal.currentDate ? parseDate(cal.currentDate) : new Date();
+        if (!_calViewDate) _calViewDate = current ? new Date(current) : new Date();
+        if (!_calSelectedDate) _calSelectedDate = cal.currentDate || formatDate(new Date());
+    }
+
+    function _renderCalendarTab() {
+        const cal = getCalendar();
+        const uninitEl = document.getElementById('sao_cal_uninit');
+
+        if (!cal) {
+            if (uninitEl) uninitEl.style.display = 'block';
+            return;
+        }
+
+        if (uninitEl) uninitEl.style.display = 'none';
+        initCalendarTabState();
+
+        const currentDateEl = document.getElementById('sao_cal_current_date');
+        if (currentDateEl) currentDateEl.textContent = cal.currentDate || '-';
+
+        renderCalendarMonth();
+        renderCalendarDayDetail();
+        renderCalendarAppointments();
+    }
+
+    function renderCalendarMonth() {
+        const grid = document.getElementById('sao_cal_grid');
+        const label = document.getElementById('sao_cal_month_label');
+        if (!grid || !label || !_calViewDate) return;
+
+        const year = _calViewDate.getFullYear();
+        const month = _calViewDate.getMonth() + 1;
+        label.textContent = `${year}\u5e74 ${String(month).padStart(2, '0')}\u6708`;
+
+        const cal = getCalendar();
+        const todayStr = cal?.currentDate || formatDate(new Date());
+
+        const headers = ['\u4e00', '\u4e8c', '\u4e09', '\u56db', '\u4e94', '\u516d', '\u65e5'].map(d =>
+            `<div class="sao-cal-header">${d}</div>`
+        ).join('');
+
+        const firstDay = new Date(year, month - 1, 1);
+        const startDay = (firstDay.getDay() + 6) % 7;
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const prevMonthDays = new Date(year, month - 1, 0).getDate();
+
+        let cells = '';
+        for (let i = startDay - 1; i >= 0; i--) {
+            const d = prevMonthDays - i;
+            cells += buildCalCell(year, month - 2, d, false, todayStr);
+        }
+        for (let d = 1; d <= daysInMonth; d++) {
+            cells += buildCalCell(year, month - 1, d, true, todayStr);
+        }
+        const totalCells = startDay + daysInMonth;
+        const remaining = (7 - (totalCells % 7)) % 7;
+        for (let d = 1; d <= remaining; d++) {
+            cells += buildCalCell(year, month, d, false, todayStr);
+        }
+
+        grid.innerHTML = headers + cells;
+    }
+
+    function buildCalCell(year, monthIndex, day, isCurrentMonth, todayStr) {
+        const date = new Date(year, monthIndex, day);
+        const dateStr = formatDate(date);
+        const cal = getCalendar();
+        const dayData = cal?.days?.[dateStr];
+        const events = dayData?.events || [];
+
+        const cls = ['sao-cal-cell'];
+        if (!isCurrentMonth) cls.push('sao-cal-other-month');
+        if (dateStr === todayStr) cls.push('sao-cal-today');
+        if (dateStr === _calSelectedDate) cls.push('sao-cal-selected');
+        if (events.length > 0) cls.push('sao-cal-has-event');
+
+        let dots = '';
+        if (events.length > 0) {
+            const hasApt = events.some(e => e.type === 'appointment');
+            const hasCanon = events.some(e => e.type === 'canon');
+            const hasCustom = events.some(e => e.type !== 'appointment' && e.type !== 'canon');
+            dots = '<div class="sao-cal-dots">';
+            if (hasApt) dots += '<div class="sao-cal-dot sao-cal-dot-apt"></div>';
+            if (hasCanon) dots += '<div class="sao-cal-dot sao-cal-dot-canon"></div>';
+            if (hasCustom) dots += '<div class="sao-cal-dot"></div>';
+            dots += '</div>';
+        }
+
+        return `<div class="${cls.join(' ')}" data-action="calSelectDay" data-date="${dateStr}"><div class="sao-cal-day-num">${day}</div>${dots}</div>`;
+    }
+
+    function renderCalendarDayDetail() {
+        const infoEl = document.getElementById('sao_cal_selected_info');
+        const eventsEl = document.getElementById('sao_cal_day_events');
+        if (!infoEl || !eventsEl) return;
+
+        const cal = getCalendar();
+        if (!_calSelectedDate) {
+            infoEl.textContent = '\u9009\u62e9\u4e00\u5929\u67e5\u770b\u4e8b\u4ef6';
+            eventsEl.innerHTML = '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u4e8b\u4ef6</span>';
+            return;
+        }
+
+        infoEl.textContent = _calSelectedDate;
+        const dayData = cal?.days?.[_calSelectedDate];
+        const events = dayData?.events || [];
+
+        if (events.length === 0) {
+            eventsEl.innerHTML = '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u4e8b\u4ef6</span>';
+            return;
+        }
+
+        eventsEl.innerHTML = events.map(evt => {
+            const cls = ['sao-cal-event-item'];
+            if (evt.type === 'appointment') cls.push('sao-cal-event-apt');
+            else if (evt.type === 'canon') cls.push('sao-cal-event-canon');
+            const time = evt.time ? `<span style="color:var(--primary);">${esc(evt.time)}</span> ` : '';
+            const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
+            return `<div class="${cls.join(' ')}">
+                <div><span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}</div>
+                ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
+            </div>`;
+        }).join('');
+    }
+
+    function renderCalendarAppointments() {
+        const el = document.getElementById('sao_cal_appointments');
+        if (!el) return;
+        const cal = getCalendar();
+        const apts = cal?.appointments || [];
+
+        if (apts.length === 0) {
+            el.innerHTML = '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u7ea6\u5b9a</span>';
+            return;
+        }
+
+        const sorted = [...apts].sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+
+        el.innerHTML = sorted.map(apt => {
+            const done = apt.status === 'completed';
+            const cls = done ? 'sao-cal-event-item sao-cal-event-apt sao-cal-event-done' : 'sao-cal-event-item sao-cal-event-apt';
+            const partText = apt.participants && apt.participants.length ? esc(Array.isArray(apt.participants) ? apt.participants.join(', ') : apt.participants) : '';
+            return `<div class="${cls}">
+                <div>${esc(apt.date)} ${apt.time ? `<span style="color:var(--warning);">${esc(apt.time)}</span>` : ''} ${esc(apt.description || '\u65e0\u63cf\u8ff0')}</div>
+                ${apt.location ? `<div class="sao-cal-event-meta">\u5730\u70b9: ${esc(apt.location)}</div>` : ''}
+                ${partText ? `<div class="sao-cal-event-meta">\u53c2\u4e0e\u8005: ${partText}</div>` : ''}
+                <div class="sao-cal-event-actions">
+                    <button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calEditAppointment" data-id="${esc(apt.id)}">\u7f16\u8f91</button>
+                    ${done ? '' : `<button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calCompleteAppointment" data-id="${esc(apt.id)}">\u5b8c\u6210</button>`}
+                    <button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calDeleteAppointment" data-id="${esc(apt.id)}">\u5220\u9664</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function showCalEditForm(apt = null, prefillDate = null) {
+        const formEl = document.getElementById('sao_cal_edit_form');
+        const titleEl = document.getElementById('sao_cal_form_title');
+        const idEl = document.getElementById('sao_cal_edit_id');
+        const dateEl = document.getElementById('sao_cal_input_date');
+        const timeEl = document.getElementById('sao_cal_input_time');
+        const descEl = document.getElementById('sao_cal_input_desc');
+        const partEl = document.getElementById('sao_cal_input_participants');
+        const locEl = document.getElementById('sao_cal_input_location');
+        if (!formEl) return;
+
+        if (apt) {
+            titleEl.textContent = '\u7f16\u8f91\u7ea6\u5b9a';
+            idEl.value = apt.id;
+            dateEl.value = apt.date || '';
+            timeEl.value = apt.time || '';
+            descEl.value = apt.description || '';
+            partEl.value = Array.isArray(apt.participants) ? apt.participants.join(', ') : (apt.participants || '');
+            locEl.value = apt.location || '';
+        } else {
+            titleEl.textContent = '\u6dfb\u52a0\u7ea6\u5b9a';
+            idEl.value = '';
+            dateEl.value = prefillDate || _calSelectedDate || formatDate(new Date());
+            timeEl.value = '';
+            descEl.value = '';
+            partEl.value = '';
+            locEl.value = '';
+        }
+
+        formEl.style.display = 'block';
+        formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function hideCalEditForm() {
+        const formEl = document.getElementById('sao_cal_edit_form');
+        if (formEl) formEl.style.display = 'none';
+    }
+
+    function handleCalPrevMonth() {
+        if (!_calViewDate) initCalendarTabState();
+        _calViewDate.setMonth(_calViewDate.getMonth() - 1);
+        renderCalendarMonth();
+    }
+
+    function handleCalNextMonth() {
+        if (!_calViewDate) initCalendarTabState();
+        _calViewDate.setMonth(_calViewDate.getMonth() + 1);
+        renderCalendarMonth();
+    }
+
+    function handleCalSelectDay(dateStr) {
+        _calSelectedDate = dateStr;
+        renderCalendarMonth();
+        renderCalendarDayDetail();
+    }
+
+    function handleCalAddAppointment() {
+        showCalEditForm(null, _calSelectedDate);
+    }
+
+    function handleCalManualEdit() {
+        showCalEditForm(null, _calSelectedDate);
+    }
+
+    function handleCalEditAppointment(id) {
+        const cal = getCalendar();
+        const apt = cal?.appointments?.find(a => a.id === id);
+        if (apt) showCalEditForm(apt);
+    }
+
+    async function handleCalSaveAppointment() {
+        try {
+        const cal = getCalendar();
+        if (!cal) return;
+
+        const idEl = document.getElementById('sao_cal_edit_id');
+        const dateEl = document.getElementById('sao_cal_input_date');
+        const timeEl = document.getElementById('sao_cal_input_time');
+        const descEl = document.getElementById('sao_cal_input_desc');
+        const partEl = document.getElementById('sao_cal_input_participants');
+        const locEl = document.getElementById('sao_cal_input_location');
+
+        const date = dateEl.value;
+        const time = timeEl.value;
+        const description = descEl.value.trim();
+        const participants = partEl.value.split(',').map(s => s.trim()).filter(Boolean);
+        const location = locEl.value.trim();
+
+        if (!date || !description) {
+            log('\u4fdd\u5b58\u7ea6\u5b9a\u5931\u8d25: \u65e5\u671f\u548c\u63cf\u8ff0\u4e0d\u80fd\u4e3a\u7a7a', 'warn');
+            return;
+        }
+
+        const id = idEl.value;
+        let apt;
+        if (id) {
+            apt = cal.appointments.find(a => a.id === id);
+            if (!apt) {
+                log('\u4fdd\u5b58\u7ea6\u5b9a\u5931\u8d25: \u672a\u627e\u5230\u7ea6\u5b9a', 'warn');
+                return;
+            }
+            const oldDay = cal.days[apt.date];
+            if (oldDay) {
+                oldDay.events = oldDay.events.filter(e => !(e.source === 'manual' && e.title === apt.description && e.time === apt.time));
+            }
+        } else {
+            apt = {
+                id: 'apt_' + Date.now(),
+                date: date,
+                time: time,
+                description: description,
+                participants: [],
+                location: '',
+                source: 'manual',
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+            };
+            if (!cal.appointments) cal.appointments = [];
+            cal.appointments.push(apt);
+        }
+
+        apt.date = date;
+        apt.time = time;
+        apt.description = description;
+        apt.participants = participants;
+        apt.location = location;
+
+        if (!cal.days[date]) cal.days[date] = { events: [], isUpdated: true };
+        const eventObj = {
+            type: 'appointment',
+            time: time,
+            title: description,
+            description: description,
+            source: 'manual',
+        };
+        const existingIdx = cal.days[date].events.findIndex(e => e.source === 'manual' && e.title === description && e.time === time);
+        if (existingIdx >= 0) {
+            cal.days[date].events[existingIdx] = eventObj;
+        } else {
+            cal.days[date].events.push(eventObj);
+        }
+
+        await saveSaoDataNow();
+        hideCalEditForm();
+        _renderCalendarTab();
+        } catch (e) {
+            log('\u4fdd\u5b58\u7ea6\u5b9a\u5931\u8d25: ' + e.message, 'error');
+        }
+    }
+
+    async function handleCalDeleteAppointment(id) {
+        try {
+        const cal = getCalendar();
+        if (!cal || !cal.appointments) return;
+        const idx = cal.appointments.findIndex(a => a.id === id);
+        if (idx < 0) return;
+        const apt = cal.appointments[idx];
+        cal.appointments.splice(idx, 1);
+        const day = cal.days[apt.date];
+        if (day) {
+            day.events = day.events.filter(e => !(e.type === 'appointment' && e.source === 'manual' && e.title === apt.description && e.time === apt.time));
+        }
+        await saveSaoDataNow();
+        _renderCalendarTab();
+        } catch (e) {
+            log('\u5220\u9664\u7ea6\u5b9a\u5931\u8d25: ' + e.message, 'error');
+        }
+    }
+
+    async function handleCalCompleteAppointment(id) {
+        try {
+        const cal = getCalendar();
+        if (!cal) return;
+        const apt = cal.appointments?.find(a => a.id === id);
+        if (!apt) return;
+        apt.status = 'completed';
+        await saveSaoDataNow();
+        _renderCalendarTab();
+        } catch (e) {
+            log('\u5b8c\u6210\u7ea6\u5b9a\u5931\u8d25: ' + e.message, 'error');
+        }
+    }
+
+    function handleCalInit() {
+        initCalendarIfNeeded();
+        _renderCalendarTab();
+    }
+
     window.SaoPanel = {
         open() {
             const overlay = document.getElementById('sao_panel_overlay');
@@ -3755,7 +6894,9 @@ function initPanelLogic() {
             document.querySelectorAll('.sao-tab-content').forEach(c => c.classList.remove('active'));
             document.querySelector(`.sao-tab[data-tab="${tabName}"]`)?.classList.add('active');
             document.querySelector(`.sao-tab-content[data-content="${tabName}"]`)?.classList.add('active');
+            if (tabName === 'calendar') _renderCalendarTab();
         },
+        renderCalendarTab() { _renderCalendarTab(); },
         // 拉取模型列表
         async fetchModels(role) {
             const testEl = document.getElementById(`sao_${role}_test`);
@@ -3888,6 +7029,11 @@ function initPanelLogic() {
                 testEl.textContent = '✗ ' + e.message;
             }
         },
+        // P7: 世界书迁移
+        checkMigrationReadiness() { return checkMigrationReadiness(); },
+        executeWorldBookMigration() { return executeWorldBookMigration(); },
+        restoreWorldBook() { return restoreWorldBook(); },
+        backupWorldBook() { return backupWorldBook(); },
     };
 
     // 面板事件委托（替代 onclick 内联事件，避免 DOMPurify 清洗）
@@ -3913,6 +7059,17 @@ function initPanelLogic() {
                 case 'refreshStatus': window.SaoPanel.refreshStatus(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
                 case 'closeDetail': window.SaoPanel.closeDetail(); break;
+                case 'calPrevMonth': handleCalPrevMonth(); break;
+                case 'calNextMonth': handleCalNextMonth(); break;
+                case 'calSelectDay': { const d = target.getAttribute('data-date'); if (d) handleCalSelectDay(d); break; }
+                case 'calAddAppointment': handleCalAddAppointment(); break;
+                case 'calManualEdit': handleCalManualEdit(); break;
+                case 'calEditAppointment': { const id = target.getAttribute('data-id'); if (id) handleCalEditAppointment(id); break; }
+                case 'calDeleteAppointment': { const id = target.getAttribute('data-id'); if (id) handleCalDeleteAppointment(id); break; }
+                case 'calCompleteAppointment': { const id = target.getAttribute('data-id'); if (id) handleCalCompleteAppointment(id); break; }
+                case 'calSaveAppointment': handleCalSaveAppointment(); break;
+                case 'calCancelEdit': hideCalEditForm(); break;
+                case 'calInit': handleCalInit(); break;
             }
         });
     }
@@ -4154,6 +7311,7 @@ export function init() {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);
     });
     bindEvents();
+    initToolSystem();
     // 设置战斗状态持久化回调
     setBattleStateChangeCallback(saveBattleStateThrottled);
     setBattleEndCallback(clearBattleState);
@@ -4164,4 +7322,38 @@ export function init() {
         injectMemoryAndState();
     }
     console.log('[SAO Companion] 初始化完成');
+}
+
+// ============================================================
+// 测试钩子：仅在测试环境暴露内部函数供 E2E 测试
+// 生产环境（浏览器）process 不存在，此块不执行
+// ============================================================
+if (typeof globalThis !== 'undefined' && globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV === 'test') {
+    globalThis.__SAO_INTERNAL__ = {
+        // 后处理链战斗入口 + 实体构建
+        resolveCombatRound,
+        buildPlayerEntity,
+        buildEnemyEntity,
+        buildTeammateEntity,
+        detectPlayerAction,
+        selectEnemySkill,
+        getEquipmentStatsFromState,
+        persistCooldowns,
+        buildCombatNarrativeHint,
+        normalizeWeapon,
+        // 本地 Core 函数（index.js 版，签名与 battleCore.js 不同）
+        applyDamageToEnemy,
+        executeStandardAttack,
+        a5MultiHitCore,
+        executePlayerActionCore,
+        executeTeammateAttackCore,
+        performEnemyActionCore,
+        processEndOfRoundCore,
+        // 常量
+        MODULE_NAME,
+        // mock 注入点：测试可覆盖 getSaoData 的返回值
+        __testSaoData: null,
+        __getTestSaoData() { return globalThis.__SAO_INTERNAL__.__testSaoData; },
+        __setTestSaoData(d) { globalThis.__SAO_INTERNAL__.__testSaoData = d; },
+    };
 }
