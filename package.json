@@ -1,0 +1,8 @@
+{
+    "name": "sao-companion",
+    "version": "0.6.15",
+    "private": true,
+    "scripts": {
+        "test": "cd test && npx vitest run"
+    }
+}

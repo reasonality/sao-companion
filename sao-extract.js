@@ -1,7 +1,7 @@
 // sao-extract.js — 数据提取模块
 // 从 AI 回复中提取 SAO 状态标签（zd_status/user_status）并应用到 state
 
-import { getSettings, log, getSaoData, saveSaoDataNow } from './sao-core.js';
+import { getSettings, log, getSaoData, saveSaoDataNow, safeJsonParse } from './sao-core.js';
 
 // === 纯解析函数 ===
 
@@ -264,12 +264,34 @@ function parseUserStatus(statusText) {
 
 // === 主提取函数（callModelFn 通过参数注入） ===
 
-export async function extractAll(aiMessage, callModelFn) {
+/**
+ * P3 重设计：主数据源切换为 status 专家 JSON（chatMetadata.panels[messageId].state）。
+ * 回退链：专家 JSON → mes 标签正则解析（过渡兼容）→ LLM 模型提取（最终回退）。
+ * @param {string} aiMessage - AI 消息原文
+ * @param {Function} callModelFn - 模型调用函数
+ * @param {number|string} [messageId] - P3：用于读取 status 专家面板数据
+ */
+export async function extractAll(aiMessage, callModelFn, messageId) {
     if (!callModelFn) throw new Error('callModelFn is required');
     const settings = getSettings();
     if (!settings.enabled) return null;
 
-    // === FIX 1: 优先从 <zd_status> 和 <user_status> 直接解析 ===
+    // === P3: 优先从 status 专家面板数据读取 ===
+    if (messageId != null) {
+        const data = getSaoData();
+        const statusPanel = data?.panels?.[messageId]?.status;
+        // statusPanel.html 在 P3 存的是 {state, zdText} 对象（persistSpecialistPanel 包成 html 字段——这里兼容两种结构）
+        if (statusPanel) {
+            // persistSpecialistPanel(messageId, 'status', {state, zdText}) 把对象存入 html 字段
+            const panelData = (typeof statusPanel.html === 'string') ? safeJsonParse(statusPanel.html) : statusPanel.html;
+            if (panelData && panelData.state) {
+                log('status 专家面板数据命中（跳过标签解析+模型）');
+                return { state: panelData.state };
+            }
+        }
+    }
+
+    // === 回退 1: 从 <zd_status> 和 <user_status> 直接解析（过渡兼容） ===
     const state = {};
     let parsedFromTags = false;
 

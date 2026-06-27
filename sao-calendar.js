@@ -72,6 +72,78 @@ export async function persistCalendar(calendar) {
     return saveSaoDataNow();
 }
 
+// === Phase 1 专家架构：日历面板数据 ===
+
+/**
+ * 校验 calendarModelUpdate LLM 输出的 grid 字段。
+ * grid 为显示用网格数据：{year, month, current_day, days:[{day, events:[str]}]}
+ * @param {object} grid
+ * @returns {boolean} true=合法
+ */
+export function _validateCalendarGrid(grid) {
+    if (!grid || typeof grid !== 'object') return false;
+    const y = Number(grid.year), m = Number(grid.month), cd = Number(grid.current_day);
+    if (!Number.isInteger(y) || y < 1 || y > 9999) return false;
+    if (!Number.isInteger(m) || m < 1 || m > 12) return false;
+    if (!Number.isInteger(cd) || cd < 1 || cd > 31) return false;
+    const days = grid.days;
+    if (!Array.isArray(days) || days.length > 31) return false;
+    for (const d of days) {
+        if (!d || typeof d !== 'object') return false;
+        const dn = Number(d.day);
+        if (!Number.isInteger(dn) || dn < 1 || dn > 31) return false;
+        if (!Array.isArray(d.events)) return false;
+        for (const e of d.events) {
+            if (typeof e !== 'string' || e.length > 100) return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * 写入日历面板数据到 chatMetadata.calendarPanels[messageId]。
+ * 不调用 saveSaoDataNow——由调用方的 persistCalendar 统一保存。
+ * @param {number|string} messageId
+ * @param {object} grid - 通过 _validateCalendarGrid 校验的 grid
+ */
+export function persistCalendarPanel(messageId, grid) {
+    if (messageId == null) return;
+    const data = getSaoData();
+    if (!data) return;
+    if (!data.calendarPanels) data.calendarPanels = {};
+    data.calendarPanels[messageId] = {
+        grid,
+        version: (data.calendar?.calendarVersion || 0),
+        createdAt: new Date().toISOString(),
+    };
+}
+
+/**
+ * 从 calendar 状态（currentDate + days）派生显示用 grid。
+ * 用于 updateCalendarIncremental 保存时立即写入面板，使面板不等待 LLM 即可显示。
+ * @param {object} calendar
+ * @returns {object|null} grid 或 null（currentDate 缺失时）
+ */
+export function buildTransientGridFromCalendar(calendar) {
+    if (!calendar || !calendar.currentDate) return null;
+    const m = calendar.currentDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const year = parseInt(m[1]), month = parseInt(m[2]), currentDay = parseInt(m[3]);
+    // 只纳入当前月份的 days 条目（跨月事件——如世界书 ±1 月过滤带入的相邻月条目——
+    // 不应渲染到本月网格的错误日期上）
+    const yearMonthPrefix = m[1] + '-' + m[2];
+    const days = [];
+    for (const [dateStr, dayData] of Object.entries(calendar.days || {})) {
+        if (!dateStr.startsWith(yearMonthPrefix)) continue;
+        const dm = dateStr.match(/^\d{4}-\d{2}-(\d{2})$/);
+        if (!dm) continue;
+        const dayNum = parseInt(dm[1]);
+        const events = (dayData?.events || []).map(ev => ev.title || ev.description || '').filter(Boolean).slice(0, 10);
+        if (dayNum >= 1 && dayNum <= 31) days.push({ day: dayNum, events });
+    }
+    return { year, month, current_day: currentDay, days };
+}
+
 /**
  * 从文本中提取 <time> 标签并解析日期
  * @param {string} text - 包含 <time> 标签的文本
@@ -504,9 +576,19 @@ function applyDateAdvanceGC(calendar, oldDateStr, newDateStr) {
 /**
  * 日历增量更新（P2b：纯正则，无 LLM）
  * 在每条 AI 消息处理时调用，推进日历日期、提取约定、GC 过期数据
+ * Phase 1: 接受 messageId 参数，每个保存点前写瞬时 grid 到 calendarPanels[messageId]，
+ * 使日历面板无需等待 LLM 即可显示。
+ * 日期推进仍由本函数独占（v1 权威）；calendarModelUpdate 的 grid 仅为显示数据（plan §2.3 修正）。
  * @param {string} messageText - AI 消息原始文本
+ * @param {number|string} [messageId] - 消息 ID，用于索引 calendarPanels
  */
-export async function updateCalendarIncremental(messageText) {
+export async function updateCalendarIncremental(messageText, messageId) {
+    /** 在 persistCalendar 前写瞬时 grid（若 messageId 可用） */
+    const _writeTransient = () => {
+        if (messageId == null) return;
+        const tg = buildTransientGridFromCalendar(calendar);
+        if (tg) persistCalendarPanel(messageId, tg);
+    };
     try {
         const data = getSaoData();
         if (!data) return;
@@ -537,16 +619,18 @@ export async function updateCalendarIncremental(messageText) {
             if (timeSkipOffset > 0) {
                 // 时间跳跃 fallback：推进日期并执行 GC
                 const baseDate = parseDate(calendar.currentDate);
-                if (!baseDate) { await persistCalendar(calendar); return; }
+                if (!baseDate) { _writeTransient(); await persistCalendar(calendar); return; }
                 const advancedDateStr = formatDate(addDays(baseDate, timeSkipOffset));
                 const oldDateStr = calendar.currentDate;
-                if (daysBetween(oldDateStr, advancedDateStr) <= 0) { await persistCalendar(calendar); return; }
+                if (daysBetween(oldDateStr, advancedDateStr) <= 0) { _writeTransient(); await persistCalendar(calendar); return; }
                 applyDateAdvanceGC(calendar, oldDateStr, advancedDateStr);
                 log('日历时间跳跃(正则fallback): ' + oldDateStr + ' → ' + advancedDateStr + ' (+' + timeSkipOffset + '天，匹配: "' + timeSkipMatch + '")，新增约定: ' + newAptCount);
+                _writeTransient();
                 await persistCalendar(calendar);
                 return;
             }
             // 无 <time> 标签且无时间跳跃 → 仅约定提取
+            _writeTransient();
             await persistCalendar(calendar);
             return;
         }
@@ -567,6 +651,7 @@ export async function updateCalendarIncremental(messageText) {
             calendar.appointments = (calendar.appointments || []).filter(apt =>
                 apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
             );
+            _writeTransient();
             await persistCalendar(calendar);
             log('日历重新初始化完成，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
             return;
@@ -577,6 +662,7 @@ export async function updateCalendarIncremental(messageText) {
             log('日历：日期回退 (' + lastDate + ' → ' + newDateStr + ')，跳过 GC', 'warn');
             calendar.currentDate = newDateStr;
             calendar.lastCalUpdateDate = newDateStr;
+            _writeTransient();
             await persistCalendar(calendar);
             return;
         }
@@ -589,6 +675,7 @@ export async function updateCalendarIncremental(messageText) {
             calendar.appointments = (calendar.appointments || []).filter(apt =>
                 apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
             );
+            _writeTransient();
             await persistCalendar(calendar);
             log('日历同日更新，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
             return;
@@ -596,6 +683,7 @@ export async function updateCalendarIncremental(messageText) {
 
         // daysPassed > 0：推进日期，GC 过期 days
         applyDateAdvanceGC(calendar, lastDate, newDateStr);
+        _writeTransient();
         await persistCalendar(calendar);
         log('日历更新: ' + lastDate + ' → ' + newDateStr + ' (+' + daysPassed + '天)，新增约定: ' + newAptCount);
     } catch (e) {

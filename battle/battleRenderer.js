@@ -5,8 +5,6 @@ import { BATTLE_TEMPLATE, BATTLE_CSS } from './battleTemplate.js';
 import {
     setBattleDomRoot,
     initializeInterface,
-    startBattle,
-    setupSendDetection,
     initializeBattleInterface,
     initializeBattleDom,
     initializeBattleSideEffects,
@@ -105,13 +103,31 @@ export function updateBattlePanelAfterCombat(messageId, combatResult) {
  * 在消息元素中渲染战斗面板
  * @param {HTMLElement} messageEl - 消息容器元素（.mes 或类似）
  * @param {string} rawText - 原始消息文本，包含 <zd_status> 数据
- * @param {number} [messageId] - 可选消息 ID，用于注册 battleHostRegistry
+ * @param {number} [messageId] - 可选消息 ID，用于注册 battleHostRegistry + P3 专家面板数据
  */
 export function renderBattlePanel(messageEl, rawText, messageId) {
-    // 提取 <zd_status> 数据
-    const zdMatch = rawText.match(/<zd_status>\s*([\s\S]*?)\s*<\/zd_status>/i);
-    if (!zdMatch) return;
-    const zdText = zdMatch[1];
+    // P3: 优先从专家面板数据读取 zdText；回退到 mes 标签（过渡兼容）
+    let zdText = null;
+    if (messageId != null) {
+        try {
+            // 通过 SillyTavern 上下文获取 chatMetadata（battleRenderer 不直接 import sao-core 以避免循环依赖）
+            const ctx = (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) ? SillyTavern.getContext() : null;
+            const meta = ctx?.chatMetadata?.sao_companion;
+            const statusPanel = meta?.panels?.[messageId]?.status;
+            // statusPanel.html 存的是 {state, zdText, userStatusHtml} 对象
+            const panelData = statusPanel && (typeof statusPanel.html === 'string')
+                ? (() => { try { return JSON.parse(statusPanel.html); } catch(e) { return null; } })()
+                : statusPanel?.html;
+            if (panelData && typeof panelData.zdText === 'string' && panelData.zdText.length > 0) {
+                zdText = panelData.zdText;
+            }
+        } catch (e) { /* 读取失败，走回退 */ }
+    }
+    if (!zdText) {
+        const zdMatch = rawText.match(/<zd_status>\s*([\s\S]*?)\s*<\/zd_status>/i);
+        if (!zdMatch) return;
+        zdText = zdMatch[1];
+    }
 
     // 检查是否已渲染
     const existing = messageEl.querySelector('.sao-render-host[data-sao-tag="battle"]');

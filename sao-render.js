@@ -1,13 +1,16 @@
 ﻿// SAO Companion - 渲染模块（Shadow DOM 渲染 + 标签提取 + DOMPurify 钩子）
 // 从 index.js 拆分而来
 
-import { esc, log, getSaoData } from './sao-core.js';
+import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 
 // SAO 自定义标签列表 — DOMPurify 钩子会保留这些标签作为 DOM 元素
-const SAO_CUSTOM_TAGS = ['calendar', 'user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
+// 注：'calendar' 已移除（Phase 1）——日历面板从 chatMetadata.calendarPanels 渲染。
+// map/equip/swordskill/user_status/zd_status 保留在列表以兼容历史消息中残留的标签（P4 已改卡 prompt，主 LLM 不再发出新标签）；
+// 旧消息中的标签经此钩子保留为 DOM 元素，供渲染器回退解析或 hideSaoLightDomTags 隐藏。
+const SAO_CUSTOM_TAGS = ['user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest'];
 
 /**
  * 注册 DOMPurify 钩子：保留 SAO 自定义标签不被剥离。
@@ -251,59 +254,6 @@ function buildCalendarGrid(year, month, currentDay, days) {
     return cells;
 }
 /**
- * 解析旧正则常见的 key: value 日历文本，例如：
- * year: 2022\nmonth: 11\ncurrent_day: 6\ndays: ...
- */
-function parseCalendarKeyValueText(text) {
-    const lines = String(text || '').split(/\r?\n/);
-    const data = {};
-    let currentKey = null;
-    let matched = 0;
-    for (const rawLine of lines) {
-        const line = rawLine.trimEnd();
-        const m = line.match(/^\s*([A-Za-z_][\w-]*)\s*[:：]\s*(.*)$/);
-        if (m) {
-            currentKey = m[1].toLowerCase();
-            data[currentKey] = m[2].trim();
-            matched += 1;
-        } else if (currentKey && line.trim()) {
-            data[currentKey] += `${data[currentKey] ? '\n' : ''}${line.trim()}`;
-        }
-    }
-    if (!matched || !(data.year || data.month || data.current_day || data.days)) return null;
-
-    data.text = text.trim();
-
-    if (data.days && typeof data.days === 'string') {
-        data.day_events = data.days;
-        const parsedDays = [];
-        let current = null;
-        for (const rawLine of data.days.split(/\r?\n/)) {
-            const line = rawLine.trim();
-            if (!line) continue;
-            const dayM = line.match(/^(?:day\s*)?(\d{1,2})\s*[:：\-]\s*(.*)$/i);
-            if (dayM) {
-                current = { day: Number(dayM[1]), events: [] };
-                if (dayM[2].trim()) current.events.push(dayM[2].trim());
-                parsedDays.push(current);
-            } else if (current) {
-                current.events.push(line.replace(/^[-*•]\s*/, ''));
-            }
-        }
-        if (parsedDays.length) {
-            data.days = parsedDays.map(day => {
-                const firstEvent = day.events.find(Boolean) || '';
-                return {
-                    day: day.day,
-                    label: firstEvent.slice(0, 18),
-                    events: day.events,
-                };
-            });
-        }
-    }
-    return data;
-}
-/**
  * 检查是否有待恢复的战斗状态
  * 在 renderBattlePanel 渲染后调用
  */
@@ -354,10 +304,10 @@ function hideSaoLightDomTags(messageEl) {
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
     styleEl.textContent = `
-        .sao-tags-rendered calendar, .sao-tags-rendered user_status, .sao-tags-rendered equip,
+        .sao-tags-rendered user_status, .sao-tags-rendered equip,
         .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
         .sao-tags-rendered digest,
-        .sao-tags-rendered calendar *, .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
+        .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
         .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
         .sao-tags-rendered digest * {
             display: none !important;
@@ -403,51 +353,51 @@ function createSaoShadowHost(messageEl, tagName, refNode) {
 }
 
 /**
- * 解析日历标签内容（优先 JSON，失败则作文本）
+ * 在消息 Shadow DOM 中渲染日历面板。
+ * Phase 1 专家架构：不再解析 mes 中的 <calendar> 标签，改为从 chatMetadata.calendarPanels[messageId] 读取。
+ * 主 LLM 不再发 <calendar> 标签；日历网格由 calendarModelUpdate（LLM）或 updateCalendarIncremental（瞬时）生成。
+ * 若该 messageId 暂无 panel 数据（LLM fire-and-forget 未返回），渲染占位"⏳ 日历生成中…"。
+ * @param {HTMLElement} messageEl
+ * @param {string} rawText - 保留参数以兼容 renderAllTags 调用签名（不再用于解析日历）
+ * @param {number|string} messageId - 消息 ID，用于索引 chatMetadata.calendarPanels
  */
-function parseCalendarContent(rawContent) {
-    if (!rawContent) return { text: '' };
-    const trimmed = rawContent.trim();
-    if (!trimmed) return { text: '' };
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        try {
-            return JSON.parse(trimmed);
-        } catch (e) {
-            // 非 JSON，按普通文本处理
-        }
-    }
-    const kvData = parseCalendarKeyValueText(trimmed);
-    if (kvData) return kvData;
-    return { text: trimmed };
-}
+function renderCalendar(messageEl, rawText, messageId) {
+    const data = getSaoData();
+    const panel = (messageId != null) ? data?.calendarPanels?.[messageId] : null;
 
-/**
- * 在消息 Shadow DOM 中渲染 <calendar> 标签
- * 只读：不修改 msg.mes，仅操作已渲染的 DOM
- */
-function renderCalendar(messageEl, rawText) {
-    const calendarContent = extractTag(rawText, 'calendar');
-    if (calendarContent === null) return;
-
-    const data = parseCalendarContent(calendarContent);
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('calendar');
-    const shadow = createSaoShadowHost(messageEl, 'calendar', refNode);
+    // 无 <calendar> 标签锚点（主 LLM 不再发），日历面板追加到 mes_text 末尾
+    const shadow = createSaoShadowHost(messageEl, 'calendar', null);
 
-    const year = Number(data.year) || 0;
-    const month = Number(data.month) || 0;
-    const currentDay = Number(data.current_day) || 0;
+    let year = 0, month = 0, currentDay = 0;
+    let gridDays = null;
+    let placeholderMode = false;
 
-    const summaryText = (year && month)
+    if (panel && panel.grid) {
+        const g = panel.grid;
+        year = Number(g.year) || 0;
+        month = Number(g.month) || 0;
+        currentDay = Number(g.current_day) || 0;
+        gridDays = Array.isArray(g.days) ? g.days : null;
+    }
+    if (!year || !month || !gridDays) {
+        // 无数据或数据不完整：占位模式
+        placeholderMode = true;
+    }
+
+    const summaryText = (!placeholderMode && year && month)
         ? year + '\u5e74 ' + month + '\u6708 \u65e5\u5386'
-        : (data.text || data.date || '\u65e5\u5386');
-    const calendarTitle = (year && month) ? month + '\u6708' : '';
-    const calendarInfo = year ? '\u5e74\u4efd ' + year : '';
-    const gridCells = (year && month)
-        ? buildCalendarGrid(year, month, currentDay, data.days)
+        : '\u65e5\u5386';
+    const calendarTitle = (!placeholderMode && month) ? month + '\u6708' : '';
+    const calendarInfo = (!placeholderMode && year) ? '\u5e74\u4efd ' + year : '';
+    const gridCells = (!placeholderMode && year && month)
+        ? buildCalendarGrid(year, month, currentDay, gridDays)
         : '';
     const weekdays = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
         .map(d => '<div class="weekday">' + d + '</div>').join('');
+    const placeholderContent = placeholderMode
+        ? '<div style="padding:8px;text-align:center;color:#8c785d;font-size:13px;">\u23f3 \u65e5\u5386\u751f\u6210\u4e2d\u2026</div>'
+        : '';
 
     shadow.innerHTML = `
         <style>
@@ -682,6 +632,7 @@ function renderCalendar(messageEl, rawText) {
             <details class="details-calendar-button" open>
                 <summary>${summaryText}</summary>
                 <div class="calendar-content">
+                    ${placeholderMode ? placeholderContent : `
                     <div class="calendar-header">
                         <div class="calendar-title">${calendarTitle}</div>
                         <div class="calendar-info">${calendarInfo}</div>
@@ -689,7 +640,7 @@ function renderCalendar(messageEl, rawText) {
                     <div class="calendar-grid">
                         ${weekdays}
                         ${gridCells}
-                    </div>
+                    </div>`}
                 </div>
             </details>
         </div>
@@ -697,20 +648,31 @@ function renderCalendar(messageEl, rawText) {
 }
 
 export function renderAllTags(messageEl, rawText, messageId) {
-    const hasTags = /<(?:calendar|user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
-    if (hasTags) {
+    // Phase 1: calendar 不再依赖 mes 标签，始终渲染（SAO 卡）
+    // 其余标签仍依赖 hasTags 检测以决定是否隐藏/cleanup light DOM
+    // P2 后：map/equipment/swordskill 不再由 mes 标签驱动（专家面板），始终渲染
+    // user_status/zd_status 仍由标签驱动（P3 解耦）
+    // 过渡期（P2-P4）主 LLM 可能仍发标签 → 需隐藏 light DOM 避免双重渲染
+    const hasAnySaoTags = /<(?:user_status|equip|swordskill|map|zd_status|digest)\b/i.test(rawText || '');
+    if (hasAnySaoTags) {
         hideSaoLightDomTags(messageEl)
     }
-    try { renderCalendar(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderCalendar ERROR:', e.message, e.stack); }
-    try { renderUserStatus(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderUserStatus ERROR:', e.message, e.stack); }
-    try { renderEquipment(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderEquipment ERROR:', e.message, e.stack); }
-    try { renderSwordSkill(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderSwordSkill ERROR:', e.message, e.stack); }
-    try { renderMap(messageEl, rawText); } catch(e) { console.error('[SAO Companion] renderMap ERROR:', e.message, e.stack); }
-    try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
-    if (hasTags) {
+    // 日历面板始终渲染（messageId 可用时按 messageId 索引 chatMetadata；不可用则占位）
+    try { renderCalendar(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderCalendar ERROR:', e.message, e.stack); }
+    // P2: 装饰面板始终渲染（读 chatMetadata.panels[messageId]，回退 mes 标签过渡兼容）
+    try { renderEquipment(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderEquipment ERROR:', e.message, e.stack); }
+    try { renderSwordSkill(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderSwordSkill ERROR:', e.message, e.stack); }
+    try { renderMap(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderMap ERROR:', e.message, e.stack); }
+    // 战斗面板始终渲染（combat 不依赖 mes 标签，依赖 _lastCombatResult + P3 status 专家 zdText）
+    if (typeof messageId !== 'undefined') {
+        try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderBattlePanel ERROR:', e.message, e.stack); }
+    }
+    // P3: 状态面板始终渲染（读 chatMetadata.panels[messageId].status，回退 mes 标签）
+    try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { console.error('[SAO Companion] renderUserStatus ERROR:', e.message, e.stack); }
+    if (hasAnySaoTags) {
         cleanupSaoLightDom(messageEl)
     }
-    if (rawText.includes('<zd_status>')) {
+    if (rawText && rawText.includes('<zd_status>')) {
         restoreBattleIfPending()
     }
 }
@@ -753,12 +715,22 @@ function cleanupSaoLightDom(messageEl) {
     });
 }
 
-function renderUserStatus(messageEl, rawText) {
-    const content = extractTag(rawText, 'user_status')
-    if (content === null) return
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('user_status');
-    const shadow = createSaoShadowHost(messageEl, 'user_status', refNode)
+function renderUserStatus(messageEl, rawText, messageId) {
+    // P3: 优先从 status 专家面板数据读取 userStatusHtml；回退到 mes 标签（过渡兼容）
+    let content = null;
+    if (messageId != null) {
+        const panel = getSaoData()?.panels?.[messageId]?.status;
+        // panel.html 存的是 {state, zdText, userStatusHtml} 对象（或字符串）
+        const panelData = panel && (typeof panel.html === 'string') ? safeJsonParse(panel.html) : panel?.html;
+        if (panelData && typeof panelData.userStatusHtml === 'string' && panelData.userStatusHtml.length > 0) {
+            content = panelData.userStatusHtml;
+        }
+    }
+    if (!content) {
+        content = extractTag(rawText, 'user_status')
+        if (content === null) return
+    }
+    const shadow = createSaoShadowHost(messageEl, 'user_status', null)
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>
@@ -935,13 +907,18 @@ function renderUserStatus(messageEl, rawText) {
     `
 }
 
-function renderEquipment(messageEl, rawText) {
-    const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
-    if (matches.length === 0) return
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('equip');
-    const shadow = createSaoShadowHost(messageEl, 'equip', refNode)
-    const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+function renderEquipment(messageEl, rawText, messageId) {
+    // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
+    const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.equipment : null;
+    let itemsHtml = '';
+    if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
+        itemsHtml = sanitizeInlineSaoHtml(panel.html);
+    } else {
+        const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
+        if (matches.length === 0) return
+        itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+    }
+    const shadow = createSaoShadowHost(messageEl, 'equip', null)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -962,13 +939,18 @@ function renderEquipment(messageEl, rawText) {
     `
 }
 
-function renderSwordSkill(messageEl, rawText) {
-    const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
-    if (matches.length === 0) return
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('swordskill');
-    const shadow = createSaoShadowHost(messageEl, 'swordskill', refNode)
-    const itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+function renderSwordSkill(messageEl, rawText, messageId) {
+    // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
+    const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.swordskill : null;
+    let itemsHtml = '';
+    if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
+        itemsHtml = sanitizeInlineSaoHtml(panel.html);
+    } else {
+        const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
+        if (matches.length === 0) return
+        itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+    }
+    const shadow = createSaoShadowHost(messageEl, 'swordskill', null)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -990,12 +972,17 @@ function renderSwordSkill(messageEl, rawText) {
     `
 }
 
-function renderMap(messageEl, rawText) {
-    const content = extractTag(rawText, 'map')
-    if (content === null) return
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('map');
-    const shadow = createSaoShadowHost(messageEl, 'map', refNode)
+function renderMap(messageEl, rawText, messageId) {
+    // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
+    const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.map : null;
+    let content;
+    if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
+        content = panel.html;
+    } else {
+        content = extractTag(rawText, 'map')
+        if (content === null) return
+    }
+    const shadow = createSaoShadowHost(messageEl, 'map', null)
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>

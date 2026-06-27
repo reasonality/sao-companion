@@ -8,20 +8,22 @@ import {
     esc, getContext, getCurrentCharacter, isSaoCard,
     getSettings,
     getSaoData, saveSaoDataNow,
+    safeJsonParse,
     log, updateLogDisplay,
 } from './sao-core.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
-    resolveAffixArgs,
     generateEquipment, generateSkill, generateLoot,
 } from './sao-generators.js';
 import { eventSource, event_types } from '../../../events.js';
 import { power_user } from '../../../power-user.js';
-import { renderBattlePanel, updateBattlePanelAfterCombat, clearBattleHostRegistry, removeBattleHost } from './battle/battleRenderer.js';
+import { updateBattlePanelAfterCombat, clearBattleHostRegistry, removeBattleHost } from './battle/battleRenderer.js';
 import {
     initCalendarIfNeeded,
     updateCalendarIncremental,
     persistCalendar,
+    persistCalendarPanel,
+    _validateCalendarGrid,
     parseDate, formatDate, daysBetween,
     addAppointmentToCalendar,
     formatCalendarForLLM,
@@ -47,18 +49,14 @@ import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
 // 子代理角色：narrative 不干预主对话，用于 NPC 反应生成
 // combat 兼管武器/技能/物品生成（因为涉及数值）
 // extract 单条消息状态提取；calendar 跨轮次状态机（约定提取+完成标记，v2）
-const ROLES = ['narrative', 'combat', 'extract', 'calendar'];
+// specialist P2: 装饰面板（map/equipment/swordskill）共享档位，4 级回退
+const ROLES = ['narrative', 'combat', 'extract', 'calendar', 'specialist'];
 const ROLE_LABELS = {
     narrative: '📝 叙事/NPC模型',
     combat: '⚔️ 数值与生成模型',
     extract: '📊 状态提取模型',
     calendar: '📅 日历模型',
-};
-const ROLE_DESC = {
-    narrative: 'NPC 反应生成。留空则不使用。',
-    combat: '战斗 + 装备/剑技/物品/经验生成。',
-    extract: '每次 AI 回复后自动提取 HP/MP/物品/NPC 关系。',
-    calendar: '剧情时间线协调、约定提取与完成标记。建议配置专用 API，回退主模型时超时不可控。',
+    specialist: '🧩 专家面板模型',
 };
 
 const SLOT_LABELS = {
@@ -132,45 +130,58 @@ function buildCalendarPrompt(calendar, rawText) {
     const pendingLines = pending.map((a, i) => `[${i}] ${a.id || ''} | ${a.date || ''} ${(a.time || '').padEnd(5)} | ${a.description || ''}`);
     const calSummary = formatCalendarForLLM(calendar, currentDate, 5);
 
-    const systemPrompt = `你是 SAO 游戏日历管理器，负责从 AI 回复中提取约定记录并标记已完成约定。
+    const systemPrompt = `你是 SAO 游戏日历管理器，负责从 AI 回复中提取约定记录、标记已完成约定，并输出当前游戏日历网格。
 
 ## 你的职责
 1. 从 AI 回复中提取角色之间的约定/会面/计划（正则可能遗漏的复杂场景）
 2. 标记已完成的约定（AI 回复中明确提到约定已履行）
+3. 输出当前游戏日历网格（grid），反映本回合结束时的日期与本月事件
 
-> 日期推进不归你管——由系统正则独占。你只做约定提取与完成标记。
+> 日期推进不归你管——由系统正则独占。你只做约定提取、完成标记与网格输出。
 
 ## 保守策略
 - 不确定时不修改任何数据，宁可漏报不错报
 - 仅当 AI 回复**明确**提及约定/会面/计划时才提取 appointments
 - 仅当 AI 回复**明确**提到约定已履行时才标记完成
+- grid 反映"当前游戏日期"所在月份，current_day 为该日期的天数
 
 ## 日期处理
 - 日期推进由系统正则独占，不归你管。
 - appointments_detected 中的 date 由你从 AI 回复中直接提取（ISO YYYY-MM-DD），不做日期算术；AI 若用相对表述无法解析为绝对日期则该条不提取。
+- grid.year/month/current_day 从输入"当前游戏日期"派生；grid.days 列出该月有事件的天（含约定+原作事件），每天 events 为简短标题数组。
 
 ## 输出格式（严格 JSON，不要输出其他内容）
 {
   "appointments_detected": [
     { "date": "YYYY-MM-DD", "time": "HH:MM 或空", "description": "约定内容" }
   ],
-  "completed_appointment_indices": [0]
+  "completed_appointment_indices": [0],
+  "grid": {
+    "year": 2024,
+    "month": 12,
+    "current_day": 16,
+    "days": [
+      { "day": 16, "events": ["与Asuna会面"] },
+      { "day": 20, "events": ["与西莉卡训练"] }
+    ]
+  }
 }
 
 ## 字段说明
 - appointments_detected: 新检测到的约定。date 从 AI 回复中提取（ISO YYYY-MM-DD）。若无新增，输出空数组 []
 - completed_appointment_indices: 输入 pending 列表中已完成的约定的**下标**（0-based 小整数，对应输入顺序）。直接输出数字，不要复述 id。若无完成，输出空数组 []
+- grid: 当前游戏日历网格。year/month/current_day 从当前游戏日期派生；days 列出本月有事件的天（每天 events ≤ 10 条，每条 ≤ 100 字符）。若无事件天，输出空数组 []。
 
 ## 约定示例
 当前日期: 2024-12-16
 AI: "明天下午三点，我们在主城广场见。"
-输出: { "appointments_detected": [{"date":"2024-12-17","time":"15:00","description":"主城广场见面"}], "completed_appointment_indices": [] }
+输出: { "appointments_detected": [{"date":"2024-12-17","time":"15:00","description":"主城广场见面"}], "completed_appointment_indices": [], "grid": {"year":2024,"month":12,"current_day":17,"days":[{"day":17,"events":["主城广场见面"]}]} }
 
 ## 完成约定示例
 pending 输入（带下标）:
   [0] apt_1718123456789_0 | 2024-12-16 18:00 | 与Asuna会面
 AI: "昨天和Asuna的会面很顺利。"
-输出: { "appointments_detected": [], "completed_appointment_indices": [0] }`;
+输出: { "appointments_detected": [], "completed_appointment_indices": [0], "grid": {"year":2024,"month":12,"current_day":17,"days":[]} }`;
 
     const userPrompt = `当前游戏日期: ${currentDate}
 
@@ -291,12 +302,21 @@ async function calendarModelUpdate(rawText) {
             }
         }
 
-        if (addedCount === 0 && completedCount === 0) {
-            log('日历模型无新增约定/完成标记');
+        // Phase 1: 应用 grid（显示用日历网格）
+        let gridApplied = false;
+        if (parsed.grid && _validateCalendarGrid(parsed.grid)) {
+            persistCalendarPanel(snapshotMsgId, parsed.grid);
+            gridApplied = true;
+        } else if (parsed.grid) {
+            log('日历模型 grid 校验失败跳过', 'warn');
+        }
+
+        if (addedCount === 0 && completedCount === 0 && !gridApplied) {
+            log('日历模型无新增约定/完成标记/grid');
             return;
         }
 
-        log(`日历模型应用完成: 新增约定=${addedCount}, 完成标记=${completedCount}`);
+        log(`日历模型应用完成: 新增约定=${addedCount}, 完成标记=${completedCount}, grid=${gridApplied ? '是' : '否'}`);
         await persistCalendar(calendar);
     } catch (e) {
         log('日历模型异步更新失败: ' + e.message, 'warn');
@@ -327,8 +347,6 @@ const ARC_NAME_PREFIXES = {
 
 // 骰子工具函数已迁移至 sao-generators.js
 
-// ============================================================
-// 工具函数
 // ============================================================
 // 工具函数
 // ============================================================
@@ -450,6 +468,54 @@ async function fetchModelList(role) {
  * @param {object} [opts] - {temperature, jsonSchema, prefill, timeoutMs}
  * @returns {Promise<string>}
  */
+/**
+ * 共享 OpenAI 兼容 API 调用（callModel 与 callSpecialist 复用）。
+ * @param {string} label - 日志/错误中显示的角色名
+ * @param {object} cfg - {url, key, model}
+ */
+async function _fetchOpenAICompat(label, cfg, messages, maxTokens, opts) {
+    let baseUrl = cfg.url.replace(/\/+$/, '');
+    if (!baseUrl.endsWith('/v1')) baseUrl += '/v1';
+    const url = `${baseUrl}/chat/completions`;
+    log(`调用 ${label}: ${cfg.model}`);
+
+    const body = {
+        model: cfg.model,
+        messages: messages,
+        max_tokens: maxTokens,
+        temperature: opts.temperature ?? 0.7,
+        stream: false,
+    };
+    if (opts.prefill) body.messages.push({ role: 'assistant', content: opts.prefill });
+    if (opts.jsonSchema) {
+        const isOpenAICompatible = !cfg.url?.includes('ollama') && !cfg.model?.includes('claude');
+        if (isOpenAICompatible) body.response_format = { type: 'json_object' };
+    }
+
+    const controller = new AbortController();
+    const timeoutMs = opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let resp;
+    try {
+        resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.key}` },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+    if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        throw new Error(`${label} 调用失败: HTTP ${resp.status} - ${errText.substring(0, 300)}`);
+    }
+    const data = await resp.json();
+    const content = data.choices?.[0]?.message?.content ?? '';
+    log(`${label} 调用成功 (${content.length} 字符)`);
+    return content;
+}
+
 async function callModel(role, messages, maxTokens = 512, opts = {}) {
     const settings = getSettings();
     const cfg = settings.models[role];
@@ -460,62 +526,7 @@ async function callModel(role, messages, maxTokens = 512, opts = {}) {
         return await callViaMainModel(messages, maxTokens);
     }
 
-    // 标准化 URL
-    let baseUrl = cfg.url.replace(/\/+$/, '');
-    if (!baseUrl.endsWith('/v1')) baseUrl += '/v1';
-
-    const url = `${baseUrl}/chat/completions`;
-    log(`调用 ${ROLE_LABELS[role]}: ${cfg.model}`);
-
-    const body = {
-        model: cfg.model,
-        messages: messages,
-        max_tokens: maxTokens,
-        temperature: opts.temperature ?? 0.7,
-        stream: false,
-    };
-
-    // 预填充 (Anthropic 风格)
-    if (opts.prefill) {
-        body.messages.push({ role: 'assistant', content: opts.prefill });
-    }
-
-    // JSON Schema (仅对 OpenAI 兼容 API 发送，Ollama/Claude 不支持)
-    if (opts.jsonSchema) {
-        const isOpenAICompatible = !cfg.url?.includes('ollama') && !cfg.model?.includes('claude');
-        if (isOpenAICompatible) {
-            body.response_format = { type: 'json_object' };
-        }
-    }
-
-    const controller = new AbortController();
-    const timeoutMs = opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 30000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    let resp;
-    try {
-        resp = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${cfg.key}`,
-            },
-            body: JSON.stringify(body),
-            signal: controller.signal,
-        });
-    } finally {
-        clearTimeout(timeoutId);
-    }
-
-    if (!resp.ok) {
-        const errText = await resp.text().catch(() => '');
-        throw new Error(`${ROLE_LABELS[role]} 调用失败: HTTP ${resp.status} - ${errText.substring(0, 300)}`);
-    }
-
-    const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content ?? '';
-    log(`${ROLE_LABELS[role]} 调用成功 (${content.length} 字符)`);
-    return content;
+    return _fetchOpenAICompat(ROLE_LABELS[role], cfg, messages, maxTokens, opts);
 }
 
 /**
@@ -529,6 +540,286 @@ async function callViaMainModel(messages, maxTokens) {
         skipWIAN: true,
         responseLength: maxTokens,
     });
+}
+
+/**
+ * P2: 专家面板调用——4 级回退链。
+ * 顺序：专属配置(specialistRole) → specialist 档 → extract 档 → 主模型
+ * 任何一级配置了 url+model 即使用该级；否则向下回退。
+ * @param {string} specialistRole - 'map'/'equipment'/'swordskill'（专属档，当前无专属 UI，预留；实际走 specialist 档）
+ * @param {Array} messages
+ * @param {number} maxTokens
+ * @param {object} opts
+ */
+async function callSpecialist(specialistRole, messages, maxTokens = 512, opts = {}) {
+    const settings = getSettings();
+    const tryConfig = (cfg) => cfg && cfg.url && cfg.model;
+    const label = (r) => ROLE_LABELS[r] || r;
+    // 1. 专属配置（预留，当前无专属 UI，settings.models[specialistRole] 不存在 → 跳过到 specialist 档）
+    if (specialistRole && settings.models[specialistRole] && tryConfig(settings.models[specialistRole])) {
+        return _fetchOpenAICompat(label(specialistRole), settings.models[specialistRole], messages, maxTokens, opts);
+    }
+    // 2. specialist 档
+    if (settings.models.specialist && tryConfig(settings.models.specialist)) {
+        return _fetchOpenAICompat(label('specialist'), settings.models.specialist, messages, maxTokens, opts);
+    }
+    // 3. extract 档
+    if (settings.models.extract && tryConfig(settings.models.extract)) {
+        return _fetchOpenAICompat(label('extract'), settings.models.extract, messages, maxTokens, opts);
+    }
+    // 4. 主模型
+    log(`专家面板 ${specialistRole} 未配置专用 API，回退主模型`, 'warn');
+    return await callViaMainModel(messages, maxTokens);
+}
+
+// ============================================================
+// P2: 装饰面板专家调用（map/equipment/swordskill）
+// ============================================================
+
+/**
+ * 写入专家面板数据到 chatMetadata.panels[messageId][panelType]
+ */
+function persistSpecialistPanel(messageId, panelType, html) {
+    if (messageId == null) return;
+    const data = getSaoData();
+    if (!data) return;
+    if (!data.panels) data.panels = {};
+    if (!data.panels[messageId]) data.panels[messageId] = {};
+    data.panels[messageId][panelType] = { html, createdAt: new Date().toISOString() };
+}
+
+/**
+ * 通用专家 prompt 构造
+ */
+function _buildPanelPrompt(panelName, instruction, narrativeText, currentStateHint) {
+    return [
+        {
+            role: 'system',
+            content: `你是 SAO 游戏的 ${panelName} 面板生成器。根据叙事正文生成该面板的 HTML 片段。
+
+## 输出格式（严格 JSON，不要输出其他内容）
+{ "html": "<内联 HTML，将被注入 Shadow DOM 的内容区>" }
+
+## 规则
+- html 是内联 HTML 片段（不要含 <html>/<body>/<style>），将被注入已带样式的容器内
+- 内容应反映本回合叙事中 ${panelName} 的状态变化
+- 简洁、信息密度高，避免冗长
+- ${instruction}
+
+## 输入
+- 叙事正文（截断 2000 字）
+- 当前状态摘要（如有）`
+        },
+        {
+            role: 'user',
+            content: `## 当前状态摘要\n${currentStateHint || '(无)'}\n\n## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`
+        },
+    ];
+}
+
+/**
+ * 解析专家 JSON 响应，提取 html 字段（共享）。
+ * @returns {string|null} html 字符串（非空），或 null（解析失败/空）
+ */
+function _parseSpecialistHtml(content, panelType) {
+    if (!content) return null;
+    const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const parsed = safeJsonParse(cleaned);
+    if (parsed && typeof parsed.html === 'string' && parsed.html.length > 0) {
+        return parsed.html;
+    }
+    log(`${panelType} 专家 JSON 解析失败或 html 为空`, 'warn');
+    return null;
+}
+
+/**
+ * 通用装饰面板专家调用（DRY：map/equipment/swordskill 共用）。
+ * @param {string} panelType - 'map'/'equipment'/'swordskill'（chatMetadata.panels[messageId] 键名 + specialistRole）
+ * @param {string} panelName - 面板中文名（prompt 中使用）
+ * @param {string} instruction - 面板内容指令
+ * @param {string} stateHint - 当前状态摘要
+ * @param {number|string} messageId
+ * @param {string} narrativeText
+ */
+async function _callPanelSpecialist(panelType, panelName, instruction, stateHint, messageId, narrativeText) {
+    const messages = _buildPanelPrompt(panelName, instruction, narrativeText, stateHint);
+    let content;
+    try {
+        content = await callSpecialist(panelType, messages, 512, { temperature: 0.5, jsonSchema: true });
+    } catch (e) {
+        log(`${panelType} 专家调用失败: ` + e.message, 'warn');
+        return false;
+    }
+    const html = _parseSpecialistHtml(content, panelType);
+    if (!html) return false;
+    persistSpecialistPanel(messageId, panelType, html);
+    await saveSaoDataNow();
+    return true;
+}
+
+/** 装饰面板专家配置（DRY 驱动） */
+const PANEL_SPECIALIST_CONFIG = [
+    { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '' },
+    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => {
+        const data = getSaoData();
+        return data?.state?.equipment
+            ? Object.entries(data.state.equipment).filter(([, v]) => v && v.name).map(([k, v]) => `${k}:${v.name}`).join(', ')
+            : '';
+    }},
+    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => {
+        const data = getSaoData();
+        return data?.state?.skills?.length
+            ? data.state.skills.slice(0, 10).map(s => `${s.name}Lv${s.level}`).join(', ')
+            : '';
+    }},
+];
+
+/**
+ * 触发所有装饰面板专家（并行，fire-and-forget）。
+ * 每个专家成功后独立 saveSaoDataNow（避免单点失败导致全丢）。
+ * 共享此函数以便 MESSAGE_SWIPED/MESSAGE_EDITED 重用（plan §6）。
+ */
+function fireSpecialistPanels(messageId, narrativeText) {
+    if (messageId == null) return;
+    if (getSettings().specialistPanels?.enabled === false) return;
+    for (const cfg of PANEL_SPECIALIST_CONFIG) {
+        _callPanelSpecialist(cfg.type, cfg.name, cfg.instruction, cfg.hint(), messageId, narrativeText)
+            .catch(e => log(`${cfg.type} 专家失败: ` + e.message, 'warn'));
+    }
+}
+
+// ============================================================
+// P3: status 专家 + extractAll 重设计
+// ============================================================
+
+/**
+ * 校验 status 专家输出的 {state, zdText, userStatusHtml}（防注入/防漂移）。
+ * @returns {boolean} true=合法
+ */
+function _validateStatus(parsed) {
+    if (!parsed || typeof parsed !== 'object') return false;
+    const s = parsed.state;
+    if (!s || typeof s !== 'object') return false;
+    // 标量数值字段：若存在必须是 number
+    const numFields = ['hp','max_hp','mp','max_mp','str','agi','int','vit','level','exp','cor','floor'];
+    for (const f of numFields) {
+        if (s[f] != null && typeof s[f] !== 'number') return false;
+    }
+    // 字符串字段：若存在必须是 string
+    const strFields = ['player_name','location'];
+    for (const f of strFields) {
+        if (s[f] != null && typeof s[f] !== 'string') return false;
+    }
+    // equipment：若存在必须是 object
+    if (s.equipment != null && typeof s.equipment !== 'object') return false;
+    // inventory：若存在必须是 array
+    if (s.inventory != null && !Array.isArray(s.inventory)) return false;
+    // skills：若存在必须是 array
+    if (s.skills != null && !Array.isArray(s.skills)) return false;
+    // zdText：string（可空）
+    if (parsed.zdText != null && typeof parsed.zdText !== 'string') return false;
+    // userStatusHtml：string（可空）
+    if (parsed.userStatusHtml != null && typeof parsed.userStatusHtml !== 'string') return false;
+    // zdText 长度限制（防注入，token 序列通常 < 5000）
+    if (typeof parsed.zdText === 'string' && parsed.zdText.length > 10000) return false;
+    // userStatusHtml 长度限制
+    if (typeof parsed.userStatusHtml === 'string' && parsed.userStatusHtml.length > 50000) return false;
+    return true;
+}
+
+/**
+ * P3: status 专家——输出结构化 state（供 extractAll/applyExtractedData）+ zdText（供 renderBattlePanel）。
+ * 主 LLM 不再发 <zd_status>/<user_status>；本专家接管全部状态生成。
+ * 注意：status 专家不 fire-and-forget——extractAll 依赖其输出作为主数据源，须 await。
+ * @param {number|string} messageId
+ * @param {string} narrativeText
+ * @returns {Promise<object|null>} { state, zdText } 或 null（失败）
+ */
+async function callStatusSpecialist(messageId, narrativeText) {
+    const data = getSaoData();
+    const cur = data?.state || {};
+    // 当前状态摘要供专家参考（避免状态剧变）
+    const stateHint = [
+        cur.player_name ? `[玩家]${cur.player_name}` : '',
+        cur.level ? `Lv${cur.level}` : '',
+        cur.hp != null ? `HP:${cur.hp}/${cur.max_hp||'?'}` : '',
+        cur.mp != null ? `MP:${cur.mp}/${cur.max_mp||'?'}` : '',
+        cur.floor ? `${cur.floor}F` : '',
+        cur.location ? `@${cur.location}` : '',
+        cur.str != null ? `STR${cur.str} AGI${cur.agi} INT${cur.int} VIT${cur.vit}` : '',
+    ].filter(Boolean).join(' | ');
+    const equipHint = cur.equipment ? Object.entries(cur.equipment).filter(([,v])=>v&&v.name).map(([k,v])=>`${k}:${v.name}`).join(',') : '';
+    const skillHint = cur.skills?.length ? cur.skills.slice(0,10).map(s=>`${s.name}Lv${s.skill_level||s.level||'?'}`).join(',') : '';
+
+    const systemPrompt = `你是 SAO 游戏状态管理器。根据叙事正文，更新游戏状态并输出战斗数据。
+
+## 你的职责
+1. 输出 state：玩家属性、装备、技能、物品、位置
+2. 输出 zdText：战斗面板用的原始数据文本（与旧 <zd_status> 标签内容格式一致）
+
+## 输出格式（严格 JSON，不要输出其他内容）
+{
+  "state": {
+    "player_name": "string|null",
+    "level": 0, "exp": 0, "cor": 0,
+    "hp": 0, "max_hp": 0, "mp": 0, "max_mp": 0,
+    "str": 0, "agi": 0, "int": 0, "vit": 0,
+    "location": "string", "floor": 0,
+    "equipment": { "weapon": {"name":"...","item_level":0,"durability":"100/100","stats":{"max_hp":0,"str":0,"agi":0,"int":0,"vit":0}} },
+    "inventory": [ {"name":"...","qty":1} ],
+    "skills": [ {"name":"...","skill_level":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ]
+  },
+  "zdText": "[PR:玩家名][GR:等级][HP:当前/最大][MP:当前/最大][STR:值][AGI:值][INT:值][VIT:值][WE:技能名][ATK:值][Hit%:值][Crit%:值][APT:值][TPA:值][MPCost:值][CD:值][WN:代码][EN:代码参数][FRN:队友名][FRHP:当前/最大][FRMP:当前/最大][ENN:敌人名][ENHP:当前/最大][ENS:敌人技能名]",
+  "userStatusHtml": "<内联 HTML：角色状态卡（装备/背包/技能/属性/位置），注入 Shadow DOM 内容区>"
+}
+
+## 规则
+- state 反映本回合结束时的状态（基于叙事变化）
+- zdText 是战斗面板的原始数据，格式为 [KEY:VALUE] token 序列，用 ][ 分隔，不含外层 []
+- 若叙事中无战斗，zdText 中仍输出玩家基础属性（PR/GR/HP/MP/STR/AGI/INT/VIT），无队友/敌人段
+- 不确定时保持当前值不变（保守更新）
+- 装备槽位：weapon/main_hand/off_hand/body/head/hands/feet/accessory
+- 技能字段：base_damage=ATK, hit_rate=Hit%, crit_rate=Crit%, mp_cost=MPCost, cooldown=CD, hits=APT, targets=TPA, core_code=WN, affix_codes=EN（数组）
+
+## 当前状态摘要（参考，勿剧变）
+${stateHint || '(无)'}
+${equipHint ? '装备: ' + equipHint : ''}
+${skillHint ? '技能: ' + skillHint : ''}`;
+
+    const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`;
+
+    let content;
+    try {
+        content = await callSpecialist('status', [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ], 1024, { temperature: 0.4, jsonSchema: true, timeoutMs: 30000 });
+    } catch (e) {
+        log('status 专家调用失败: ' + e.message, 'warn');
+        return null;
+    }
+    if (!content) return null;
+    try {
+        const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        const parsed = safeJsonParse(cleaned);
+        if (!_validateStatus(parsed)) {
+            log('status 专家输出校验失败', 'warn');
+            return null;
+        }
+        // 写入 chatMetadata.panels[messageId].status（含 state/zdText/userStatusHtml）
+        if (messageId != null) {
+            persistSpecialistPanel(messageId, 'status', {
+                state: parsed.state,
+                zdText: parsed.zdText || '',
+                userStatusHtml: parsed.userStatusHtml || '',
+            });
+            await saveSaoDataNow();
+        }
+        return { state: parsed.state, zdText: parsed.zdText || '', userStatusHtml: parsed.userStatusHtml || '' };
+    } catch (e) {
+        log('status 专家 JSON 解析失败: ' + e.message, 'warn');
+        return null;
+    }
 }
 
 // ============================================================
@@ -883,7 +1174,7 @@ function renderMessageWhenReady(messageId, rawText, attempts = 0) {
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
-            renderAllTags(el, rawText);
+            renderAllTags(el, rawText, messageId);
         }
         return;
     }
@@ -955,7 +1246,7 @@ function bindEvents() {
                     if (idx === lastAiIdx) return;
                     const histEl = getMessageElement(idx);
                     if (histEl) {
-                        renderAllTags(histEl, msg.mes || '');
+                        renderAllTags(histEl, msg.mes || '', idx);
                     }
                 });
                 // 延迟轮询未渲染的消息（DOM 可能尚未就绪）
@@ -996,14 +1287,23 @@ function bindEvents() {
         // 其内部 msg.mes 改写逻辑与本只读原则矛盾）。editMessage / updateMessageBlock
         // 同样不得在自动事件中调用。
         await withProcessingLock(`msg-${messageId}`, async () => {
-            // 多任务提取（状态）— 只读取文本、写入 chatMetadata，不修改消息
-            const extracted = await extractAll(rawText, callModel);
+            // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源）
+            if (getSettings().specialistPanels?.enabled !== false) {
+                try {
+                    await callStatusSpecialist(messageId, rawText);
+                } catch (e) {
+                    log('status 专家触发失败（extractAll 将回退标签/模型）: ' + e.message, 'warn');
+                }
+            }
+            // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
+            const extracted = await extractAll(rawText, callModel, messageId);
             if (extracted) await applyExtractedData(extracted, CUSTOM_SKILL_DEFS);
 
             // P2b: Calendar incremental update (v1 pure regex, no LLM)
             // await 保证 calendar 变更（含 calendarVersion 递增）在 combat/skill 之前完成，
             // 消除 fire-and-forget 双重保存与潜在未处理 rejection（见 oracle 审查）。
-            await updateCalendarIncremental(rawText);
+            // Phase 1: 传 messageId 以便写入 calendarPanels[messageId] 瞬时 grid
+            await updateCalendarIncremental(rawText, messageId);
 
             // P4b: Combat resolution (no DOM dependency)
             const combatResult = resolveCombatRound(rawText);
@@ -1096,6 +1396,9 @@ function bindEvents() {
                 calendarModelUpdate(rawText)
                     .catch(e => log('日历模型 fire-and-forget 失败: ' + e.message, 'warn'));
             }
+
+            // P2: 装饰面板专家 fire-and-forget（共享函数，swipe/edit 复用）
+            fireSpecialistPanels(messageId, rawText);
         });
 
         // 状态提取完成后刷新面板（如果已打开）
@@ -1169,23 +1472,58 @@ function bindEvents() {
             if (!isSaoCard()) return;
             // A3: 清理当前消息的 battle host，防止切换分支后内存泄漏（不再整表清除，保护其他活跃战斗面板）
             removeBattleHost(messageId);
+            // Phase 1: 清理 swipe 消息的 calendarPanels，避免陈旧面板残留（plan §2.3）
+            // P2: 清理 swipe 消息的 panels（装饰专家面板）
+            {
+                const d = getSaoData();
+                if (d?.calendarPanels && d.calendarPanels[messageId] != null) {
+                    delete d.calendarPanels[messageId];
+                }
+                if (d?.panels && d.panels[messageId] != null) {
+                    delete d.panels[messageId];
+                }
+            }
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
             const msgEl = getMessageElement(messageId);
-            if (msgEl) renderAllTags(msgEl, msg.mes || '');
+            if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
+            // P2: swipe 后重新触发装饰专家 + P3 status 专家（plan §6）
+            if (getSettings().specialistPanels?.enabled !== false) {
+                callStatusSpecialist(messageId, msg.mes || '')
+                    .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
+                    .catch(e => log('swipe 重触发 status 专家失败: ' + e.message, 'warn'));
+                fireSpecialistPanels(messageId, msg.mes || '');
+            }
         });
     }
-
     // 消息编辑后重新渲染
     if (event_types.MESSAGE_EDITED) {
         eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
             if (!isSaoCard()) return;
+            // Phase 1: 编辑使原叙事失效，清理该消息的 calendarPanels（将重新填充）
+            // P2: 清理该消息的 panels（装饰专家面板将重新填充）
+            {
+                const d = getSaoData();
+                if (d?.calendarPanels && d.calendarPanels[messageId] != null) {
+                    delete d.calendarPanels[messageId];
+                }
+                if (d?.panels && d.panels[messageId] != null) {
+                    delete d.panels[messageId];
+                }
+            }
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
             const msgEl = getMessageElement(messageId);
-            if (msgEl) renderAllTags(msgEl, msg.mes || '');
+            if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
+            // P2: 编辑后重新触发装饰专家 + P3 status 专家（plan §6）
+            if (getSettings().specialistPanels?.enabled !== false) {
+                callStatusSpecialist(messageId, msg.mes || '')
+                    .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
+                    .catch(e => log('edit 重触发 status 专家失败: ' + e.message, 'warn'));
+                fireSpecialistPanels(messageId, msg.mes || '');
+            }
         });
     }
 
@@ -1216,7 +1554,7 @@ function bindEvents() {
                     if (!msg || msg.is_user) return;
                     const histEl = getMessageElement(idx);
                     if (histEl && !histEl.querySelector('.sao-render-host')) {
-                        renderAllTags(histEl, msg.mes || '');
+                        renderAllTags(histEl, msg.mes || '', idx);
                     }
                 });
             }
@@ -1978,6 +2316,15 @@ function initPanelLogic() {
             saveSettingsDebounced();
             log('日历 LLM 增强开关: ' + (cb.checked ? '开启' : '关闭'));
         },
+        toggleSpecialistPanels() {
+            const cb = document.getElementById('sao_specialist_panels_enabled');
+            if (!cb) return;
+            const settings = getSettings();
+            if (!settings.specialistPanels) settings.specialistPanels = { enabled: true };
+            settings.specialistPanels.enabled = cb.checked;
+            saveSettingsDebounced();
+            log('专家面板开关: ' + (cb.checked ? '开启' : '关闭'));
+        },
         switchArc(arc) {
             const settings = getSettings();
             settings.currentArc = arc;
@@ -2070,6 +2417,7 @@ function initPanelLogic() {
                 case 'testModel': window.SaoPanel.testModel(role); break;
                 case 'saveModels': window.SaoPanel.saveModels(); break;
                 case 'toggleCalLlm': window.SaoPanel.toggleCalLlm(); break;
+                case 'toggleSpecialistPanels': window.SaoPanel.toggleSpecialistPanels(); break;
                 case 'testGenerate': window.SaoPanel.testGenerate(type); break;
                 case 'refreshStatus': window.SaoPanel.refreshStatus(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
@@ -2170,6 +2518,9 @@ function loadSettingsToPanel() {
     // v2 日历 LLM 开关状态
     const llmCb = document.getElementById('sao_calendar_llm_enabled');
     if (llmCb) llmCb.checked = !!(settings.saoCalendar?.llmEnabled);
+    // P2: 专家面板开关状态
+    const specialistCb = document.getElementById('sao_specialist_panels_enabled');
+    if (specialistCb) specialistCb.checked = settings.specialistPanels?.enabled !== false;
 }
 
 function updateModelStatus(role, ok) {

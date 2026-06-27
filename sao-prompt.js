@@ -21,7 +21,6 @@ import { getSaoData, getContext, getSettings, isSaoCard, log, esc } from './sao-
 export const SAO_PROMPT_STRIP_TAGS = [
     'zd_status',
     'user_status',
-    'calendar',
     'map',
     'digest',
     'guild',

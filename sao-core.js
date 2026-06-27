@@ -13,13 +13,16 @@ const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     // 多模型 API 配置 (直接存储 endpoint/key/model)
     models: {
-        narrative: { url: '', key: '', model: '' },
-        combat:    { url: '', key: '', model: '' },
-        extract:   { url: '', key: '', model: '' },
-        calendar:  { url: '', key: '', model: '' },
+        narrative:  { url: '', key: '', model: '' },
+        combat:     { url: '', key: '', model: '' },
+        extract:    { url: '', key: '', model: '' },
+        calendar:   { url: '', key: '', model: '' },
+        specialist: { url: '', key: '', model: '' },
     },
     // v2 日历 LLM 模型开关（opt-in 默认关）
     saoCalendar: { llmEnabled: false },
+    // P2: 专家面板开关（opt-in 默认开——装饰面板专家化是核心收益）
+    specialistPanels: { enabled: true },
     // 章节
     currentArc: 'sao',
     // SAO 卡兼容模式（替代 TavernHelper 脚本）
@@ -44,6 +47,14 @@ export function esc(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+/**
+ * 安全 JSON 解析（失败返回 null，不抛出）。共享工具。
+ */
+export function safeJsonParse(s) {
+    if (s == null || typeof s !== 'string') return null;
+    try { return JSON.parse(s); } catch (e) { return null; }
 }
 
 // ============================================================
@@ -90,6 +101,10 @@ export function getSettings() {
     if (!s.saoCalendar) {
         s.saoCalendar = structuredClone(DEFAULT_SETTINGS.saoCalendar);
     }
+    // 兼容旧版本：确保 specialistPanels 开关存在（P2）
+    if (!s.specialistPanels) {
+        s.specialistPanels = structuredClone(DEFAULT_SETTINGS.specialistPanels);
+    }
     return s;
 }
 
@@ -106,11 +121,15 @@ export function getSaoData() {
     const meta = ctx.chatMetadata;
     if (!meta) return null;  // 群聊或异常情况
     if (!meta[MODULE_NAME]) {
-        meta[MODULE_NAME] = { state: null, arc: 'sao', calendar: null };
+        meta[MODULE_NAME] = { state: null, arc: 'sao', calendar: null, calendarPanels: {}, panels: {} };
     }
     const d = meta[MODULE_NAME];
     // 兼容旧字段
     if (d.calendar === undefined) d.calendar = null;
+    // Phase 1: 兼容旧版本，补全 calendarPanels（日历面板按 messageId 缓存）
+    if (!d.calendarPanels) d.calendarPanels = {};
+    // P2: 兼容旧版本，补全 panels（专家面板按 messageId 缓存）
+    if (!d.panels) d.panels = {};
     return d;
 }
 

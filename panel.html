@@ -194,6 +194,18 @@
 <label for="sao_calendar_llm_enabled" style="margin:0;font-size:0.85em;">启用日历 LLM 增强（v2）</label>
 </div>
 </div>
+<div class="sao-card">
+<div class="sao-card-title">专家面板模型<span class="sao-status-box sao-status-warn" id="sao_specialist_status" style="font-size:0.8em;">未配置</span></div>
+<p style="color:var(--text-secondary);font-size:0.82em;margin-bottom:12px;">装饰面板（地图/装备/剑技）共享档位。留空回退到状态提取模型，再回退主模型。</p>
+<div class="sao-field"><label>API 地址</label><input id="sao_specialist_url" placeholder="https://api.deepseek.com/v1" /></div>
+<div class="sao-field"><label>API 密钥</label><input id="sao_specialist_key" type="password" placeholder="sk-..." /></div>
+<div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_specialist_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="specialist">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="specialist">测试</button></div>
+<div class="sao-test-result" id="sao_specialist_test"></div>
+<div class="sao-field" style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+<input type="checkbox" id="sao_specialist_panels_enabled" data-action="toggleSpecialistPanels" style="margin:0;" checked />
+<label for="sao_specialist_panels_enabled" style="margin:0;font-size:0.85em;">启用专家面板（地图/装备/剑技由专家生成）</label>
+</div>
+</div>
 <div style="margin-top:10px;"><button class="sao-btn" data-action="saveModels">保存配置</button></div>
 </div>
 </div>
@@ -202,7 +214,7 @@
 <div class="sao-tab-content" data-content="about">
 <div class="sao-section"><div class="sao-section-title">SAO Companion</div>
 <div class="sao-card">
-<p style="margin:0 0 8px 0;">版本: 0.6.10</p>
+<p style="margin:0 0 8px 0;">版本: 0.6.15</p>
 <p style="margin:0 0 8px 0;">SAO 角色卡扩展 - SillyTavern 专用</p>
 <p style="margin:0 0 12px 0;">功能: 多模型 + 状态监控 + 章节管理</p>
 <div style="border-top:1px solid var(--border-subtle);margin:14px 0;"></div>
