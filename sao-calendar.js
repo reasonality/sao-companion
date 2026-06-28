@@ -387,6 +387,18 @@ export function initCalendarIfNeeded() {
         // 已初始化（days 非空）— 清理可能的历史重复数据后返回
         if (data.calendar && data.calendar.days && Object.keys(data.calendar.days).length > 0) {
             _dedupExistingDays(data.calendar);
+            // Clean stale auto-generated appointments from disabled regex extractor
+            if (data.calendar.appointments) {
+                const before = data.calendar.appointments.length;
+                data.calendar.appointments = data.calendar.appointments.filter(a => a.source !== 'auto');
+                // Also remove their events from days
+                for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
+                    dayData.events = (dayData.events || []).filter(ev => !(ev.type === 'appointment' && ev.source === 'auto'));
+                }
+                if (before !== data.calendar.appointments.length) {
+                    log('\u6e05\u7406 ' + (before - data.calendar.appointments.length) + ' \u4e2a\u65e7\u6b63\u5219\u63d0\u53d6\u7684\u7ea6\u5b9a');
+                }
+            }
             return;
         }
 

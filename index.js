@@ -1291,8 +1291,8 @@ function initPanelLogic() {
             // Only first event as plain text (no chip)
             const first = events[0];
             const full = first.title || first.description || '';
-            const txt = esc(full.substring(0, 50));
-            firstEventHtml = `<div class="sao-cal-event-text">${txt}${full.length > 50 ? '…' : ''}</div>`;
+            const txt = esc(full);
+            firstEventHtml = `<div class="sao-cal-event-text">${txt}</div>`;
         }
 
         return `<div class="${cls.join(' ')}" data-action="calSelectDay" data-date="${dateStr}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${firstEventHtml}</div>`;
@@ -1416,20 +1416,32 @@ function initPanelLogic() {
         const cal = getCalendar();
         const dayData = cal?.days?.[dateStr];
         const events = dayData?.events || [];
-        if (events.length === 0) {
-            return '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u4e8b\u4ef6</span>';
+        let html = '';
+        if (events.length > 0) {
+            html += events.map((evt, idx) => {
+                const cls = ['sao-cal-event-item'];
+                if (evt.type === 'appointment') cls.push('sao-cal-event-apt');
+                else if (evt.type === 'canon') cls.push('sao-cal-event-canon');
+                const time = evt.time ? `<span style="color:var(--primary);">${esc(evt.time)}</span> ` : '';
+                const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
+                return `<div class="${cls.join(' ')}">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                        <div style="flex:1;">
+                            <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}
+                        </div>
+                        <div style="flex-shrink:0;display:flex;gap:4px;">
+                            <button class="sao-btn sao-btn-sm" data-action="calEditEvent" data-date="${dateStr}" data-idx="${idx}" style="padding:2px 8px;font-size:0.75em;">\u7f16\u8f91</button>
+                            <button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calDeleteEvent" data-date="${dateStr}" data-idx="${idx}" style="padding:2px 8px;font-size:0.75em;">\u5220\u9664</button>
+                        </div>
+                    </div>
+                    ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
+                </div>`;
+            }).join('');
+        } else {
+            html += '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u4e8b\u4ef6</span>';
         }
-        return events.map(evt => {
-            const cls = ['sao-cal-event-item'];
-            if (evt.type === 'appointment') cls.push('sao-cal-event-apt');
-            else if (evt.type === 'canon') cls.push('sao-cal-event-canon');
-            const time = evt.time ? `<span style="color:var(--primary);">${esc(evt.time)}</span> ` : '';
-            const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
-            return `<div class="${cls.join(' ')}">
-                <div><span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}</div>
-                ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
-            </div>`;
-        }).join('');
+        html += `<div style="margin-top:10px;"><button class="sao-btn sao-btn-sm" data-action="calAddEvent" data-date="${dateStr}">+ \u6dfb\u52a0\u4e8b\u4ef6</button></div>`;
+        return html;
     }
 
     function handleCalSelectDay(dateStr) {
@@ -1437,6 +1449,47 @@ function initPanelLogic() {
         renderCalendarMonth();
         renderCalendarDayDetail();
         showDetailModal(dateStr + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(dateStr));
+    }
+
+    function handleCalEditEvent(dateStr, eventIdx) {
+        const cal = getCalendar();
+        const evt = cal?.days?.[dateStr]?.events?.[eventIdx];
+        if (!evt) return;
+        showCalEditForm(null, dateStr);
+        const descEl = document.getElementById('sao_cal_input_desc');
+        const timeEl = document.getElementById('sao_cal_input_time');
+        if (descEl) descEl.value = evt.title || evt.description || '';
+        if (timeEl) timeEl.value = evt.time || '';
+        const idEl = document.getElementById('sao_cal_edit_id');
+        if (idEl) idEl.value = 'event_' + dateStr + '_' + eventIdx;
+        const titleEl = document.getElementById('sao_cal_form_title');
+        if (titleEl) titleEl.textContent = '\u7f16\u8f91\u4e8b\u4ef6';
+    }
+
+    async function handleCalDeleteEvent(dateStr, eventIdx) {
+        const cal = getCalendar();
+        if (!cal?.days?.[dateStr]?.events) return;
+        const evt = cal.days[dateStr].events[eventIdx];
+        if (!evt) return;
+        if (!confirm('\u786e\u8ba4\u5220\u9664\u8fd9\u6761\u4e8b\u4ef6\uff1f')) return;
+        cal.days[dateStr].events.splice(eventIdx, 1);
+        if (evt.type === 'appointment') {
+            cal.appointments = (cal.appointments || []).filter(a =>
+                !(a.date === dateStr && a.description === (evt.title || evt.description))
+            );
+        }
+        await persistCalendar(cal);
+        renderCalendarMonth();
+        renderCalendarDayDetail();
+        showDetailModal(dateStr + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(dateStr));
+    }
+
+    function handleCalAddEvent(dateStr) {
+        showCalEditForm(null, dateStr);
+        const titleEl = document.getElementById('sao_cal_form_title');
+        if (titleEl) titleEl.textContent = '\u6dfb\u52a0\u4e8b\u4ef6';
+        const idEl = document.getElementById('sao_cal_edit_id');
+        if (idEl) idEl.value = 'new_event_' + dateStr;
     }
 
     function handleCalAddAppointment() {
@@ -1477,6 +1530,43 @@ function initPanelLogic() {
         }
 
         const id = idEl.value;
+
+        // Handle event editing (from modal edit/delete buttons)
+        if (id.startsWith('event_')) {
+            const parts = id.split('_');
+            // event_YYYY-MM-DD_idx
+            const eventDate = parts.slice(1, -1).join('_');
+            const eventIdx = parseInt(parts[parts.length - 1]);
+            if (cal.days?.[eventDate]?.events?.[eventIdx] != null) {
+                const evt = cal.days[eventDate].events[eventIdx];
+                evt.time = time;
+                evt.title = description;
+                evt.description = description;
+                await persistCalendar(cal);
+                hideCalEditForm();
+                _renderCalendarTab();
+                showDetailModal(eventDate + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(eventDate));
+            }
+            return;
+        }
+        if (id.startsWith('new_event_')) {
+            const eventDate = id.substring('new_event_'.length);
+            if (!cal.days[eventDate]) cal.days[eventDate] = { events: [], isUpdated: true };
+            cal.days[eventDate].events.push({
+                type: 'custom',
+                time: time,
+                title: description,
+                description: description,
+                source: 'manual',
+            });
+            await persistCalendar(cal);
+            hideCalEditForm();
+            _renderCalendarTab();
+            showDetailModal(eventDate + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(eventDate));
+            return;
+        }
+
+        // Original appointment save logic
         let apt;
         if (id) {
             apt = cal.appointments.find(a => a.id === id);
@@ -1786,6 +1876,9 @@ function initPanelLogic() {
                 case 'calEditAppointment': { const id = target.getAttribute('data-id'); if (id) handleCalEditAppointment(id); break; }
                 case 'calDeleteAppointment': { const id = target.getAttribute('data-id'); if (id) handleCalDeleteAppointment(id); break; }
                 case 'calCompleteAppointment': { const id = target.getAttribute('data-id'); if (id) handleCalCompleteAppointment(id); break; }
+                case 'calEditEvent': { const d = target.getAttribute('data-date'); const i = parseInt(target.getAttribute('data-idx')); if (d && !isNaN(i)) handleCalEditEvent(d, i); break; }
+                case 'calDeleteEvent': { const d = target.getAttribute('data-date'); const i = parseInt(target.getAttribute('data-idx')); if (d && !isNaN(i)) handleCalDeleteEvent(d, i); break; }
+                case 'calAddEvent': { const d = target.getAttribute('data-date'); if (d) handleCalAddEvent(d); break; }
                 case 'calSaveAppointment': handleCalSaveAppointment(); break;
                 case 'calCancelEdit': hideCalEditForm(); break;
                 case 'calInit': handleCalInit(); break;
