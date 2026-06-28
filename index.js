@@ -1274,28 +1274,28 @@ function initPanelLogic() {
         if (dateStr === _calSelectedDate) cls.push('sao-cal-selected');
         if (events.length > 0) cls.push('sao-cal-has-event');
 
-        let dots = '';
-        let eventsHtml = '';
+        let dotsHtml = '';
+        let firstEventHtml = '';
         if (isCurrentMonth && events.length > 0) {
-            const hasApt = events.some(e => e.type === 'appointment');
-            const hasCanon = events.some(e => e.type === 'canon');
-            const hasCustom = events.some(e => e.type !== 'appointment' && e.type !== 'canon');
-            dots = '<div class="sao-cal-dots">';
-            if (hasApt) dots += '<div class="sao-cal-dot sao-cal-dot-apt"></div>';
-            if (hasCanon) dots += '<div class="sao-cal-dot sao-cal-dot-canon"></div>';
-            if (hasCustom) dots += '<div class="sao-cal-dot"></div>';
-            dots += '</div>';
-            // 事件文字内联显示（最多 3 条，换行显示前 ~30 字符）
-            const evItems = events.slice(0, 3).map(e => {
-                const full = e.title || e.description || '';
-                const txt = esc(full.substring(0, 40));
-                const evCls = e.type === 'appointment' ? 'sao-cal-event-apt' : (e.type === 'canon' ? 'sao-cal-event-canon' : '');
-                return `<div class="sao-cal-event-text ${evCls}">${txt}${full.length > 40 ? '…' : ''}</div>`;
-            });
-            eventsHtml = `<div class="sao-cal-events">${evItems.join('')}</div>`;
+            const appointments = events.filter(e => e.type === 'appointment');
+            const nonAptEvents = events.filter(e => e.type !== 'appointment');
+
+            // Dots: green for events (cap 5), yellow for appointment (1 if any)
+            const greenDots = Math.min(nonAptEvents.length, 5);
+            const yellowDots = appointments.length > 0 ? 1 : 0;
+            let dotsStr = '';
+            for (let i = 0; i < greenDots; i++) dotsStr += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
+            for (let i = 0; i < yellowDots; i++) dotsStr += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
+            dotsHtml = `<div class="sao-cal-dots">${dotsStr}</div>`;
+
+            // Only first event as plain text (no chip)
+            const first = events[0];
+            const full = first.title || first.description || '';
+            const txt = esc(full.substring(0, 50));
+            firstEventHtml = `<div class="sao-cal-event-text">${txt}${full.length > 50 ? '…' : ''}</div>`;
         }
 
-        return `<div class="${cls.join(' ')}" data-action="calSelectDay" data-date="${dateStr}"><div class="sao-cal-day-num">${day}</div>${dots}${eventsHtml}</div>`;
+        return `<div class="${cls.join(' ')}" data-action="calSelectDay" data-date="${dateStr}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${firstEventHtml}</div>`;
     }
 
     function renderCalendarDayDetail() {

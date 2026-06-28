@@ -763,7 +763,10 @@ export async function updateCalendarIncremental(messageText, messageId) {
         const newDate = parseTimeTagDate(messageText);
 
         // 无论是否找到日期，都尝试提取约定
-        const newAptCount = extractAppointments(messageText, calendar);
+        // DISABLED: regex appointment extraction produces false positives (canon events, NPC-to-NPC promises).
+        // Appointments now come ONLY from LLM analysis (calendarModelUpdate) per user requirement.
+        // const newAptCount = extractAppointments(messageText, calendar);
+        const newAptCount = 0;
 
         // 尝试时间跳跃正则 fallback（仅在无 <time> 标签时）
         let timeSkipOffset = 0;
