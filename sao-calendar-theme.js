@@ -27,8 +27,12 @@ export const SAO_CALENDAR_CSS = `
 .sao-cal-details>summary::-webkit-details-marker{display:none;}
 .sao-cal-details>summary::before{content:"\\25B6";font-size:0.7em;transition:transform 0.2s;}
 .sao-cal-details[open]>summary::before{transform:rotate(90deg);}
-.sao-cal-details[open]>summary{margin-bottom:6px;}
+.sao-cal-details[open]>summary{margin-bottom:10px;border-bottom:1px solid rgba(0,210,255,0.15);padding-bottom:6px;}
 .sao-cal-placeholder{padding:8px;text-align:center;color:#8c785d;font-size:13px;}
+.sao-cal-nav{display:inline-flex;gap:2px;margin-left:auto;}
+.sao-cal-nav-btn{background:rgba(0,210,255,0.1);border:1px solid rgba(0,210,255,0.2);color:#00d2ff;border-radius:3px;cursor:pointer;font-size:0.8em;padding:1px 6px;line-height:1;}
+.sao-cal-nav-btn:hover{background:rgba(0,210,255,0.2);}
+.sao-cal-details summary{display:flex;align-items:center;gap:6px;}
 @media(max-width:640px){
 .sao-cal-grid{grid-template-rows:18px!important;grid-auto-rows:56px!important;gap:2px!important;}
 .sao-cal-cell{padding:3px 4px!important;border-radius:4px!important;}

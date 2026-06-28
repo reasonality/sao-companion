@@ -12,6 +12,9 @@ import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 // 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
 const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
 
+// 每条消息的日历视图月份（messageId → Date），支持聊天日历月份翻页
+const _chatCalViewDates = new Map();
+
 /**
  * 注册 DOMPurify 钩子：保留 SAO 自定义标签不被剥离。
  * ST 的 messageFormatting 在 DOMPurify.sanitize 时默认只允许标准 HTML 标签，
@@ -259,8 +262,10 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap) {
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        if (events && events.length) {
-            const first = events[0];
+        // 优先用 calDaysMap（含 type，日期精确）；fallback 到 gridDays（可能跨月泄漏）
+        const displayEvents = calDayEvents.length > 0 ? calDayEvents : (events || []);
+        if (displayEvents.length > 0) {
+            const first = displayEvents[0];
             const full = typeof first === 'string' ? first : (first.title || first.description || '');
             eventHtml = '<div class="sao-cal-event-text">' + esc(full) + '</div>';
         }
@@ -396,12 +401,27 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
         placeholderMode = true;
     }
 
-    const summaryText = (!placeholderMode && year && month && currentDay)
+    // 确定当前视图月份（支持翻页）
+    let viewDate = _chatCalViewDates.get(messageId);
+    if (!viewDate || !year) {
+        viewDate = (year && month) ? new Date(year, month - 1, 1) : new Date();
+        _chatCalViewDates.set(messageId, viewDate);
+    }
+    // GC: 限制 _chatCalViewDates 大小，防止长会话内存泄漏
+    if (_chatCalViewDates.size > 50) {
+        const oldest = _chatCalViewDates.keys().next().value;
+        _chatCalViewDates.delete(oldest);
+    }
+    const viewYear = viewDate.getFullYear();
+    const viewMonth = viewDate.getMonth() + 1;
+    const isHomeMonth = (viewYear === year && viewMonth === month);
+
+    const summaryText = (!placeholderMode && isHomeMonth && currentDay)
         ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
-        : (!placeholderMode && year && month) ? `\ud83d\udcc5 ${year}\u5e74${month}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
+        : (!placeholderMode && viewYear && viewMonth) ? `\ud83d\udcc5 ${viewYear}\u5e74${viewMonth}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
     const calDaysMap = data?.calendar?.days || {};
     const gridCells = (!placeholderMode && year && month)
-        ? buildCalendarGrid(year, month, currentDay, gridDays, calDaysMap)
+        ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap)
         : '';
     const weekdaysHtml = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
         .map(d => '<div class="sao-cal-header">' + d + '</div>').join('');
@@ -413,7 +433,13 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
     shadow.innerHTML = `
         <style>${SAO_CALENDAR_CSS}</style>
         <details class="sao-cal-details">
-            <summary>${summaryText}</summary>
+            <summary>
+                <span>${summaryText}</span>
+                ${!placeholderMode ? `<span class="sao-cal-nav">
+                    <button class="sao-cal-nav-btn" data-action="calPrev">\u2039</button>
+                    <button class="sao-cal-nav-btn" data-action="calNext">\u203a</button>
+                </span>` : ''}
+            </summary>
             ${placeholderMode
                 ? '<div class="sao-cal-placeholder">\u23f3 \u65e5\u5386\u751f\u6210\u4e2d\u2026</div>'
                 : `<div class="sao-cal-grid">${weekdaysHtml}${gridCells}</div>`}
@@ -429,6 +455,20 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
     if (!shadow._calClickBound) {
         shadow._calClickBound = true;
         shadow.addEventListener('click', (e) => {
+            // Handle nav buttons — prevent <details> toggle
+            const navBtn = e.target.closest('.sao-cal-nav-btn');
+            if (navBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const action = navBtn.getAttribute('data-action');
+                let vd = _chatCalViewDates.get(messageId);
+                if (!vd) vd = (year && month) ? new Date(year, month - 1, 1) : new Date();
+                if (action === 'calPrev') vd.setMonth(vd.getMonth() - 1);
+                else vd.setMonth(vd.getMonth() + 1);
+                _chatCalViewDates.set(messageId, new Date(vd));
+                renderCalendar(messageEl, rawText, messageId, refNode);
+                return;
+            }
             const cell = e.target.closest('.sao-cal-cell[data-date]');
             if (!cell) return;
             const dateStr = cell.getAttribute('data-date');
