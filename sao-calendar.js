@@ -125,12 +125,22 @@ export function buildTransientGridFromCalendar(calendar) {
     const m = calendar.currentDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return null;
     const year = parseInt(m[1]), month = parseInt(m[2]), currentDay = parseInt(m[3]);
-    // 只纳入当前月份的 days 条目（跨月事件——如世界书 ±1 月过滤带入的相邻月条目——
-    // 不应渲染到本月网格的错误日期上）
-    const yearMonthPrefix = m[1] + '-' + m[2];
+    const curPrefix = m[1] + '-' + m[2];
+    // 当 currentDay > 20 时，也纳入下月前 N 天（让"未来 30 天"持续可见）
+    let nextPrefix = null;
+    if (currentDay > 20) {
+        const nm = new Date(year, month - 1 + 1, 1); // first day of next month
+        nextPrefix = nm.getFullYear() + '-' + String(nm.getMonth() + 1).padStart(2, '0');
+    }
     const days = [];
     for (const [dateStr, dayData] of Object.entries(calendar.days || {})) {
-        if (!dateStr.startsWith(yearMonthPrefix)) continue;
+        if (dateStr.startsWith(curPrefix)) {
+            // current month — include all
+        } else if (nextPrefix && dateStr.startsWith(nextPrefix)) {
+            // next month — include only when cross-month view enabled
+        } else {
+            continue;
+        }
         const dm = dateStr.match(/^\d{4}-\d{2}-(\d{2})$/);
         if (!dm) continue;
         const dayNum = parseInt(dm[1]);
@@ -248,10 +258,57 @@ function _filterTimelineEntries(currentDate) {
         const content = e.content || '';
         if (!content) continue;
 
+        // 块状解析：markdown 头 #### **11月6日...** 设定当前日期，后续 * 子弹点累积为该日事件
+        const monthMatch = entryName.match(/年(\d{1,2})月/);
+        const entryMonth = monthMatch ? parseInt(monthMatch[1]) : 0;
+        let curDay = 0;
+        let eventBuf = [];
+        const flushDay = () => {
+            if (curDay > 0 && eventBuf.length > 0 && entryMonth > 0 && fallbackYear) {
+                const dateStr = fallbackYear + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
+                const title = eventBuf.join('；').slice(0, 100);
+                events.push({ date: dateStr, title });
+            }
+            eventBuf = [];
+        };
         for (const line of content.split(/\r?\n/)) {
-            const parsed = parseTimelineEvent(line, fallbackYear);
-            if (parsed) events.push({ date: parsed.date, title: parsed.title });
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            // markdown 头：#### **11月6日 (星期日) - 宣告日**
+            const hdrM = trimmed.match(/^#{1,6}\s*\*{0,2}\s*(\d{1,2})月(\d{1,2})日/);
+            if (hdrM) {
+                flushDay();
+                curDay = parseInt(hdrM[2]);
+                continue;
+            }
+            if (curDay > 0) {
+                // 子弹点：* **[关键事件]:** ... 或 * 情报商...
+                const bulM = trimmed.match(/^\s*[*\-+]\s+(.+)$/);
+                if (bulM) {
+                    let txt = bulM[1]
+                        .replace(/\*\*([^*]+)\*\*/g, '$1')   // 去 **bold**
+                        .replace(/\*([^*]+)\*/g, '$1')         // 去 *italic*
+                        .replace(/^\[[^\]]*\]:\s*/, '')        // 去 [标签]:
+                        .replace(/\s*\[[^\]]*\]:\s*/g, ' ')    // 去 中间 [标签]:
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (txt && txt.length > 1) eventBuf.push(txt);
+                    continue;
+                }
+                // 也尝试旧格式（YYYY-MM-DD: 或 MM月DD日:）以保持向后兼容
+                const parsed = parseTimelineEvent(trimmed, fallbackYear);
+                if (parsed) {
+                    flushDay();
+                    events.push({ date: parsed.date, title: parsed.title });
+                    curDay = 0; // 旧格式自带完整日期，重置 curDay 防止后续子弹点误挂
+                }
+            } else {
+                // 无当前日期时也尝试旧格式
+                const parsed = parseTimelineEvent(trimmed, fallbackYear);
+                if (parsed) events.push({ date: parsed.date, title: parsed.title });
+            }
         }
+        flushDay();
     }
     return events;
 }

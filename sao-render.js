@@ -7,7 +7,7 @@ import { renderBattlePanel } from './battle/battleRenderer.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 
 // SAO 自定义标签列表 — DOMPurify 钩子保留这些标签（兼容历史消息残留标签，P4 后主 LLM 不再发新标签）
-const SAO_CUSTOM_TAGS = ['user_status', 'equip', 'swordskill', 'map', 'zd_status', 'digest', 'calendar'];
+const SAO_CUSTOM_TAGS = ['user_status', 'map', 'zd_status', 'digest', 'calendar'];
 
 /**
  * 注册 DOMPurify 钩子：保留 SAO 自定义标签不被剥离。
@@ -301,11 +301,9 @@ function hideSaoLightDomTags(messageEl) {
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
     styleEl.textContent = `
-        .sao-tags-rendered user_status, .sao-tags-rendered equip,
-        .sao-tags-rendered swordskill, .sao-tags-rendered map, .sao-tags-rendered zd_status,
+        .sao-tags-rendered user_status, .sao-tags-rendered map, .sao-tags-rendered zd_status,
         .sao-tags-rendered digest, .sao-tags-rendered calendar,
-        .sao-tags-rendered user_status *, .sao-tags-rendered equip *,
-        .sao-tags-rendered swordskill *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
+        .sao-tags-rendered user_status *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
         .sao-tags-rendered digest *, .sao-tags-rendered calendar * {
             display: none !important;
             visibility: hidden !important;
@@ -626,15 +624,14 @@ export function renderCalendar(messageEl, rawText, messageId) {
 }
 
 export function renderAllTags(messageEl, rawText, messageId) {
-    // 渲染顺序匹配原卡 first_mes 标签顺序：装备 → 剑技 → 角色状态栏 → 地图 → 战斗 → 日历
+    // 渲染顺序（底部状态栈）：角色状态栏 → 地图 → 战斗（战前准备） → 日历
+    // NPC状态栏由卡片正则脚本在 light DOM 渲染，位于 Shadow host 之前（顺序自然正确）
+    // 装备/剑技由卡片标签在消息正文渲染，不进入底部状态栈
     // 过渡期（P2-P4）主 LLM 可能仍发标签 → 需隐藏 light DOM 避免双重渲染
-    const hasAnySaoTags = /<(?:user_status|equip|swordskill|map|zd_status|digest|calendar)\b/i.test(rawText || '');
+    const hasAnySaoTags = /<(?:user_status|map|zd_status|digest|calendar)\b/i.test(rawText || '');
     if (hasAnySaoTags) {
         hideSaoLightDomTags(messageEl)
     }
-    // P2: 装饰面板始终渲染（读 chatMetadata.panels[messageId]，回退 mes 标签过渡兼容）
-    try { renderEquipment(messageEl, rawText, messageId); } catch(e) { log('renderEquipment 渲染失败: ' + e.message, 'error'); }
-    try { renderSwordSkill(messageEl, rawText, messageId); } catch(e) { log('renderSwordSkill 渲染失败: ' + e.message, 'error'); }
     // P3: 状态面板（读 chatMetadata.panels[messageId].status，回退 mes 标签）
     try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { log('renderUserStatus 渲染失败: ' + e.message, 'error'); }
     try { renderMap(messageEl, rawText, messageId); } catch(e) { log('renderMap 渲染失败: ' + e.message, 'error'); }
@@ -709,7 +706,8 @@ function renderUserStatus(messageEl, rawText, messageId) {
     const safeContent = sanitizeInlineSaoHtml(content.trim())
         .replace(/^[ \t]+/gm, '')      // 去除每行前导缩进（LLM 常插入多余缩进）
         .replace(/[ \t]+$/gm, '')      // 去除每行尾随空格
-        .replace(/\n{3,}/g, '\n\n');   // 3+ 连续空行折叠为单个空行
+        .replace(/\n{3,}/g, '\n\n')    // 3+ 连续空行折叠为单个空行
+        .replace(/>\s*\n\s*</g, '><'); // 折叠 HTML 标签间的换行/空白（消除 </summary>\n<div> 类间隙）
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
