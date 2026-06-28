@@ -387,7 +387,8 @@ export function initCalendarIfNeeded() {
         const data = getSaoData();
         if (!data) return;
 
-        // 已初始化（days 非空）— 清理可能的历史重复数据后返回
+        // 已初始化（days 非空）— 检查版本，必要时清除旧 canon 数据重新提取
+        const CURRENT_CAL_VERSION = 2;
         if (data.calendar && data.calendar.days && Object.keys(data.calendar.days).length > 0) {
             _dedupExistingDays(data.calendar);
             // Clean stale auto-generated appointments from disabled regex extractor
@@ -402,7 +403,18 @@ export function initCalendarIfNeeded() {
                     log('\u6e05\u7406 ' + (before - data.calendar.appointments.length) + ' \u4e2a\u65e7\u6b63\u5219\u63d0\u53d6\u7684\u7ea6\u5b9a');
                 }
             }
-            return;
+            // 版本升级：清除旧 canon 事件（可能跨月污染/截断），保留 appointment/custom，重新提取
+            if ((data.calendar.calendarVersion || 0) < CURRENT_CAL_VERSION) {
+                log('\u65e5\u5386\u7248\u672c\u5347\u7ea7: ' + (data.calendar.calendarVersion || 0) + ' \u2192 ' + CURRENT_CAL_VERSION + '\uff0c\u6e05\u9664\u65e7 canon \u4e8b\u4ef6\u91cd\u65b0\u63d0\u53d6');
+                for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
+                    dayData.events = (dayData.events || []).filter(ev => ev.type !== 'canon');
+                    if (dayData.events.length === 0) delete data.calendar.days[dateStr];
+                }
+                data.calendar.calendarVersion = CURRENT_CAL_VERSION;
+                // 不 return — 继续走重新提取流程
+            } else {
+                return;
+            }
         }
 
         // 创建空日历结构
