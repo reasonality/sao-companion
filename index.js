@@ -2152,7 +2152,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.33 初始化中... (canon v3, header-month-fix)');
+    console.log('[SAO Companion] v0.6.35 初始化中... (canon v4, header-month-fix, calendar-scope-fix)');
     registerSaoDompurifyHook();
     loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);

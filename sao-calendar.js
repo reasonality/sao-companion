@@ -38,7 +38,7 @@ function addDays(dateObj, n) {
 }
 
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
-const CANON_DATA_VERSION = 3;
+const CANON_DATA_VERSION = 4;
 
 /**
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
@@ -784,9 +784,10 @@ function applyDateAdvanceGC(calendar, oldDateStr, newDateStr) {
  * @param {number|string} [messageId] - 消息 ID，用于索引 calendarPanels
  */
 export async function updateCalendarIncremental(messageText, messageId) {
+    let calendar = null; // 提到 try 块外，供 _writeTransient 闭包访问
     /** 在 persistCalendar 前写瞬时 grid（若 messageId 可用） */
     const _writeTransient = () => {
-        if (messageId == null) return;
+        if (messageId == null || !calendar) return;
         const tg = buildTransientGridFromCalendar(calendar);
         if (tg) persistCalendarPanel(messageId, tg);
     };
@@ -796,7 +797,7 @@ export async function updateCalendarIncremental(messageText, messageId) {
 
         // 确保日历已初始化
         initCalendarIfNeeded();
-        const calendar = data.calendar;
+        calendar = data.calendar;
         if (!calendar) return;
 
         // 从 <time> 标签解析当前游戏日期
