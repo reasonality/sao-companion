@@ -9,6 +9,7 @@ import {
     initializeBattleDom,
     initializeBattleSideEffects,
 } from './battleLogic.js';
+import { createSaoShadowHost } from '../sao-dom-utils.js';
 
 // === P4b: battleHostRegistry — 全局 Shadow DOM 宿主注册表 ===
 const battleHostRegistry = new Map(); // Map<messageId, {host, shadowRoot}>
@@ -133,11 +134,10 @@ export function renderBattlePanel(messageEl, rawText, messageId) {
     const existing = messageEl.querySelector('.sao-render-host[data-sao-tag="battle"]');
     if (existing) return;
 
-    // 创建 Shadow DOM 宿主
-    const host = document.createElement('div');
-    host.className = 'sao-render-host';
-    host.dataset.saoTag = 'battle';
-    const shadow = host.attachShadow({ mode: 'open' });
+    // 通过共享的 createSaoShadowHost 创建宿主并定位（位置插入 zd_status 锚点 + <p> 提升）
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    const refNode = mesText.querySelector('zd_status');
+    const { shadow, host } = createSaoShadowHost(messageEl, 'battle', refNode);
 
     // 注入 CSS
     const style = document.createElement('style');
@@ -193,25 +193,6 @@ export function renderBattlePanel(messageEl, rawText, messageId) {
         initializeBattleInterface();
     } catch (e) {
         console.error('[BattleRenderer] initializeBattleInterface 失败:', e);
-    }
-
-    // 追加到消息 DOM（位置优先：插入到原 <zd_status> 标签处）
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const refNode = mesText.querySelector('zd_status');
-    if (refNode && refNode.parentNode) {
-        refNode.parentNode.insertBefore(host, refNode);
-        // 如果 host 被插入到 <p> 内部（Showdown 会把自定义标签包在 <p> 里），
-        // 将 host 提升到 <p> 之后，避免 cleanup 删除空 <p> 时误删 host
-        if (host.parentNode && host.parentNode.nodeName === 'P') {
-            const p = host.parentNode;
-            if (p.parentNode) {
-                p.parentNode.insertBefore(host, p.nextSibling);
-            }
-        }
-    } else if (mesText) {
-        mesText.appendChild(host);
-    } else {
-        messageEl.appendChild(host);
     }
 
     // P4b: 注册宿主到全局注册表（供后续 combatResult 更新使用）

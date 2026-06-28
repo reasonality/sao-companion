@@ -5,9 +5,11 @@ import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
 import { restoreBattleState } from './battle/battleLogic.js';
+import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
+import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 
-// SAO 自定义标签列表 — DOMPurify 钩子保留这些标签（兼容历史消息残留标签，P4 后主 LLM 不再发新标签）
-const SAO_CUSTOM_TAGS = ['user_status', 'map', 'zd_status', 'digest', 'calendar'];
+// 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
+const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
 
 /**
  * 注册 DOMPurify 钩子：保留 SAO 自定义标签不被剥离。
@@ -300,11 +302,10 @@ function hideSaoLightDomTags(messageEl) {
     if (target.querySelector(`#${styleId}`)) return;
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
+    const tagSelectors = SAO_CUSTOM_TAGS.map(t => `.sao-tags-rendered ${t}`).join(', ');
+    const tagChildSelectors = SAO_CUSTOM_TAGS.map(t => `.sao-tags-rendered ${t} *`).join(', ');
     styleEl.textContent = `
-        .sao-tags-rendered user_status, .sao-tags-rendered map, .sao-tags-rendered zd_status,
-        .sao-tags-rendered digest, .sao-tags-rendered calendar,
-        .sao-tags-rendered user_status *, .sao-tags-rendered map *, .sao-tags-rendered zd_status *,
-        .sao-tags-rendered digest *, .sao-tags-rendered calendar * {
+        ${tagSelectors}, ${tagChildSelectors} {
             display: none !important;
             visibility: hidden !important;
             opacity: 0 !important;
@@ -315,35 +316,14 @@ function hideSaoLightDomTags(messageEl) {
     target.prepend(styleEl);
 }
 
-/**
- * 创建 Shadow DOM 容器
- */
-function createSaoShadowHost(messageEl, tagName) {
-    // 避免重复注入
-    const existing = messageEl.querySelector(`.sao-render-host[data-sao-tag="${tagName}"]`);
-    if (existing) return existing.shadowRoot;
-    const host = document.createElement('div');
-    host.className = 'sao-render-host';
-    host.dataset.saoTag = tagName;
-    const mesText = messageEl.querySelector('.mes_text') || messageEl;
-    const shadow = host.attachShadow({ mode: 'open' });
-
-    if (mesText) {
-        mesText.appendChild(host);
-    } else {
-        messageEl.appendChild(host);
-    }
-    return shadow;
-}
-
 /** 从 chatMetadata.calendarPanels[messageId] 渲染日历面板，无数据时显示占位 */
-export function renderCalendar(messageEl, rawText, messageId) {
+export function renderCalendar(messageEl, rawText, messageId, refNode) {
     const data = getSaoData();
     const panel = (messageId != null) ? data?.calendarPanels?.[messageId] : null;
 
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
     // 无 <calendar> 标签锚点（主 LLM 不再发），日历面板追加到 mes_text 末尾
-    const shadow = createSaoShadowHost(messageEl, 'calendar');
+    const { shadow } = createSaoShadowHost(messageEl, 'calendar', refNode);
 
     let year = 0, month = 0, currentDay = 0;
     let gridDays = null;
@@ -355,6 +335,45 @@ export function renderCalendar(messageEl, rawText, messageId) {
         month = Number(g.month) || 0;
         currentDay = Number(g.current_day) || 0;
         gridDays = Array.isArray(g.days) ? g.days : null;
+    }
+    // 同步回退：异步管道（callStatusSpecialist + updateCalendarIncremental）可能尚未完成或失败，
+    // 直接从消息原文的 <calendar> 标签解析预填数据，使开局日历无需等待异步即可渲染。
+    if (!year || !month || !gridDays) {
+        try {
+            const calTagMatch = (rawText || '').match(/<calendar>\s*([\s\S]*?)\s*<\/calendar>/i);
+            if (calTagMatch) {
+                const body = calTagMatch[1];
+                const yM = body.match(/^year:\s*(\d+)/m);
+                const mM = body.match(/^month:\s*(\d+)/m);
+                const cdM = body.match(/^current_day:\s*(\d+)/m);
+                if (yM && mM) {
+                    year = parseInt(yM[1]);
+                    month = parseInt(mM[1]);
+                    currentDay = cdM ? parseInt(cdM[1]) : 0;
+                    const daysIdx = body.indexOf('days:');
+                    if (daysIdx >= 0) {
+                        const daysBlock = body.slice(daysIdx + 5);
+                        const lineRe = /^(\d{1,2}):\s*(.+)$/gm;
+                        const dayMap = {};
+                        let lm;
+                        while ((lm = lineRe.exec(daysBlock)) !== null) {
+                            const dn = parseInt(lm[1]);
+                            if (dn < 1 || dn > 31) continue;
+                            const title = lm[2].trim();
+                            if (!title) continue;
+                            if (!dayMap[dn]) dayMap[dn] = [];
+                            dayMap[dn].push(title.slice(0, 100));
+                        }
+                        gridDays = [];
+                        for (let dn = 1; dn <= 31; dn++) {
+                            if (dayMap[dn]) gridDays.push({ day: dn, events: dayMap[dn].slice(0, 10) });
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            log('日历同步回退解析失败: ' + e.message, 'warn');
+        }
     }
     if (!year || !month || !gridDays) {
         // 无数据或数据不完整：占位模式
@@ -623,24 +642,39 @@ export function renderCalendar(messageEl, rawText, messageId) {
     `;
 }
 
+// 渲染器映射（模块级，函数声明提升使其可在此引用后续定义的函数；避免 renderAllTags 每次重建）
+const _RENDER_FN_MAP = {
+    equip: renderEquipment,
+    swordskill: renderSwordSkill,
+    user_status: renderUserStatus,
+    map: renderMap,
+    calendar: renderCalendar,
+};
+
 export function renderAllTags(messageEl, rawText, messageId) {
-    // 渲染顺序（底部状态栈）：角色状态栏 → 地图 → 战斗（战前准备） → 日历
-    // NPC状态栏由卡片正则脚本在 light DOM 渲染，位于 Shadow host 之前（顺序自然正确）
-    // 装备/剑技由卡片标签在消息正文渲染，不进入底部状态栈
-    // 过渡期（P2-P4）主 LLM 可能仍发标签 → 需隐藏 light DOM 避免双重渲染
-    const hasAnySaoTags = /<(?:user_status|map|zd_status|digest|calendar)\b/i.test(rawText || '');
+    // 面板渲染顺序由 PANEL_REGISTRY 定义（sao-panel-registry.js），匹配消息中标签的原始顺序。
+    // 每个渲染器通过 createSaoShadowHost(refNode) 在标签 DOM 节点处插入 Shadow host（位置插入）。
+    // NPC状态栏由卡片正则脚本在 light DOM 渲染（已在正确位置），不在此处管理。
+    // 过渡期主 LLM 可能仍发标签 → 需隐藏 light DOM 避免双重渲染
+    const hasAnySaoTags = _SAO_TAG_RE.test(rawText || '');
     if (hasAnySaoTags) {
         hideSaoLightDomTags(messageEl)
     }
-    // P3: 状态面板（读 chatMetadata.panels[messageId].status，回退 mes 标签）
-    try { renderUserStatus(messageEl, rawText, messageId); } catch(e) { log('renderUserStatus 渲染失败: ' + e.message, 'error'); }
-    try { renderMap(messageEl, rawText, messageId); } catch(e) { log('renderMap 渲染失败: ' + e.message, 'error'); }
-    // 战斗面板始终渲染（combat 不依赖 mes 标签，依赖 _lastCombatResult + P3 status 专家 zdText）
+    const mesText = messageEl.querySelector('.mes_text') || messageEl;
+    for (const entry of PANEL_REGISTRY) {
+        if (entry.isSpecial) continue;       // zd_status(battle): 单独处理（签名不同）
+        const fn = _RENDER_FN_MAP[entry.tag];
+        if (!fn) continue;                   // digest 等: 无渲染器，仅 DOMPurify 保留 + cleanup
+        try {
+            fn(messageEl, rawText, messageId, mesText.querySelector(entry.tag));
+        } catch (e) {
+            log(`${entry.tag} 渲染失败: ${e.message}`, 'error');
+        }
+    }
+    // 战斗面板（isSpecial: 自行定位 zd_status 锚点，签名无 refNode）
     if (typeof messageId !== 'undefined') {
         try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { log('renderBattlePanel 渲染失败: ' + e.message, 'error'); }
     }
-    // 日历面板始终渲染（messageId 可用时按 messageId 索引 chatMetadata；不可用则占位）
-    try { renderCalendar(messageEl, rawText, messageId); } catch(e) { log('renderCalendar 渲染失败: ' + e.message, 'error'); }
     if (hasAnySaoTags) {
         cleanupSaoLightDom(messageEl)
     }
@@ -687,7 +721,7 @@ function cleanupSaoLightDom(messageEl) {
     });
 }
 
-function renderUserStatus(messageEl, rawText, messageId) {
+function renderUserStatus(messageEl, rawText, messageId, refNode) {
     // P3: 优先从 status 专家面板数据读取 userStatusHtml；回退到 mes 标签（过渡兼容）
     let content = null;
     if (messageId != null) {
@@ -702,12 +736,13 @@ function renderUserStatus(messageEl, rawText, messageId) {
         content = extractTag(rawText, 'user_status')
         if (content === null) return
     }
-    const shadow = createSaoShadowHost(messageEl, 'user_status')
+    const { shadow } = createSaoShadowHost(messageEl, 'user_status', refNode)
     const safeContent = sanitizeInlineSaoHtml(content.trim())
         .replace(/^[ \t]+/gm, '')      // 去除每行前导缩进（LLM 常插入多余缩进）
         .replace(/[ \t]+$/gm, '')      // 去除每行尾随空格
         .replace(/\n{3,}/g, '\n\n')    // 3+ 连续空行折叠为单个空行
-        .replace(/>\s*\n\s*</g, '><'); // 折叠 HTML 标签间的换行/空白（消除 </summary>\n<div> 类间隙）
+        .replace(/<\/summary>\s*\n+/g, '</summary>')   // 消除 summary 后的换行（标题与内容间间隙）
+        .replace(/<\/details>\s*\n+\s*<details/g, '</details><details'); // 消除兄弟 details 间的换行
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -873,6 +908,20 @@ function renderUserStatus(messageEl, rawText, messageId) {
                   white-space: pre-wrap;
                   word-break: break-word;
                 }
+                /* 嵌套 details 间距控制 */
+                .details-character-status > div > details {
+                    margin: 2px 0 !important;
+                }
+                .details-character-status > div > details > summary {
+                    padding: 4px 8px !important;
+                    margin: 0 !important;
+                    font-size: 14px !important;
+                    font-weight: 600 !important;
+                    cursor: pointer !important;
+                }
+                .details-character-status > div > details[open] > summary {
+                    margin-bottom: 2px !important;
+                }
         </style>
         <div class="character-status-wrapper">
             <details class="details-character-status" open>
@@ -883,7 +932,7 @@ function renderUserStatus(messageEl, rawText, messageId) {
     `
 }
 
-function renderEquipment(messageEl, rawText, messageId) {
+function renderEquipment(messageEl, rawText, messageId, refNode) {
     // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
     const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.equipment : null;
     let itemsHtml = '';
@@ -894,7 +943,7 @@ function renderEquipment(messageEl, rawText, messageId) {
         if (matches.length === 0) return
         itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     }
-    const shadow = createSaoShadowHost(messageEl, 'equip')
+    const { shadow } = createSaoShadowHost(messageEl, 'equip', refNode)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -915,7 +964,7 @@ function renderEquipment(messageEl, rawText, messageId) {
     `
 }
 
-function renderSwordSkill(messageEl, rawText, messageId) {
+function renderSwordSkill(messageEl, rawText, messageId, refNode) {
     // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
     const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.swordskill : null;
     let itemsHtml = '';
@@ -926,7 +975,7 @@ function renderSwordSkill(messageEl, rawText, messageId) {
         if (matches.length === 0) return
         itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     }
-    const shadow = createSaoShadowHost(messageEl, 'swordskill')
+    const { shadow } = createSaoShadowHost(messageEl, 'swordskill', refNode)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -948,7 +997,7 @@ function renderSwordSkill(messageEl, rawText, messageId) {
     `
 }
 
-function renderMap(messageEl, rawText, messageId) {
+function renderMap(messageEl, rawText, messageId, refNode) {
     // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
     const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.map : null;
     let content;
@@ -958,7 +1007,7 @@ function renderMap(messageEl, rawText, messageId) {
         content = extractTag(rawText, 'map')
         if (content === null) return
     }
-    const shadow = createSaoShadowHost(messageEl, 'map')
+    const { shadow } = createSaoShadowHost(messageEl, 'map', refNode)
     const safeContent = sanitizeInlineSaoHtml(content.trim())
     shadow.innerHTML = `
         <style>

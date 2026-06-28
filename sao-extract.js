@@ -176,7 +176,7 @@ function parseUserStatus(statusText) {
     state.equipment = {};
     const equipSlotMap = { '主手': 'main_hand', '副手': 'off_hand', '头部': 'head', '胸部': 'body', '手部': 'hands', '腿部': 'feet', '饰品': 'accessory' };
     // 匹配 "主手: ⭐Lv.5 铁剑 (耐:100/100)" 格式
-    const equipLines = statusText.match(/(?:主手|副手|头部|胸部|手部|腿部|饰品)\s*(?:1|2)?\s*[：:]\s*\S+/g) || [];
+    const equipLines = statusText.match(/(?:主手|副手|头部|胸部|手部|腿部|饰品)\s*(?:1|2)?\s*[：:]\s*[^\n]+/g) || [];
     for (const line of equipLines) {
         const slotMatch = line.match(/(主手|副手|头部|胸部|手部|腿部|饰品)/);
         if (!slotMatch) continue;
@@ -184,7 +184,18 @@ function parseUserStatus(statusText) {
         // 提取等级
         const lvlMatch = line.match(/⭐Lv\.?(\d+)/i) || line.match(/Lv\.?(\d+)/i);
         // 提取名称：⭐Lv.5 后面的词，或 ：后面的词
-        const nameMatch = line.match(/⭐?Lv\.?\d*\s*(\S+)/);
+        // 提取名称：⭐Lv.X 后、(耐:...) 前的文本；无等级时取冒号后、(耐:...) 前的文本
+        let nameMatch = line.match(/⭐?Lv\.?\d*\s+(.+?)\s*\(耐/);
+        if (!nameMatch) nameMatch = line.match(/⭐?Lv\.?\d*\s+(.+?)\s*$/);  // 无耐久时取到行尾
+        if (!nameMatch) {
+            // 无等级前缀：取冒号后、(耐:...) 前
+            const colonMatch = line.match(/[：:]\s*(.+?)\s*\(耐/);
+            if (colonMatch) nameMatch = [null, colonMatch[1]];
+            else {
+                const colonOnly = line.match(/[：:]\s*(.+?)\s*$/);
+                if (colonOnly) nameMatch = [null, colonOnly[1]];
+            }
+        }
         // 提取耐久
         const durMatch = line.match(/\(耐[:：](\d+\/\d+)\)/) || line.match(/耐[:：](\d+\/\d+)/);
         // 提取该行后面的属性行 "❤️+50 💪+2 🏃+0 🧠+0 🔋+6"
