@@ -2152,7 +2152,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.39 初始化中... (render hard-filter + event.date field)');
+    console.log('[SAO Companion] v0.6.40 初始化中... (strict date filter - old data without date field will be HIDDEN)');
     registerSaoDompurifyHook();
     loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);

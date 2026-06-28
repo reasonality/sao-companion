@@ -249,12 +249,12 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         const events = dayContentMap[day];
         const dateStrFull = dateStr(day);
         // 硬过滤：只显示 date 字段与当前 grid 日期完全匹配的事件
-        // 防止任何来源的跨月数据污染（即使 cal.days key 被错误写入）
+        // 旧数据没有 date 字段（undefined）→ 过滤掉（不信任旧数据）
+        // 新数据有 date 字段 → 必须与 dateStrFull 匹配
         const rawCalEvents = calDaysMap?.[dateStrFull]?.events || [];
         const calDayEvents = rawCalEvents.filter(ev => {
-            // 如果 event 有 date 字段，必须与 dateStrFull 匹配
-            if (ev.date && ev.date !== dateStrFull) return false;
-            return true;
+            // 只信任有 date 字段且匹配的事件
+            return ev.date === dateStrFull;
         });
         const appointments = calDayEvents.filter(e => e.type === 'appointment');
         const nonAptEvents = calDayEvents.filter(e => e.type !== 'appointment');
