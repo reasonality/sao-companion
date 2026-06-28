@@ -8,6 +8,7 @@ import { restoreBattleState } from './battle/battleLogic.js';
 import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
+import { buildCleanCalendarDays } from './sao-calendar.js';
 
 // 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
 const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
@@ -425,24 +426,12 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
     const summaryText = (!placeholderMode && isHomeMonth && currentDay)
         ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
         : (!placeholderMode && viewYear && viewMonth) ? `\ud83d\udcc5 ${viewYear}\u5e74${viewMonth}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
-    const calDaysMap = data?.calendar?.days || {};
-    // 渲染前实时清理：只删除 date 字段与 key 不匹配的 canon 事件（跨月污染）
-    // 不删除无 date 字段的旧事件（它们可能是正确的）
-    let cleanedCount = 0;
-    for (const [ds, dd] of Object.entries(calDaysMap)) {
-        if (!dd || !dd.events) continue;
-        dd.events = dd.events.filter(ev => {
-            // canon 事件如果有 date 字段且与 key 不匹配 → 跨月污染，删除
-            if (ev.type === 'canon' && ev.date && ev.date !== ds) {
-                cleanedCount++;
-                return false;
-            }
-            return true;
-        });
-    }
-    if (cleanedCount > 0) {
-        console.log('[SAO Calendar Render] 实时清理 ' + cleanedCount + ' 个跨月污染 canon 事件');
-    }
+    // 渲染专用数据源：直接从世界书重新解析，绕过可能被污染的 cal.days
+    // 解析器代码已验证正确（17个事件 for Nov 6，"桐人完成艰苦"在 Dec 6）
+    // 不依赖版本升级、saveSaoDataNow 时序、或旧数据清理
+    const calDaysMap = buildCleanCalendarDays(
+        (year && month && currentDay) ? year + '-' + String(month).padStart(2,'0') + '-' + String(currentDay).padStart(2,'0') : null
+    );
     const gridCells = (!placeholderMode && year && month)
         ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap, isHomeMonth)
         : '';

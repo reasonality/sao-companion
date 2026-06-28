@@ -24,6 +24,7 @@ import {
     persistCalendar,
     parseDate, formatDate,
     addAppointmentToCalendar,
+    buildCleanCalendarDays,
 } from './sao-calendar.js';
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 import { extractAll, applyExtractedData } from './sao-extract.js';
@@ -1417,8 +1418,13 @@ function initPanelLogic() {
 
     function buildCalendarDayEventsHtml(dateStr) {
         const cal = getCalendar();
-        const dayData = cal?.days?.[dateStr];
-        const events = dayData?.events || [];
+        // 合并：干净 canon 数据（从世界书重新解析）+ 约定/自定义事件（从 cal.days）
+        const cleanDays = buildCleanCalendarDays(cal?.currentDate);
+        const cleanEvents = cleanDays?.[dateStr]?.events || [];
+        const dirtyEvents = cal?.days?.[dateStr]?.events || [];
+        // 从 cal.days 只取 appointment 和 custom 类型（canon 用干净的）
+        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon');
+        const events = [...cleanEvents, ...aptEvents];
         let html = '';
         if (events.length > 0) {
             html += events.map((evt, idx) => {
@@ -2152,7 +2158,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.42 初始化中... (revert: only clean cross-month, keep dateless)');
+    console.log('[SAO Companion] v0.6.43 初始化中... (clean data bypass: render reads worldbook directly, not cal.days)');
     registerSaoDompurifyHook();
     loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);

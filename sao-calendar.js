@@ -40,6 +40,39 @@ function addDays(dateObj, n) {
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
 const CANON_DATA_VERSION = 6;
 
+// === 渲染专用：干净数据缓存（绕过可能被污染的 cal.days） ===
+let _cleanDaysCache = null;
+let _cleanDaysCacheKey = null;
+
+/**
+ * 从世界书重新解析事件，返回干净的 days 对象（{ "YYYY-MM-DD": { events: [...] } }）。
+ * 不依赖 cal.days 持久化数据，避免旧数据/跨月污染问题。
+ * 结果按角色卡名缓存，切换角色时自动失效。
+ * 渲染层应优先使用此函数而非 data.calendar.days。
+ */
+export function buildCleanCalendarDays(currentDate) {
+    const char = getCurrentCharacter();
+    const cacheKey = char?.name + '|' + (currentDate || '');
+    if (_cleanDaysCache && _cleanDaysCacheKey === cacheKey) return _cleanDaysCache;
+
+    const events = _filterTimelineEntries(currentDate);
+    const days = {};
+    for (const ev of events) {
+        if (!days[ev.date]) days[ev.date] = { events: [] };
+        days[ev.date].events.push({
+            type: 'canon',
+            time: null,
+            title: ev.title,
+            description: ev.title,
+            source: 'timeline',
+            date: ev.date,
+        });
+    }
+    _cleanDaysCache = days;
+    _cleanDaysCacheKey = cacheKey;
+    return days;
+}
+
 /**
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
  * 返回正数表示 date2 > date1，负数表示 date2 < date1
