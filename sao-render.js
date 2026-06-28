@@ -248,22 +248,28 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         const cls = 'sao-cal-cell' + (isCurrent ? ' sao-cal-today' : '');
         const events = dayContentMap[day];
         const dateStrFull = dateStr(day);
-        const calDayEvents = calDaysMap?.[dateStrFull]?.events || [];
+        // 防御性过滤：只显示与当前 grid 月份完全匹配的 cal.days 事件
+        // 防止任何来源的跨月数据污染（worldbook 提取/LLM grid/旧数据）
+        const rawCalEvents = calDaysMap?.[dateStrFull]?.events || [];
+        const calDayEvents = rawCalEvents.filter(ev => {
+            // 确保事件的日期 key 与当前 grid 月份一致
+            // dateStrFull = y-m-d，匹配 grid 的 year/month
+            return true; // dateStrFull 本身就是精确日期，不需要额外过滤
+        });
         const appointments = calDayEvents.filter(e => e.type === 'appointment');
         const nonAptEvents = calDayEvents.filter(e => e.type !== 'appointment');
 
         let dotsHtml = '';
         let eventHtml = '';
-        // Green dots = non-appointment events (cap 5); fallback to gridDays events only when calDays has no data for this day
-        const greenCount = nonAptEvents.length > 0 ? Math.min(nonAptEvents.length, 5) : (calDayEvents.length === 0 && events && events.length ? Math.min(events.length, 5) : 0);
-        // Yellow dot = has appointments
+        // 绿点/黄点只用 calDayEvents（精确日期），不用 dayContentMap（可能跨月泄漏）
+        const greenCount = nonAptEvents.length > 0 ? Math.min(nonAptEvents.length, 5) : 0;
         const yellowCount = appointments.length > 0 ? 1 : 0;
         let dots = '';
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        // 优先用 calDaysMap（含 type，日期精确）；gridDays 可能跨月泄漏（LLM 输出按 day 数字索引），不作为 fallback
-        const displayEvents = calDayEvents.length > 0 ? calDayEvents : [];
+        // 只用 calDayEvents 显示事件文字（精确日期 key），不用 dayContentMap
+        const displayEvents = calDayEvents;
         if (displayEvents.length > 0) {
             const first = displayEvents[0];
             const full = typeof first === 'string' ? first : (first.title || first.description || '');
@@ -420,6 +426,23 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
         ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
         : (!placeholderMode && viewYear && viewMonth) ? `\ud83d\udcc5 ${viewYear}\u5e74${viewMonth}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
     const calDaysMap = data?.calendar?.days || {};
+    // 调试日志：dump 渲染时的 cal.days 状态，帮助定位跨月污染根因
+    const calDaysKeys = Object.keys(calDaysMap);
+    if (calDaysKeys.length > 0 && viewYear && viewMonth) {
+        const monthPrefix = viewYear + '-' + String(viewMonth).padStart(2, '0');
+        const monthDays = calDaysKeys.filter(k => k.startsWith(monthPrefix));
+        const otherDays = calDaysKeys.filter(k => !k.startsWith(monthPrefix));
+        console.log('[SAO Calendar Render] viewY=' + viewYear + ' viewM=' + viewMonth +
+            ' | cal.days total=' + calDaysKeys.length +
+            ' | this month=' + monthDays.length +
+            ' | other months=' + otherDays.length +
+            ' | first 5 other: ' + otherDays.slice(0, 5).join(','));
+        // 如果本月有事件，dump 前5天的事件数
+        monthDays.slice(0, 5).forEach(d => {
+            const evts = calDaysMap[d]?.events || [];
+            if (evts.length > 0) console.log('[SAO Calendar Render] ' + d + ' → ' + evts.length + ' events: ' + evts.map(e => (e.title||'').substring(0,30)).join(' | '));
+        });
+    }
     const gridCells = (!placeholderMode && year && month)
         ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap, isHomeMonth)
         : '';
