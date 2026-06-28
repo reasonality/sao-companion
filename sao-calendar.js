@@ -38,7 +38,7 @@ function addDays(dateObj, n) {
 }
 
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
-const CANON_DATA_VERSION = 2;
+const CANON_DATA_VERSION = 3;
 
 /**
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
@@ -252,7 +252,7 @@ function _filterTimelineEntries(currentDate) {
 
         // 块状解析：markdown 头 #### **11月6日...** 设定当前日期，后续 * 子弹点累积为该日事件
         const monthMatch = entryName.match(/年(\d{1,2})月/);
-        const entryMonth = monthMatch ? parseInt(monthMatch[1]) : 0;
+        let entryMonth = monthMatch ? parseInt(monthMatch[1]) : 0;
         let curDay = 0;
         let eventBuf = [];
         const flushDay = () => {
@@ -272,6 +272,8 @@ function _filterTimelineEntries(currentDate) {
             const hdrM = trimmed.match(/^#{1,6}\s*\*{0,2}\s*(\d{1,2})月(\d{1,2})日/);
             if (hdrM) {
                 flushDay();
+                // 用 header 中的月份覆盖 entry name 月份（防跨月污染）
+                entryMonth = parseInt(hdrM[1]) || entryMonth;
                 curDay = parseInt(hdrM[2]);
                 continue;
             }
@@ -510,7 +512,7 @@ export function initCalendarIfNeeded() {
 
         cal.lastCalUpdateDate = cal.currentDate;
         cal.canonDataVersion = CANON_DATA_VERSION;
-        log('日历首次初始化完成，提取了 ' + extractedCount + ' 个时间线条目');
+        log('日历初始化完成 v' + CANON_DATA_VERSION + '，提取了 ' + extractedCount + ' 个时间线条目（header-month-fix）');
     } catch (e) {
         log('日历初始化失败: ' + e.message, 'warn');
     }
