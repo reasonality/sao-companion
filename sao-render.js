@@ -262,8 +262,8 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        // 优先用 calDaysMap（含 type，日期精确）；仅 home month 时 fallback 到 gridDays（避免跨月重复）
-        const displayEvents = calDayEvents.length > 0 ? calDayEvents : (isHomeMonth ? (events || []) : []);
+        // 优先用 calDaysMap（含 type，日期精确）；gridDays 可能跨月泄漏（LLM 输出按 day 数字索引），不作为 fallback
+        const displayEvents = calDayEvents.length > 0 ? calDayEvents : [];
         if (displayEvents.length > 0) {
             const first = displayEvents[0];
             const full = typeof first === 'string' ? first : (first.title || first.description || '');
