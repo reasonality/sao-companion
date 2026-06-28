@@ -38,7 +38,7 @@ function addDays(dateObj, n) {
 }
 
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
-const CANON_DATA_VERSION = 4;
+const CANON_DATA_VERSION = 5;
 
 /**
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
