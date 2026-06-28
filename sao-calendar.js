@@ -126,21 +126,9 @@ export function buildTransientGridFromCalendar(calendar) {
     if (!m) return null;
     const year = parseInt(m[1]), month = parseInt(m[2]), currentDay = parseInt(m[3]);
     const curPrefix = m[1] + '-' + m[2];
-    // 当 currentDay > 20 时，也纳入下月前 N 天（让"未来 30 天"持续可见）
-    let nextPrefix = null;
-    if (currentDay > 20) {
-        const nm = new Date(year, month - 1 + 1, 1); // first day of next month
-        nextPrefix = nm.getFullYear() + '-' + String(nm.getMonth() + 1).padStart(2, '0');
-    }
     const days = [];
     for (const [dateStr, dayData] of Object.entries(calendar.days || {})) {
-        if (dateStr.startsWith(curPrefix)) {
-            // current month — include all
-        } else if (nextPrefix && dateStr.startsWith(nextPrefix)) {
-            // next month — include only when cross-month view enabled
-        } else {
-            continue;
-        }
+        if (!dateStr.startsWith(curPrefix)) continue;
         const dm = dateStr.match(/^\d{4}-\d{2}-(\d{2})$/);
         if (!dm) continue;
         const dayNum = parseInt(dm[1]);
@@ -357,7 +345,7 @@ export function parseFirstMesCalendarTag(rawText) {
     const daysIdx = body.indexOf('days:');
     if (daysIdx >= 0) {
         const daysBlock = body.slice(daysIdx + 5);
-        const lineRe = /^(\d{1,2}):\s*(.+)$/gm;
+        const lineRe = /^(\d{1,2}):[ \t]*(.+)$/gm;
         let lm;
         while ((lm = lineRe.exec(daysBlock)) !== null) {
             const dayNum = parseInt(lm[1]);

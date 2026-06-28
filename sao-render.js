@@ -353,7 +353,7 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
                     const daysIdx = body.indexOf('days:');
                     if (daysIdx >= 0) {
                         const daysBlock = body.slice(daysIdx + 5);
-                        const lineRe = /^(\d{1,2}):\s*(.+)$/gm;
+                        const lineRe = /^(\d{1,2}):[ \t]*(.+)$/gm;
                         const dayMap = {};
                         let lm;
                         while ((lm = lineRe.exec(daysBlock)) !== null) {
@@ -742,7 +742,8 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
         .replace(/[ \t]+$/gm, '')      // 去除每行尾随空格
         .replace(/\n{3,}/g, '\n\n')    // 3+ 连续空行折叠为单个空行
         .replace(/<\/summary>\s*\n+/g, '</summary>')   // 消除 summary 后的换行（标题与内容间间隙）
-        .replace(/<\/details>\s*\n+\s*<details/g, '</details><details'); // 消除兄弟 details 间的换行
+        .replace(/<\/details>\s*\n+\s*<details/g, '</details><details') // 消除兄弟 details 间的换行
+        .replace(/\s+<\/details>/g, '</details>')  // 消除 </details> 前的尾随空白（底部间隙）;
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
