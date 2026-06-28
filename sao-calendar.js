@@ -446,6 +446,9 @@ export function initCalendarIfNeeded() {
             if (!cal.days[ev.date]) {
                 cal.days[ev.date] = { events: [], isUpdated: false };
             }
+            // 去重：若该天已有相同 title 的事件（来自 first_mes），跳过
+            const dup = cal.days[ev.date].events.some(e => e.title === ev.title);
+            if (dup) continue;
             cal.days[ev.date].events.push({
                 type: 'canon',
                 time: null,
@@ -539,12 +542,35 @@ function extractAppointments(text, calendar) {
     const currentDate = calendar.currentDate;
     if (!currentDate) return 0;
 
+    // 预计算 canon 事件标题前缀 Set（用于排除原作时间线复述）
+    const _canonPrefixes = new Set();
+    for (const dayData of Object.values(calendar.days || {})) {
+        for (const ev of (dayData?.events || [])) {
+            if (ev.type !== 'canon') continue;
+            const t = (ev.title || ev.description || '').replace(/\s+/g, '');
+            if (t.length >= 8) _canonPrefixes.add(t.substring(0, 8));
+        }
+    }
+
     let addedCount = 0;
 
     for (const pattern of APPOINTMENT_PATTERNS) {
         const matches = text.matchAll(new RegExp(pattern, 'g'));
         for (const match of matches) {
             const fullMatch = match[0];
+
+            // 排除原作时间线复述：匹配文本与已有 canon 事件标题前缀重叠则跳过
+            const fmLower = fullMatch.replace(/\s+/g, '');
+            let isCanonDup = false;
+            if (fmLower.length >= 8 && _canonPrefixes.has(fmLower.substring(0, 8))) {
+                isCanonDup = true;
+            } else if (fmLower.length < 8) {
+                // 短匹配：检查是否被任一 canon 前缀包含
+                for (const p of _canonPrefixes) {
+                    if (p.includes(fmLower)) { isCanonDup = true; break; }
+                }
+            }
+            if (isCanonDup) continue;
 
             // 启发式提取相对日期
             let dateOffset = 0;

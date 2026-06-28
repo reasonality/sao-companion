@@ -1276,7 +1276,7 @@ function initPanelLogic() {
 
         let dots = '';
         let eventsHtml = '';
-        if (events.length > 0) {
+        if (isCurrentMonth && events.length > 0) {
             const hasApt = events.some(e => e.type === 'appointment');
             const hasCanon = events.some(e => e.type === 'canon');
             const hasCustom = events.some(e => e.type !== 'appointment' && e.type !== 'canon');
@@ -1285,11 +1285,12 @@ function initPanelLogic() {
             if (hasCanon) dots += '<div class="sao-cal-dot sao-cal-dot-canon"></div>';
             if (hasCustom) dots += '<div class="sao-cal-dot"></div>';
             dots += '</div>';
-            // 事件文字内联显示（最多 3 条，截断）
+            // 事件文字内联显示（最多 3 条，换行显示前 ~30 字符）
             const evItems = events.slice(0, 3).map(e => {
-                const txt = esc((e.title || e.description || '').substring(0, 12));
+                const full = e.title || e.description || '';
+                const txt = esc(full.substring(0, 40));
                 const evCls = e.type === 'appointment' ? 'sao-cal-event-apt' : (e.type === 'canon' ? 'sao-cal-event-canon' : '');
-                return `<div class="sao-cal-event-text ${evCls}">${txt}${(e.title||'').length > 12 ? '…' : ''}</div>`;
+                return `<div class="sao-cal-event-text ${evCls}">${txt}${full.length > 40 ? '…' : ''}</div>`;
             });
             eventsHtml = `<div class="sao-cal-events">${evItems.join('')}</div>`;
         }
