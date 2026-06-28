@@ -410,14 +410,20 @@ export function initCalendarIfNeeded() {
             }
             // canon 数据版本升级：清除旧 canon 事件（可能跨月污染/截断），保留 appointment/custom，重新提取
             if (calVer < CANON_DATA_VERSION) {
+                console.log('[SAO Calendar] canon 版本升级: ' + calVer + ' → ' + CANON_DATA_VERSION + '，清除旧 canon 事件');
                 log('\u65e5\u5386 canon \u6570\u636e\u7248\u672c\u5347\u7ea7: ' + calVer + ' \u2192 ' + CANON_DATA_VERSION + '\uff0c\u6e05\u9664\u65e7 canon \u4e8b\u4ef6\u91cd\u65b0\u63d0\u53d6');
+                let removedCount = 0;
                 for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
+                    const beforeLen = (dayData.events || []).length;
                     dayData.events = (dayData.events || []).filter(ev => ev.type !== 'canon');
+                    removedCount += beforeLen - dayData.events.length;
                     if (dayData.events.length === 0) delete data.calendar.days[dateStr];
                 }
+                console.log('[SAO Calendar] 清除 ' + removedCount + ' 个旧 canon 事件，剩余 ' + Object.keys(data.calendar.days).length + ' 天');
                 data.calendar.canonDataVersion = CANON_DATA_VERSION;
                 // 不 return — 继续走重新提取流程
             } else {
+                console.log('[SAO Calendar] canon 版本已是 ' + calVer + '，跳过重新提取');
                 return;
             }
         }
