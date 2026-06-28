@@ -1454,6 +1454,26 @@ function initPanelLogic() {
         showDetailModal(dateStr + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(dateStr));
     }
 
+    // 聊天日历日期点击 → 显示详情弹窗（Shadow DOM composed CustomEvent 跨边界）
+    const _calDayClickHandler = (e) => {
+        try {
+            const dateStr = e.detail?.dateStr;
+            if (!dateStr) return;
+            handleCalSelectDay(dateStr);
+        } catch (err) {
+            log('\u804a\u5929\u65e5\u5386\u70b9\u51fb\u5904\u7406\u5931\u8d25: ' + err.message, 'warn');
+        }
+    };
+    document.addEventListener('sao-cal-day-click', _calDayClickHandler);
+
+    // Register cleanup for hot-reload/teardown
+    if (!window._saoCalCleanup) {
+        window._saoCalCleanup = [];
+    }
+    window._saoCalCleanup.push(() => {
+        document.removeEventListener('sao-cal-day-click', _calDayClickHandler);
+    });
+
     function handleCalEditEvent(dateStr, eventIdx) {
         const cal = getCalendar();
         const evt = cal?.days?.[dateStr]?.events?.[eventIdx];

@@ -7,6 +7,7 @@ import { renderBattlePanel } from './battle/battleRenderer.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
+import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 
 // 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
 const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
@@ -205,11 +206,11 @@ function sanitizeInlineSaoHtml(html) {
     });
 }
 /**
- * 根据 year/month/current_day/days 生成原卡日历网格 HTML。
- * 使用原卡 class 名：day, day empty, day current-day, day-number, day-content, normal-text。
+ * 根据 year/month/current_day/days 生成日历网格 HTML（SAO 暗色主题）。
+ * 使用 .sao-cal-cell 类名，data-date 属性，点击触发自定义事件。
  * Weekday 顺序：周一到周日。
  */
-function buildCalendarGrid(year, month, currentDay, days) {
+function buildCalendarGrid(year, month, currentDay, days, calDaysMap) {
     const y = Number(year), m = Number(month), cd = Number(currentDay);
     if (!y || !m || y < 1 || m < 1 || m > 12) return '';
     const firstDayOfWeek = (new Date(y, m - 1, 1).getDay() + 6) % 7;
@@ -233,22 +234,37 @@ function buildCalendarGrid(year, month, currentDay, days) {
             }
         }
     }
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = (d) => y + '-' + pad(m) + '-' + pad(d);
     let cells = '';
     for (let i = 0; i < firstDayOfWeek; i++) {
-        cells += '<div class="day empty"></div>';
+        cells += '<div class="sao-cal-cell sao-cal-other-month"></div>';
     }
     for (let day = 1; day <= daysInMonth; day++) {
         const isCurrent = day === cd;
-        const cls = isCurrent ? 'day current-day' : 'day';
-        const numHtml = '<div class="day-number">' + day + '</div>';
+        const cls = 'sao-cal-cell' + (isCurrent ? ' sao-cal-today' : '');
         const events = dayContentMap[day];
-        let contentHtml = '';
+        const dateStrFull = dateStr(day);
+        const calDayEvents = calDaysMap?.[dateStrFull]?.events || [];
+        const appointments = calDayEvents.filter(e => e.type === 'appointment');
+        const nonAptEvents = calDayEvents.filter(e => e.type !== 'appointment');
+
+        let dotsHtml = '';
+        let eventHtml = '';
+        // Green dots = non-appointment events (cap 5); fallback to gridDays events only when calDays has no data for this day
+        const greenCount = nonAptEvents.length > 0 ? Math.min(nonAptEvents.length, 5) : (calDayEvents.length === 0 && events && events.length ? Math.min(events.length, 5) : 0);
+        // Yellow dot = has appointments
+        const yellowCount = appointments.length > 0 ? 1 : 0;
+        let dots = '';
+        for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
+        for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
+        if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
         if (events && events.length) {
-            contentHtml = '<div class="day-content">' +
-                events.filter(t => t && t.length <= 100).map(t => '<div class="normal-text">' + esc(t) + '</div>').join('') +
-                '</div>';
+            const first = events[0];
+            const full = typeof first === 'string' ? first : (first.title || first.description || '');
+            eventHtml = '<div class="sao-cal-event-text">' + esc(full) + '</div>';
         }
-        cells += '<div class="' + cls + '">' + numHtml + contentHtml + '</div>';
+        cells += `<div class="${cls}" data-date="${dateStrFull}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${eventHtml}</div>`;
     }
     return cells;
 }
@@ -380,266 +396,50 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
         placeholderMode = true;
     }
 
-    const summaryText = (!placeholderMode && year && month)
-        ? year + '\u5e74 ' + month + '\u6708 \u65e5\u5386'
-        : '\u65e5\u5386';
-    const calendarTitle = (!placeholderMode && month) ? month + '\u6708' : '';
-    const calendarInfo = (!placeholderMode && year) ? '\u5e74\u4efd ' + year : '';
+    const summaryText = (!placeholderMode && year && month && currentDay)
+        ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
+        : (!placeholderMode && year && month) ? `\ud83d\udcc5 ${year}\u5e74${month}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
+    const calDaysMap = data?.calendar?.days || {};
     const gridCells = (!placeholderMode && year && month)
-        ? buildCalendarGrid(year, month, currentDay, gridDays)
+        ? buildCalendarGrid(year, month, currentDay, gridDays, calDaysMap)
         : '';
-    const weekdays = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
-        .map(d => '<div class="weekday">' + d + '</div>').join('');
-    const placeholderContent = placeholderMode
-        ? '<div style="padding:8px;text-align:center;color:#8c785d;font-size:13px;">\u23f3 \u65e5\u5386\u751f\u6210\u4e2d\u2026</div>'
-        : '';
+    const weekdaysHtml = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
+        .map(d => '<div class="sao-cal-header">' + d + '</div>').join('');
+
+    // Preserve <details> open state across re-renders
+    const prevDetails = shadow.querySelector('details.sao-cal-details');
+    const wasOpen = prevDetails ? prevDetails.open : false;
 
     shadow.innerHTML = `
-        <style>
-            ${SHARED_SAO_CSS}
-            /* 移动优先设计 */
-                  * {
-                    box-sizing: border-box;
-                    margin: 0;
-                    padding: 0;
-                  }
-            
-                  /* 主容器样式 - 米色风格 */
-                  .calendar-wrapper {
-                    background-color: #f8f4ed;
-                    border: 1px solid #8c785d;
-                    border-radius: 6px;
-                    width: 100%;
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 2px;
-                    font-family: 'Microsoft YaHei', sans-serif;
-                    color: #5c4d3a;
-                    overflow: hidden; /* 防止内容溢出 */
-                  }
-            
-                  /* 日历折叠按钮容器 */
-                  .details-calendar-button {
-                    border: none;
-                    margin: 0;
-                    padding: 0;
-                    color: #5c4d3a;
-                    width: 100%;
-                  }
-            
-                  /* 折叠按钮基础样式 */
-                  .details-calendar-button > summary {
-                    display: flex;
-                    align-items: center;
-                    width: 100%;
-                    cursor: pointer;
-                    font-weight: bold;
-                    list-style: none;
-                    outline: none;
-                    transition: all 0.1s ease-in-out;
-                    position: relative;
-                  }
-            
-                  /* 移除默认标记 */
-                  .details-calendar-button > summary::-webkit-details-marker,
-                  .details-calendar-button > summary::marker {
-                    display: none;
-                    content: '';
-                  }
-            
-                  /* 图标样式 */
-                  .details-calendar-button > summary::before {
-                    content: '📅';
-                    display: inline-block;
-                    margin-right: 6px;
-                  }
-            
-                  /* 关闭时状态 */
-                  .details-calendar-button:not([open]) > summary {
-                    padding: 4px 8px;
-                    font-size: 16px;
-                    margin-top: -5px;
-                    background-color: #f0d9b5;
-                    border-radius: 5px;
-                    border: 1px solid #8c785d;
-                  }
-            
-                  /* 鼠标悬停效果 */
-                  .details-calendar-button:not([open]) > summary:hover {
-                    background-color: #e6ccaa;
-                  }
-            
-                  /* 打开时状态 */
-                  .details-calendar-button[open] > summary {
-                    padding: 8px 8px;
-                    font-size: 16px;
-                    margin-top: -5px;
-                    margin-bottom: 5px;
-                    border: 1px solid #8c785d;
-                    border-radius: 5px;
-                    background-color: #d9bda0;
-                  }
-            
-                  /* 日历内容区域 */
-                  .calendar-content {
-                    padding: 8px;
-                    background-color: #ede4d3;
-                    border-radius: 5px;
-                    border: 1px solid #bfae98;
-                    overflow-x: auto; /* 允许在小屏幕上滚动 */
-                  }
-            
-                  /* 日历标题区域 */
-                  .calendar-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 8px;
-                    padding-bottom: 4px;
-                    border-bottom: 1px solid #bfae98;
-                  }
-            
-                  .calendar-title {
-                    font-size: 16px;
-                    font-weight: bold;
-                    color: #5c4d3a;
-                  }
-            
-                  .calendar-info {
-                    font-size: 14px;
-                    color: #5c4d3a;
-                  }
-            
-                  /* 日历表格样式 */
-                  .calendar-grid {
-                    display: grid;
-                    grid-template-columns: repeat(7, minmax(40px, 1fr)); /* 确保每列至少40px宽 */
-                    gap: 1px;
-                    min-width: 280px; /* 最小宽度确保在小屏幕上也能看到所有列 */
-                  }
-            
-                  /* 星期标题 */
-                  .weekday {
-                    text-align: center;
-                    padding: 4px 2px;
-                    font-weight: bold;
-                    color: #5c4d3a;
-                    background-color: #d9c8b3;
-                    font-size: 13px; /* 更小的字体大小 */
-                  }
-            
-                  /* 日期单元格 */
-                  .day {
-                    min-height: 60px; /* 减小高度以适应移动设备 */
-                    padding: 2px;
-                    background-color: #f5f0e1;
-                    border: 1px solid #bfae98;
-                    position: relative;
-                    display: flex;
-                    flex-direction: column;
-                  }
-            
-                  /* 空白单元格 */
-                  .day.empty {
-                    background-color: #ede4d3;
-                    border: 1px solid #ede4d3;
-                  }
-            
-                  /* 日期数字 */
-                  .day-number {
-                    font-size: 12px;
-                    color: #8c785d;
-                    text-align: left;
-                    width: 100%;
-                    height: 16px;
-                  }
-            
-                  /* 当前日期高亮 */
-                  .current-day {
-                    background-color: #e6ccaa;
-                    border: 1px solid #8c785d;
-                  }
-            
-                  .current-day .day-number {
-                    color: #5c4d3a;
-                    font-weight: bold;
-                  }
-            
-                  /* 日期内容 */
-                  .day-content {
-                    flex-grow: 1;
-                    font-size: 10px; /* 更小的字体大小 */
-                    line-height: 1.2;
-                    overflow-y: auto;
-                    word-break: break-word; /* 允许单词在必要时断行 */
-                  }
-            
-                  /* 普通文本样式 */
-                  .normal-text {
-                    color: #5c4d3a;
-                    font-size: 10px; /* 更小的字体大小 */
-                    line-height: 1.2;
-                    margin-bottom: 2px;
-                  }
-            
-                  /* 适配更大屏幕的媒体查询 */
-                  @media (min-width: 500px) {
-                    .details-calendar-button[open] > summary {
-                      padding: 10px 8px;
-                      font-size: 18px;
-                    }
-            
-                    .calendar-content {
-                      padding: 10px;
-                    }
-            
-                    .calendar-title {
-                      font-size: 18px;
-                    }
-            
-                    .calendar-info {
-                      font-size: 16px;
-                    }
-            
-                    .weekday {
-                      padding: 5px;
-                      font-size: 14px;
-                    }
-            
-                    .day {
-                      min-height: 80px;
-                      padding: 5px;
-                    }
-            
-                    .day-number {
-                      font-size: 14px;
-                      height: 20px;
-                    }
-            
-                    .day-content,
-                    .normal-text {
-                      font-size: 12px;
-                      line-height: 1.3;
-                    }
-                  }
-        </style>
-        <div class="calendar-wrapper">
-            <details class="details-calendar-button" open>
-                <summary>${summaryText}</summary>
-                <div class="calendar-content">
-                    ${placeholderMode ? placeholderContent : `
-                    <div class="calendar-header">
-                        <div class="calendar-title">${calendarTitle}</div>
-                        <div class="calendar-info">${calendarInfo}</div>
-                    </div>
-                    <div class="calendar-grid">
-                        ${weekdays}
-                        ${gridCells}
-                    </div>`}
-                </div>
-            </details>
-        </div>
+        <style>${SAO_CALENDAR_CSS}</style>
+        <details class="sao-cal-details">
+            <summary>${summaryText}</summary>
+            ${placeholderMode
+                ? '<div class="sao-cal-placeholder">\u23f3 \u65e5\u5386\u751f\u6210\u4e2d\u2026</div>'
+                : `<div class="sao-cal-grid">${weekdaysHtml}${gridCells}</div>`}
+        </details>
     `;
+
+    if (wasOpen) {
+        const newDetails = shadow.querySelector('details.sao-cal-details');
+        if (newDetails) newDetails.open = true;
+    }
+
+    // Guard: avoid stacking duplicate click listeners on re-render (shadow host is reused)
+    if (!shadow._calClickBound) {
+        shadow._calClickBound = true;
+        shadow.addEventListener('click', (e) => {
+            const cell = e.target.closest('.sao-cal-cell[data-date]');
+            if (!cell) return;
+            const dateStr = cell.getAttribute('data-date');
+            if (!dateStr) return;
+            shadow.dispatchEvent(new CustomEvent('sao-cal-day-click', {
+                detail: { dateStr },
+                bubbles: true,
+                composed: true,
+            }));
+        });
+    }
 }
 
 // 渲染器映射（模块级，函数声明提升使其可在此引用后续定义的函数；避免 renderAllTags 每次重建）
