@@ -37,6 +37,9 @@ function addDays(dateObj, n) {
     return result;
 }
 
+/** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
+const CANON_DATA_VERSION = 2;
+
 /**
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
  * 返回正数表示 date2 > date1，负数表示 date2 < date1
@@ -387,15 +390,15 @@ export function initCalendarIfNeeded() {
         const data = getSaoData();
         if (!data) return;
 
-        // 已初始化（days 非空）— 检查版本，必要时清除旧 canon 数据重新提取
-        const CURRENT_CAL_VERSION = 2;
+        // 已初始化（days 非空）— 检查 canon 数据版本，必要时清除旧 canon 数据重新提取
+        // 注意：calendarVersion 用于乐观并发控制（persistCalendar 每次递增），不能用于此检查
+        const calVer = data.calendar?.canonDataVersion || 0;
         if (data.calendar && data.calendar.days && Object.keys(data.calendar.days).length > 0) {
             _dedupExistingDays(data.calendar);
             // Clean stale auto-generated appointments from disabled regex extractor
             if (data.calendar.appointments) {
                 const before = data.calendar.appointments.length;
                 data.calendar.appointments = data.calendar.appointments.filter(a => a.source !== 'auto');
-                // Also remove their events from days
                 for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
                     dayData.events = (dayData.events || []).filter(ev => !(ev.type === 'appointment' && ev.source === 'auto'));
                 }
@@ -403,14 +406,14 @@ export function initCalendarIfNeeded() {
                     log('\u6e05\u7406 ' + (before - data.calendar.appointments.length) + ' \u4e2a\u65e7\u6b63\u5219\u63d0\u53d6\u7684\u7ea6\u5b9a');
                 }
             }
-            // 版本升级：清除旧 canon 事件（可能跨月污染/截断），保留 appointment/custom，重新提取
-            if ((data.calendar.calendarVersion || 0) < CURRENT_CAL_VERSION) {
-                log('\u65e5\u5386\u7248\u672c\u5347\u7ea7: ' + (data.calendar.calendarVersion || 0) + ' \u2192 ' + CURRENT_CAL_VERSION + '\uff0c\u6e05\u9664\u65e7 canon \u4e8b\u4ef6\u91cd\u65b0\u63d0\u53d6');
+            // canon 数据版本升级：清除旧 canon 事件（可能跨月污染/截断），保留 appointment/custom，重新提取
+            if (calVer < CANON_DATA_VERSION) {
+                log('\u65e5\u5386 canon \u6570\u636e\u7248\u672c\u5347\u7ea7: ' + calVer + ' \u2192 ' + CANON_DATA_VERSION + '\uff0c\u6e05\u9664\u65e7 canon \u4e8b\u4ef6\u91cd\u65b0\u63d0\u53d6');
                 for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
                     dayData.events = (dayData.events || []).filter(ev => ev.type !== 'canon');
                     if (dayData.events.length === 0) delete data.calendar.days[dateStr];
                 }
-                data.calendar.calendarVersion = CURRENT_CAL_VERSION;
+                data.calendar.canonDataVersion = CANON_DATA_VERSION;
                 // 不 return — 继续走重新提取流程
             } else {
                 return;
@@ -426,6 +429,7 @@ export function initCalendarIfNeeded() {
                 lastCalUpdateDate: null,
                 lastCalUpdateMsgId: null,
                 calendarVersion: 0,
+                canonDataVersion: 0,
             };
         }
         const cal = data.calendar;
@@ -505,6 +509,7 @@ export function initCalendarIfNeeded() {
         }
 
         cal.lastCalUpdateDate = cal.currentDate;
+        cal.canonDataVersion = CANON_DATA_VERSION;
         log('日历首次初始化完成，提取了 ' + extractedCount + ' 个时间线条目');
     } catch (e) {
         log('日历初始化失败: ' + e.message, 'warn');
