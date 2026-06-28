@@ -248,13 +248,13 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         const cls = 'sao-cal-cell' + (isCurrent ? ' sao-cal-today' : '');
         const events = dayContentMap[day];
         const dateStrFull = dateStr(day);
-        // 防御性过滤：只显示与当前 grid 月份完全匹配的 cal.days 事件
-        // 防止任何来源的跨月数据污染（worldbook 提取/LLM grid/旧数据）
+        // 硬过滤：只显示 date 字段与当前 grid 日期完全匹配的事件
+        // 防止任何来源的跨月数据污染（即使 cal.days key 被错误写入）
         const rawCalEvents = calDaysMap?.[dateStrFull]?.events || [];
         const calDayEvents = rawCalEvents.filter(ev => {
-            // 确保事件的日期 key 与当前 grid 月份一致
-            // dateStrFull = y-m-d，匹配 grid 的 year/month
-            return true; // dateStrFull 本身就是精确日期，不需要额外过滤
+            // 如果 event 有 date 字段，必须与 dateStrFull 匹配
+            if (ev.date && ev.date !== dateStrFull) return false;
+            return true;
         });
         const appointments = calDayEvents.filter(e => e.type === 'appointment');
         const nonAptEvents = calDayEvents.filter(e => e.type !== 'appointment');

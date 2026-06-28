@@ -474,6 +474,7 @@ export function initCalendarIfNeeded() {
                             title: ev.title,
                             description: ev.title,
                             source: 'first_mes',
+                            date: dateStr, // 精确日期标记
                         });
                         fmCount++;
                     }
@@ -512,6 +513,7 @@ export function initCalendarIfNeeded() {
                 title: ev.title,
                 description: ev.title,
                 source: 'timeline',
+                date: ev.date, // 精确日期标记，供渲染层校验防跨月污染
             });
             extractedCount++;
         }
