@@ -426,26 +426,22 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
         ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
         : (!placeholderMode && viewYear && viewMonth) ? `\ud83d\udcc5 ${viewYear}\u5e74${viewMonth}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
     const calDaysMap = data?.calendar?.days || {};
-    // 渲染前实时清理：移除所有没有 date 字段的 canon 事件（旧数据残留）
-    // 这比版本升级更可靠——每次渲染都清理
+    // 渲染前实时清理：只删除 date 字段与 key 不匹配的 canon 事件（跨月污染）
+    // 不删除无 date 字段的旧事件（它们可能是正确的）
     let cleanedCount = 0;
     for (const [ds, dd] of Object.entries(calDaysMap)) {
         if (!dd || !dd.events) continue;
-        const before = dd.events.length;
         dd.events = dd.events.filter(ev => {
-            // canon 事件必须有 date 字段且与 key 匹配
-            if (ev.type === 'canon') {
-                if (!ev.date) { cleanedCount++; return false; }
-                if (ev.date !== ds) { cleanedCount++; return false; }
+            // canon 事件如果有 date 字段且与 key 不匹配 → 跨月污染，删除
+            if (ev.type === 'canon' && ev.date && ev.date !== ds) {
+                cleanedCount++;
+                return false;
             }
             return true;
         });
-        if (dd.events.length === 0 && before > 0) {
-            // 如果清理后该天无事件，不删除 key（保留结构）
-        }
     }
     if (cleanedCount > 0) {
-        console.log('[SAO Calendar Render] 实时清理 ' + cleanedCount + ' 个无 date 或跨月的 canon 事件');
+        console.log('[SAO Calendar Render] 实时清理 ' + cleanedCount + ' 个跨月污染 canon 事件');
     }
     const gridCells = (!placeholderMode && year && month)
         ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap, isHomeMonth)

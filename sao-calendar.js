@@ -38,7 +38,7 @@ function addDays(dateObj, n) {
 }
 
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
-const CANON_DATA_VERSION = 5;
+const CANON_DATA_VERSION = 6;
 
 /**
  * 计算两个 YYYY-MM-DD 日期字符串之间的天数差
@@ -521,8 +521,14 @@ export function initCalendarIfNeeded() {
         cal.lastCalUpdateDate = cal.currentDate;
         cal.canonDataVersion = CANON_DATA_VERSION;
         log('日历初始化完成 v' + CANON_DATA_VERSION + '，提取了 ' + extractedCount + ' 个时间线条目（header-month-fix）');
+        console.log('[SAO Calendar] ✓ 重新提取完成 v' + CANON_DATA_VERSION + '，' + extractedCount + ' 个事件，开始保存...');
         // 关键：保存修改到持久化存储，否则重启后数据回滚
-        saveSaoDataNow();
+        try {
+            saveSaoDataNow();
+            console.log('[SAO Calendar] ✓ 保存完成');
+        } catch (saveErr) {
+            console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);
+        }
     } catch (e) {
         log('日历初始化失败: ' + e.message, 'warn');
     }
