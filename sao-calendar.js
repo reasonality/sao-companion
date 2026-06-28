@@ -519,6 +519,8 @@ export function initCalendarIfNeeded() {
         cal.lastCalUpdateDate = cal.currentDate;
         cal.canonDataVersion = CANON_DATA_VERSION;
         log('日历初始化完成 v' + CANON_DATA_VERSION + '，提取了 ' + extractedCount + ' 个时间线条目（header-month-fix）');
+        // 关键：保存修改到持久化存储，否则重启后数据回滚
+        saveSaoDataNow();
     } catch (e) {
         log('日历初始化失败: ' + e.message, 'warn');
     }
