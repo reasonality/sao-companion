@@ -360,6 +360,21 @@ export function parseFirstMesCalendarTag(rawText) {
     return { year, month, currentDay, days };
 }
 
+/** 一次性清理 cal.days 中历史遗留的重复 canon 事件（归一化前缀比较） */
+function _dedupExistingDays(cal) {
+    if (!cal || !cal.days) return;
+    for (const dayData of Object.values(cal.days)) {
+        if (!dayData.events || dayData.events.length < 2) continue;
+        const seen = new Set();
+        dayData.events = dayData.events.filter(ev => {
+            const k = (ev.title || ev.description || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        });
+    }
+}
+
 /**
  * 日历懒初始化：首次访问时从世界书提取时间线条目
  * P2a: 仅从 world book timeline entries 初始化 days；appointments 为空
@@ -369,8 +384,9 @@ export function initCalendarIfNeeded() {
         const data = getSaoData();
         if (!data) return;
 
-        // 已初始化（days 非空）
+        // 已初始化（days 非空）— 清理可能的历史重复数据后返回
         if (data.calendar && data.calendar.days && Object.keys(data.calendar.days).length > 0) {
+            _dedupExistingDays(data.calendar);
             return;
         }
 
@@ -446,8 +462,10 @@ export function initCalendarIfNeeded() {
             if (!cal.days[ev.date]) {
                 cal.days[ev.date] = { events: [], isUpdated: false };
             }
-            // 去重：若该天已有相同 title 的事件（来自 first_mes），跳过
-            const dup = cal.days[ev.date].events.some(e => e.title === ev.title);
+            // 去重：归一化前缀比较（first_mes title 可能带 [标签] 前缀，worldbook title 经 markdown 清洗）
+            const _normKey = (s) => (s || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
+            const evKey = _normKey(ev.title);
+            const dup = cal.days[ev.date].events.some(e => _normKey(e.title) === evKey);
             if (dup) continue;
             cal.days[ev.date].events.push({
                 type: 'canon',
