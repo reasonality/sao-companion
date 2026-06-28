@@ -255,8 +255,10 @@ function _filterTimelineEntries(currentDate) {
         const flushDay = () => {
             if (curDay > 0 && eventBuf.length > 0 && entryMonth > 0 && fallbackYear) {
                 const dateStr = fallbackYear + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
-                const title = eventBuf.join('；').slice(0, 100);
-                events.push({ date: dateStr, title });
+                // 每个 bullet 作为独立事件，而非合并截断
+                for (const txt of eventBuf) {
+                    events.push({ date: dateStr, title: txt.slice(0, 200) });
+                }
             }
             eventBuf = [];
         };
