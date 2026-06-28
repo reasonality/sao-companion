@@ -426,22 +426,26 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
         ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
         : (!placeholderMode && viewYear && viewMonth) ? `\ud83d\udcc5 ${viewYear}\u5e74${viewMonth}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
     const calDaysMap = data?.calendar?.days || {};
-    // 调试日志：dump 渲染时的 cal.days 状态，帮助定位跨月污染根因
-    const calDaysKeys = Object.keys(calDaysMap);
-    if (calDaysKeys.length > 0 && viewYear && viewMonth) {
-        const monthPrefix = viewYear + '-' + String(viewMonth).padStart(2, '0');
-        const monthDays = calDaysKeys.filter(k => k.startsWith(monthPrefix));
-        const otherDays = calDaysKeys.filter(k => !k.startsWith(monthPrefix));
-        console.log('[SAO Calendar Render] viewY=' + viewYear + ' viewM=' + viewMonth +
-            ' | cal.days total=' + calDaysKeys.length +
-            ' | this month=' + monthDays.length +
-            ' | other months=' + otherDays.length +
-            ' | first 5 other: ' + otherDays.slice(0, 5).join(','));
-        // 如果本月有事件，dump 前5天的事件数
-        monthDays.slice(0, 5).forEach(d => {
-            const evts = calDaysMap[d]?.events || [];
-            if (evts.length > 0) console.log('[SAO Calendar Render] ' + d + ' → ' + evts.length + ' events: ' + evts.map(e => (e.title||'').substring(0,30)).join(' | '));
+    // 渲染前实时清理：移除所有没有 date 字段的 canon 事件（旧数据残留）
+    // 这比版本升级更可靠——每次渲染都清理
+    let cleanedCount = 0;
+    for (const [ds, dd] of Object.entries(calDaysMap)) {
+        if (!dd || !dd.events) continue;
+        const before = dd.events.length;
+        dd.events = dd.events.filter(ev => {
+            // canon 事件必须有 date 字段且与 key 匹配
+            if (ev.type === 'canon') {
+                if (!ev.date) { cleanedCount++; return false; }
+                if (ev.date !== ds) { cleanedCount++; return false; }
+            }
+            return true;
         });
+        if (dd.events.length === 0 && before > 0) {
+            // 如果清理后该天无事件，不删除 key（保留结构）
+        }
+    }
+    if (cleanedCount > 0) {
+        console.log('[SAO Calendar Render] 实时清理 ' + cleanedCount + ' 个无 date 或跨月的 canon 事件');
     }
     const gridCells = (!placeholderMode && year && month)
         ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap, isHomeMonth)
