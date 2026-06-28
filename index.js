@@ -1412,10 +1412,31 @@ function initPanelLogic() {
         renderCalendarMonth();
     }
 
+    function buildCalendarDayEventsHtml(dateStr) {
+        const cal = getCalendar();
+        const dayData = cal?.days?.[dateStr];
+        const events = dayData?.events || [];
+        if (events.length === 0) {
+            return '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u4e8b\u4ef6</span>';
+        }
+        return events.map(evt => {
+            const cls = ['sao-cal-event-item'];
+            if (evt.type === 'appointment') cls.push('sao-cal-event-apt');
+            else if (evt.type === 'canon') cls.push('sao-cal-event-canon');
+            const time = evt.time ? `<span style="color:var(--primary);">${esc(evt.time)}</span> ` : '';
+            const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
+            return `<div class="${cls.join(' ')}">
+                <div><span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}</div>
+                ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
+            </div>`;
+        }).join('');
+    }
+
     function handleCalSelectDay(dateStr) {
         _calSelectedDate = dateStr;
         renderCalendarMonth();
         renderCalendarDayDetail();
+        showDetailModal(dateStr + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(dateStr));
     }
 
     function handleCalAddAppointment() {
