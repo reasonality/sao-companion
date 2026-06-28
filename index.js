@@ -23,6 +23,7 @@ import {
     updateCalendarIncremental,
     persistCalendar,
     parseDate, formatDate,
+    addAppointmentToCalendar,
 } from './sao-calendar.js';
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 import { extractAll, applyExtractedData } from './sao-extract.js';
@@ -1371,6 +1372,7 @@ function initPanelLogic() {
         const descEl = document.getElementById('sao_cal_input_desc');
         const partEl = document.getElementById('sao_cal_input_participants');
         const locEl = document.getElementById('sao_cal_input_location');
+        const typeEl = document.getElementById('sao_cal_input_type');
         if (!formEl) return;
 
         if (apt) {
@@ -1389,6 +1391,7 @@ function initPanelLogic() {
             descEl.value = '';
             partEl.value = '';
             locEl.value = '';
+            if (typeEl) typeEl.value = 'custom';
         }
 
         formEl.style.display = 'block';
@@ -1464,6 +1467,8 @@ function initPanelLogic() {
         if (idEl) idEl.value = 'event_' + dateStr + '_' + eventIdx;
         const titleEl = document.getElementById('sao_cal_form_title');
         if (titleEl) titleEl.textContent = '\u7f16\u8f91\u4e8b\u4ef6';
+        const typeEl = document.getElementById('sao_cal_input_type');
+        if (typeEl) typeEl.value = evt.type === 'appointment' ? 'appointment' : (evt.type === 'canon' ? 'canon' : 'custom');
     }
 
     async function handleCalDeleteEvent(dateStr, eventIdx) {
@@ -1490,10 +1495,18 @@ function initPanelLogic() {
         if (titleEl) titleEl.textContent = '\u6dfb\u52a0\u4e8b\u4ef6';
         const idEl = document.getElementById('sao_cal_edit_id');
         if (idEl) idEl.value = 'new_event_' + dateStr;
+        const typeEl = document.getElementById('sao_cal_input_type');
+        if (typeEl) typeEl.value = 'custom';
     }
 
     function handleCalAddAppointment() {
         showCalEditForm(null, _calSelectedDate);
+        const titleEl = document.getElementById('sao_cal_form_title');
+        if (titleEl) titleEl.textContent = '\u6dfb\u52a0\u7ea6\u5b9a';
+        const idEl = document.getElementById('sao_cal_edit_id');
+        if (idEl) idEl.value = 'new_apt_' + (_calSelectedDate || formatDate(new Date()));
+        const typeEl = document.getElementById('sao_cal_input_type');
+        if (typeEl) typeEl.value = 'appointment';
     }
 
     function handleCalManualEdit() {
@@ -1503,7 +1516,11 @@ function initPanelLogic() {
     function handleCalEditAppointment(id) {
         const cal = getCalendar();
         const apt = cal?.appointments?.find(a => a.id === id);
-        if (apt) showCalEditForm(apt);
+        if (apt) {
+            showCalEditForm(apt);
+            const typeEl = document.getElementById('sao_cal_input_type');
+            if (typeEl) typeEl.value = 'appointment';
+        }
     }
 
     async function handleCalSaveAppointment() {
@@ -1515,26 +1532,27 @@ function initPanelLogic() {
         const dateEl = document.getElementById('sao_cal_input_date');
         const timeEl = document.getElementById('sao_cal_input_time');
         const descEl = document.getElementById('sao_cal_input_desc');
+        const typeEl = document.getElementById('sao_cal_input_type');
         const partEl = document.getElementById('sao_cal_input_participants');
         const locEl = document.getElementById('sao_cal_input_location');
 
         const date = dateEl.value;
         const time = timeEl.value;
         const description = descEl.value.trim();
+        const eventType = typeEl ? typeEl.value : 'custom';
         const participants = partEl.value.split(',').map(s => s.trim()).filter(Boolean);
         const location = locEl.value.trim();
 
         if (!date || !description) {
-            log('\u4fdd\u5b58\u7ea6\u5b9a\u5931\u8d25: \u65e5\u671f\u548c\u63cf\u8ff0\u4e0d\u80fd\u4e3a\u7a7a', 'warn');
+            log('\u4fdd\u5b58\u5931\u8d25: \u65e5\u671f\u548c\u63cf\u8ff0\u4e0d\u80fd\u4e3a\u7a7a', 'warn');
             return;
         }
 
         const id = idEl.value;
 
-        // Handle event editing (from modal edit/delete buttons)
+        // Editing existing event (from modal edit button)
         if (id.startsWith('event_')) {
             const parts = id.split('_');
-            // event_YYYY-MM-DD_idx
             const eventDate = parts.slice(1, -1).join('_');
             const eventIdx = parseInt(parts[parts.length - 1]);
             if (cal.days?.[eventDate]?.events?.[eventIdx] != null) {
@@ -1542,6 +1560,7 @@ function initPanelLogic() {
                 evt.time = time;
                 evt.title = description;
                 evt.description = description;
+                evt.type = eventType;
                 await persistCalendar(cal);
                 hideCalEditForm();
                 _renderCalendarTab();
@@ -1549,16 +1568,22 @@ function initPanelLogic() {
             }
             return;
         }
+
+        // Adding new event (from popup "+ 添加事件")
         if (id.startsWith('new_event_')) {
             const eventDate = id.substring('new_event_'.length);
             if (!cal.days[eventDate]) cal.days[eventDate] = { events: [], isUpdated: true };
-            cal.days[eventDate].events.push({
-                type: 'custom',
-                time: time,
-                title: description,
-                description: description,
-                source: 'manual',
-            });
+            if (eventType === 'appointment') {
+                addAppointmentToCalendar(cal, { date: eventDate, time, description, source: 'manual', status: 'pending' });
+            } else {
+                cal.days[eventDate].events.push({
+                    type: eventType,
+                    time: time,
+                    title: description,
+                    description: description,
+                    source: 'manual',
+                });
+            }
             await persistCalendar(cal);
             hideCalEditForm();
             _renderCalendarTab();
@@ -1566,7 +1591,17 @@ function initPanelLogic() {
             return;
         }
 
-        // Original appointment save logic
+        // Adding new appointment (from 约定区 "添加约定")
+        if (id.startsWith('new_apt_')) {
+            addAppointmentToCalendar(cal, { date, time, description, source: 'manual', status: 'pending' });
+            await persistCalendar(cal);
+            hideCalEditForm();
+            _renderCalendarTab();
+            showDetailModal(date + ' \u4e8b\u4ef6', buildCalendarDayEventsHtml(date));
+            return;
+        }
+
+        // Original appointment editing (existing appointment id like 'apt_...')
         let apt;
         if (id) {
             apt = cal.appointments.find(a => a.id === id);
@@ -1584,8 +1619,8 @@ function initPanelLogic() {
                 date: date,
                 time: time,
                 description: description,
-                participants: [],
-                location: '',
+                participants: participants,
+                location: location,
                 source: 'manual',
                 status: 'pending',
                 createdAt: new Date().toISOString(),
@@ -1601,25 +1636,19 @@ function initPanelLogic() {
         apt.location = location;
 
         if (!cal.days[date]) cal.days[date] = { events: [], isUpdated: true };
-        const eventObj = {
+        cal.days[date].events.push({
             type: 'appointment',
             time: time,
             title: description,
             description: description,
             source: 'manual',
-        };
-        const existingIdx = cal.days[date].events.findIndex(e => e.source === 'manual' && e.title === description && e.time === time);
-        if (existingIdx >= 0) {
-            cal.days[date].events[existingIdx] = eventObj;
-        } else {
-            cal.days[date].events.push(eventObj);
-        }
+        });
 
         await persistCalendar(cal);
         hideCalEditForm();
         _renderCalendarTab();
         } catch (e) {
-            log('\u4fdd\u5b58\u7ea6\u5b9a\u5931\u8d25: ' + e.message, 'error');
+            log('\u4fdd\u5b58\u5931\u8d25: ' + e.message, 'error');
         }
     }
 

@@ -132,6 +132,14 @@
 <div class="sao-section-title" id="sao_cal_form_title">添加约定</div>
 <div class="sao-card">
 <input type="hidden" id="sao_cal_edit_id" />
+<div class="sao-field" style="margin-bottom:10px;">
+<label>类型</label>
+<select id="sao_cal_input_type" style="width:100%;padding:6px 10px;background:var(--bg-input,#1a1a2e);color:var(--text-primary,#e0e0e0);border:1px solid var(--border,#333);border-radius:6px;font-size:0.9em;">
+<option value="custom">事件（变化剧情）</option>
+<option value="canon">原作事件</option>
+<option value="appointment">约定</option>
+</select>
+</div>
 <div class="sao-grid-2">
 <div class="sao-field"><label>日期</label><input type="date" id="sao_cal_input_date" /></div>
 <div class="sao-field"><label>时间</label><input type="time" id="sao_cal_input_time" /></div>
