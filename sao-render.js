@@ -213,7 +213,7 @@ function sanitizeInlineSaoHtml(html) {
  * 使用 .sao-cal-cell 类名，data-date 属性，点击触发自定义事件。
  * Weekday 顺序：周一到周日。
  */
-function buildCalendarGrid(year, month, currentDay, days, calDaysMap) {
+function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMonth) {
     const y = Number(year), m = Number(month), cd = Number(currentDay);
     if (!y || !m || y < 1 || m < 1 || m > 12) return '';
     const firstDayOfWeek = (new Date(y, m - 1, 1).getDay() + 6) % 7;
@@ -262,8 +262,8 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap) {
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        // 优先用 calDaysMap（含 type，日期精确）；fallback 到 gridDays（可能跨月泄漏）
-        const displayEvents = calDayEvents.length > 0 ? calDayEvents : (events || []);
+        // 优先用 calDaysMap（含 type，日期精确）；仅 home month 时 fallback 到 gridDays（避免跨月重复）
+        const displayEvents = calDayEvents.length > 0 ? calDayEvents : (isHomeMonth ? (events || []) : []);
         if (displayEvents.length > 0) {
             const first = displayEvents[0];
             const full = typeof first === 'string' ? first : (first.title || first.description || '');
@@ -421,7 +421,7 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
         : (!placeholderMode && viewYear && viewMonth) ? `\ud83d\udcc5 ${viewYear}\u5e74${viewMonth}\u6708` : '\ud83d\udcc5 \u65e5\u5386';
     const calDaysMap = data?.calendar?.days || {};
     const gridCells = (!placeholderMode && year && month)
-        ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap)
+        ? buildCalendarGrid(viewYear, viewMonth, isHomeMonth ? currentDay : 0, gridDays, calDaysMap, isHomeMonth)
         : '';
     const weekdaysHtml = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
         .map(d => '<div class="sao-cal-header">' + d + '</div>').join('');

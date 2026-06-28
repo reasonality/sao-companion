@@ -238,7 +238,8 @@ function _filterTimelineEntries(currentDate) {
             const yearMatch = entryName.match(/^(\d{4})年(\d{1,2})月/);
             if (yearMatch) {
                 const entryMonthIdx = parseInt(yearMatch[1]) * 12 + (parseInt(yearMatch[2]) - 1);
-                if (Math.abs(entryMonthIdx - currentMonthIdx) > 1) continue;
+                // 扩大范围至 ±12 个月，让日历翻页能看到更多原作时间线
+                if (Math.abs(entryMonthIdx - currentMonthIdx) > 12) continue;
             }
         }
 
