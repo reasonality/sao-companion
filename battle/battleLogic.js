@@ -15,7 +15,6 @@ import {
     handlePermanentShieldCore,
     handleTemporaryShieldCore,
     handleShieldOverTimeCore,
-    processEnchantmentEffectsCore,
     healCore,
     manaRestoreCore,
     sacrificeBoostCore,
@@ -4342,15 +4341,18 @@ function createBattleButton() {
 
         performNextA5Attack();
       }
-// ponytail: two enchantment dispatchers kept — different Core delegation (player calls processEnchantmentEffectsCore,
-// teammate doesn't) + different handler targets (battleState.player vs teammate). Merging saves ~60 lines but adds
-// isTeammate branching in 15+ case arms. Safe refactor if both paths converge on Core.
+// ponytail: two enchantment dispatchers kept — player path (本文件 processEnchantmentEffects) 走本地
+// handler 表(状态变更+UI动画)，teammate path (processTeammateEnchantmentEffects) 独立分发。
+// M2-fix: 不再调用 processEnchantmentEffectsCore(它重复 B1-B19 状态变更 + 返回对象致 damage 字符串拼接)。
+// Merging saves ~60 lines but adds isTeammate branching in 15+ case arms. Safe refactor if both paths converge on Core.
+// ponytail: 战斗附魔单点分发。本地 handler 同时做状态变更 + UI 动画(addHpChangeAnimation)。
+// 不再调用 processEnchantmentEffectsCore —— 它会重复 B1-B19 的状态变更(double-execution)，
+// 且返回 {totalExtraDamage,instructions} 对象导致 `damage += extraDamage` 字符串拼接污染。
+// B5/B10/B20-22 改由本地已有的 Core 包装 handler 处理(handleDOT/handleHealOverTime/
+// handlePermanentShield/handleTemporaryShield/handleShieldOverTime)，保持单次执行 + 返回数字。
 function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
   if (!weapon.codes) return 0;
   let totalExtraDamage = 0;
-  const coreLog = [];
-  totalExtraDamage += processEnchantmentEffectsCore(weapon, enemy, damage, isCrit, coreLog, battleState.player, battleState.playerBuffs);
-  coreLog.forEach(msg => logBattleAction(msg));
   weapon.codes.forEach(code => {
     if (!code.startsWith('EN:B')) return;
     const match = code.match(/EN:(B\d+),(.+)/);
@@ -4370,7 +4372,9 @@ function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
       case 'B4': 
         if (isCrit) handleFreeze(params, enemy);
         break;
-      // B5 handled by Core
+      case 'B5': 
+        handleDOT(params, enemy);
+        break;
       case 'B6': 
         handleChanceFreeze(params, enemy);
         break;
@@ -4383,7 +4387,9 @@ function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
       case 'B9': 
         handleManaRestore(params);
         break;
-      // B10 handled by Core
+      case 'B10': 
+        handleHealOverTime(params);
+        break;
       case 'B11': 
         handleStrengthBoost(params);
         break;
@@ -4411,7 +4417,15 @@ function processEnchantmentEffects(weapon, enemy, damage, isCrit) {
       case 'B19': 
         handleCorrosionStack(params, enemy);
         break;
-      // B20-B22 handled by Core
+      case 'B20': 
+        handlePermanentShield(params);
+        break;
+      case 'B21': 
+        handleTemporaryShield(params);
+        break;
+      case 'B22': 
+        handleShieldOverTime(params);
+        break;
     }
   });
   return totalExtraDamage;

@@ -80,7 +80,7 @@ ${messageText.substring(0, 2000)}
 
     let content;
     try {
-        content = await callSpecialist('specialist', [
+        content = await callSpecialist('quest', [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
         ], 512, { temperature: 0.3, jsonSchema: true, timeoutMs: 20000 });

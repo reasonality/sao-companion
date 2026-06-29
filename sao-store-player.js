@@ -151,8 +151,9 @@ export async function updatePlayerAttributes(attrs, skipSave) {
  */
 export async function updatePlayerProgression(level, totalExp, skipSave) {
     const playerStore = ensurePlayerStore();
-    playerStore.progression.level = level;
-    playerStore.progression.totalExp = totalExp;
+    // L11: 防 null/undefined 写入（specialist JSON 可能只传其中一个字段，另一个为 undefined）
+    if (level != null) playerStore.progression.level = level;
+    if (totalExp != null) playerStore.progression.totalExp = totalExp;
     if (skipSave !== true) await saveStore();
 }
 

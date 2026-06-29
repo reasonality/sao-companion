@@ -802,7 +802,8 @@ export function executeTeammateAttackCore(teammate, enemies, log) {
     };
 
     // apt 多击循环：每击独立命中判定
-    const apt = weapon.apt || 1;
+    // normalizeWeapon 把 apt 映射成 attacksPerTurn，故两个名字都兜底
+    const apt = weapon.attacksPerTurn || weapon.apt || 1;
     for (let hit = 0; hit < apt; hit++) {
         if (target.hp <= 0) break;
 

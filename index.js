@@ -1,5 +1,5 @@
 ﻿// SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.15 (用原卡模板替换自写美化)
+// 版本: 0.6.45 (用原卡模板替换自写美化)
 // 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
 
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
@@ -10,6 +10,7 @@ import {
     getSaoData,
     safeJsonParse,
     log, updateLogDisplay,
+    bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getPlayerStore } from './sao-store-player.js';
@@ -20,7 +21,7 @@ import { saveSettingsDebounced } from '../../../../script.js';
 import {
     generateEquipment, generateSkill, generateLoot,
 } from './sao-generators.js';
-import { eventSource, event_types } from '../../../events.js';
+import { event_types } from '../../../events.js';
 import { power_user } from '../../../power-user.js';
 import { updateBattlePanelAfterCombat, clearBattleHostRegistry, removeBattleHost } from './battle/battleRenderer.js';
 import {
@@ -46,7 +47,7 @@ import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } fro
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
 import { ROLES, fetchModelList, callModel } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels } from './sao-specialists.js';
-import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate } from './sao-calendar-model.js';
+import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
 
 // ============================================================
 // 常量
@@ -123,13 +124,15 @@ function saveBattleStateThrottled() {
     _battleSaveTimer = setTimeout(() => {
         _battleSaveTimer = null;
         try {
+            // 切卡后定时器仍可能触发：非 SAO 卡直接跳过，避免把战斗状态写进新卡 chatMetadata
+            if (!isSaoCard()) return;
             const data = getSaoData();
             if (!data) return;
             const snapshot = serializeBattleState();
             if (snapshot) {
                 if (!data.battle) data.battle = {};
                 data.battle = snapshot;
-                saveStore();
+                saveStore().catch(e => log('保存战斗状态失败: ' + e.message, 'warn'));
             }
         } catch (e) {
             log('保存战斗状态失败: ' + e.message, 'warn');
@@ -145,7 +148,7 @@ function clearBattleState() {
         const data = getSaoData();
         if (data && data.battle) {
             data.battle = null;
-            saveStore();
+            saveStore().catch(e => log('清除战斗状态失败: ' + e.message, 'warn'));
         }
     } catch (e) {
         log('清除战斗状态失败: ' + e.message, 'warn');
@@ -380,7 +383,7 @@ function stabilizeSaoRegexScripts() {
     }
 }
 
-// 白名单：插件应管理的正则脚本（排除4个不应自动启用的脚本）
+// 白名单：插件应管理的正则脚本（排除3个不应自动启用的工具/可选脚本）
 const REGEX_WHITELIST = new Set([
     '公会状态栏',
     // npc状态栏: keep on-card (disabled=false) like 公会状态栏 — replaceString is clean pure HTML, no Shadow DOM renderer needed
@@ -538,12 +541,43 @@ import {
 } from './sao-combat.js';
 
 
+// ============================================================
+// M8: 事件监听追踪 —— 统一通过 sao-core 的 bindSaoEvent/bindSaoDom 登记，
+// deactivate 时 unbindAllSaoEvents 统一移除。避免 ST 扩展热重载/自动更新时监听器翻倍。
+// ============================================================
+const _bindEvt = bindSaoEvent;
+const _bindDom = bindSaoDom;
+
+/** ST 扩展停用钩子：移除所有已登记监听器 + 战斗副作用清理。 */
+export function deactivate() {
+    unbindAllSaoEvents();
+    // 清战斗节流定时器（与 CHAT_CHANGED 同样的清理）
+    if (_battleSaveTimer) {
+        clearTimeout(_battleSaveTimer);
+        _battleSaveTimer = null;
+    }
+    destroyBattleSideEffects();
+    clearBattleHostRegistry();
+    log('SAO Companion 已停用，事件监听已清理');
+}
+
+
 function bindEvents() {
-    eventSource.on(event_types.CHAT_CHANGED, () => {
+    // M8: 幂等守卫 —— 热重载/重复 init 时先清旧监听再绑新，避免回调翻倍
+    if (isSaoEventsBound()) deactivate();
+    setSaoEventsBound(true);
+    _bindEvt(event_types.CHAT_CHANGED, () => {
         // 切换角色卡时重置效果代码表缓存，使其重新从新卡解析
         resetEffectCodeTable();
+        // 会话切换时重置日历模型并发守卫（原 sao-calendar-model.js 顶层监听，M8 集中后改由此处统一追踪）
+        resetCalendarModelRunning();
         // 无论是否 SAO 卡，先清理战斗副作用（幂等，非 SAO 卡或未初始化时为空操作）
         destroyBattleSideEffects();
+        // M10: 清掉待触发的战斗状态节流定时器，避免切卡后把旧战斗快照写进新卡 chatMetadata
+        if (_battleSaveTimer) {
+            clearTimeout(_battleSaveTimer);
+            _battleSaveTimer = null;
+        }
         // A3: 清理 battle host 注册表，防止切换聊天后内存泄漏
         clearBattleHostRegistry();
         if (isSaoCard()) {
@@ -610,7 +644,7 @@ function bindEvents() {
         }
     });
 
-    eventSource.on(event_types.MESSAGE_RECEIVED, wrapAsync(async (messageId, type) => {
+    _bindEvt(event_types.MESSAGE_RECEIVED, wrapAsync(async (messageId, type) => {
         if (!isSaoCard()) return;
         const settings = getSettings();
         if (!settings.enabled) return;
@@ -790,14 +824,14 @@ function bindEvents() {
         }
     }));
 
-    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, () => {
+    _bindEvt(event_types.GENERATION_AFTER_COMMANDS, () => {
         if (!isSaoCard()) return;
         injectMemoryAndState();
     });
 
     // Phase 3: Chat Completion 兜底 — 替代 promptOnly 隐藏正则
     if (event_types.CHAT_COMPLETION_PROMPT_READY) {
-        eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
+        _bindEvt(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
             if (!isSaoCard()) return;
             const settings = getSettings();
             if (!settings.enabled) return;
@@ -819,7 +853,7 @@ function bindEvents() {
 
     // Phase 3: Text Completion 兜底 — 替代 promptOnly 隐藏正则
     if (event_types.GENERATE_AFTER_COMBINE_PROMPTS) {
-        eventSource.on(event_types.GENERATE_AFTER_COMBINE_PROMPTS, (data) => {
+        _bindEvt(event_types.GENERATE_AFTER_COMBINE_PROMPTS, (data) => {
             if (!isSaoCard()) return;
             const settings = getSettings();
             if (!settings.enabled) return;
@@ -838,7 +872,7 @@ function bindEvents() {
 
     // swipe 切分支后重新渲染
     if (event_types.MESSAGE_SWIPED) {
-        eventSource.on(event_types.MESSAGE_SWIPED, (messageId) => {
+        _bindEvt(event_types.MESSAGE_SWIPED, (messageId) => {
             if (!isSaoCard()) return;
             // A3: 清理当前消息的 battle host，防止切换分支后内存泄漏（不再整表清除，保护其他活跃战斗面板）
             removeBattleHost(messageId);
@@ -869,7 +903,7 @@ function bindEvents() {
     }
     // 消息编辑后重新渲染
     if (event_types.MESSAGE_EDITED) {
-        eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
+        _bindEvt(event_types.MESSAGE_EDITED, (messageId) => {
             if (!isSaoCard()) return;
             _clearSpecialistPanels(messageId);
             const ctx = getContext();
@@ -899,7 +933,7 @@ function bindEvents() {
 
     // 角色（AI）消息 DOM 渲染完成后渲染 tags（替代 MESSAGE_RECEIVED 中的 renderAllTags）
     if (event_types.CHARACTER_MESSAGE_RENDERED) {
-        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
+        _bindEvt(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
             if (!isSaoCard()) return;
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
@@ -916,7 +950,7 @@ function bindEvents() {
 
     // 滚动加载更多历史消息后批量渲染
     if (event_types.MORE_MESSAGES_LOADED) {
-        eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
+        _bindEvt(event_types.MORE_MESSAGES_LOADED, () => {
             if (!isSaoCard()) return;
             const ctx = getContext();
             if (ctx.chat && ctx.chat.length > 0) {
@@ -1306,8 +1340,13 @@ function initPanelLogic() {
         const date = new Date(year, monthIndex, day);
         const dateStr = formatDate(date);
         const cal = getCalendar();
-        const dayData = cal?.days?.[dateStr];
-        const events = dayData?.events || [];
+        // M2: 控制台格子改用与详情弹窗一致的 clean+apt 合并，而非直接读可能污染的 cal.days。
+        // 干净 canon 从世界书重新解析(buildCleanCalendarDays)，约定/自定义从 cal.days 取非 canon 类。
+        const cleanDays = buildCleanCalendarDays(cal?.currentDate);
+        const cleanEvents = cleanDays?.[dateStr]?.events || [];
+        const dirtyEvents = cal?.days?.[dateStr]?.events || [];
+        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon');
+        const events = [...cleanEvents, ...aptEvents];
 
         const cls = ['sao-cal-cell'];
         if (!isCurrentMonth) cls.push('sao-cal-other-month');
@@ -2266,7 +2305,7 @@ export function init() {
         });
     }
 
-    document.addEventListener('sao-cal-day-click', (e) => {
+    _bindDom('sao-cal-day-click', (e) => {
         try {
             const dateStr = e.detail?.dateStr;
             if (!dateStr) return;

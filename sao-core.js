@@ -2,6 +2,8 @@
 // ST API 封装 + 状态管理 + 日志 + 纯工具
 // 被所有其他功能模块共享依赖
 
+import { eventSource } from '../../../events.js';
+
 // ============================================================
 // 常量
 // ============================================================
@@ -34,6 +36,46 @@ const DEFAULT_SETTINGS = Object.freeze({
 // ============================================================
 
 export const logs = [];
+
+// ============================================================
+// 事件监听追踪（M8）：所有 eventSource/document 监听统一通过这里登记，
+// deactivate 时统一移除。避免 ST 扩展热重载/自动更新时监听器翻倍。
+// 各模块（index/sao-tools/sao-calendar-model）应使用 bindSaoEvent/bindSaoDom 而非裸 on/addEventListener。
+// ============================================================
+export const _saoEventBindings = []; // {target:'eventSource'|'dom', type, fn, domTarget?}
+let _eventsBound = false;
+
+/** 绑定 eventSource 事件并登记。 */
+export function bindSaoEvent(type, fn) {
+    eventSource.on(type, fn);
+    _saoEventBindings.push({ target: 'eventSource', type, fn });
+}
+
+/** 绑定 document 事件并登记。 */
+export function bindSaoDom(type, fn, target = document) {
+    target.addEventListener(type, fn);
+    _saoEventBindings.push({ target: 'dom', type, fn, domTarget: target });
+}
+
+/** 移除所有已登记的监听器（deactivate 调用）。 */
+export function unbindAllSaoEvents() {
+    for (const b of _saoEventBindings) {
+        try {
+            if (b.target === 'eventSource') {
+                // ST 的 EventEmitter 提供 removeListener（非 off）；off?. 兜底防旧版/mock 差异。
+                const remover = eventSource.removeListener || eventSource.off;
+                if (remover) remover.call(eventSource, b.type, b.fn);
+            } else if (b.target === 'dom') {
+                b.domTarget.removeEventListener(b.type, b.fn);
+            }
+        } catch { /* ignore */ }
+    }
+    _saoEventBindings.length = 0;
+    _eventsBound = false;
+}
+
+export function isSaoEventsBound() { return _eventsBound; }
+export function setSaoEventsBound(v) { _eventsBound = v; }
 
 // ============================================================
 // 纯工具

@@ -1,12 +1,12 @@
 // SAO Companion - Tool System & Tool Action Helpers
 // Extracted from index.js: function calling tools, effect code table
 
-import { getSaoData, getCurrentCharacter, isSaoCard, log, getContext } from './sao-core.js';
+import { getSaoData, getCurrentCharacter, isSaoCard, log, getContext, bindSaoEvent } from './sao-core.js';
 import { initCalendarIfNeeded, queryTimeline } from './sao-calendar.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getStore } from './sao-store-core.js';
-import { eventSource, event_types } from '../../../events.js';
+import { event_types } from '../../../events.js';
 
 // ============================================================================
 // Effect Code Table (shared by tools and UI)
@@ -411,7 +411,7 @@ export function initToolSystem() {
     let toolsRegistered = registerTools();
 
     // 用户设置变化（含 function_calling 开关）
-    eventSource.on(event_types.SETTINGS_UPDATED, () => {
+    bindSaoEvent(event_types.SETTINGS_UPDATED, () => {
         if (!isSaoCard()) return;
         const nowSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
         if (nowSupported && !toolsRegistered) {
@@ -425,7 +425,7 @@ export function initToolSystem() {
     });
 
     // API 模式切换（Chat Completion ↔ Text Completion）
-    eventSource.on(event_types.MAIN_API_CHANGED, () => {
+    bindSaoEvent(event_types.MAIN_API_CHANGED, () => {
         if (!isSaoCard()) return;
         if (toolsRegistered) unregisterAllTools(ctx);
         toolsRegistered = registerTools();

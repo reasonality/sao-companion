@@ -132,8 +132,12 @@ export async function updateQuest(quest_id, update, skipSave) {
         }
     }
 
-    // 检查是否所有 objectives 都完成
-    if (quest.objectives.length > 0 && quest.objectives.every(o => o.done)) {
+    // L9: 仅当当前状态不是显式终结态(failed/cancelled)时才自动完成。
+    // 否则 updateQuest(id, {status:'failed'}) 在 objectives 全 done 时会被错误覆盖回 completed。
+    if (
+        quest.status !== 'failed' && quest.status !== 'cancelled' &&
+        quest.objectives.length > 0 && quest.objectives.every(o => o.done)
+    ) {
         quest.status = 'completed';
         _moveToCompleted(store, quest_id);
     }

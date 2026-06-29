@@ -3,7 +3,6 @@
 
 import { getSettings, getSaoData, log, getContext } from './sao-core.js';
 import { callModel } from './sao-models.js';
-import { eventSource, event_types } from '../../../events.js';
 import {
     persistCalendar,
     persistCalendarPanel,
@@ -281,5 +280,6 @@ async function calendarModelUpdate(rawText) {
 }
 export { calendarModelUpdate };
 
-// 会话切换时重置并发守卫（用户可能在 LLM 运行中切聊天）
-eventSource.on(event_types.CHAT_CHANGED, () => { _calendarModelRunning = false; });
+/** 会话切换时重置并发守卫（用户可能在 LLM 运行中切聊天）。
+ * 由 index.js 的 CHAT_CHANGED 处理器调用（已纳入事件追踪，deactivate 后可重绑）。 */
+export function resetCalendarModelRunning() { _calendarModelRunning = false; }

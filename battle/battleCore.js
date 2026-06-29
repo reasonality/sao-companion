@@ -695,8 +695,9 @@ export function applyDamageToEnemy(enemy, damage, log, attackerName, weaponName,
  */
 export function executeStandardAttack(weapon, enemies, stats, player, playerBuffs, log, attackerName) {
     const instructions = [];
-    const apt = weapon.apt || 1;
-    const tpa = weapon.tpa || 1;
+    // M4: normalizeWeapon 把 apt/tpa 映射成 attacksPerTurn/targetsPerAttack，故两套名字都兜底
+    const apt = weapon.attacksPerTurn || weapon.apt || 1;
+    const tpa = weapon.targetsPerAttack || weapon.tpa || 1;
 
     for (let hit = 0; hit < apt; hit++) {
         const targets = selectTargets(enemies, tpa);
@@ -1220,7 +1221,8 @@ export function executeTeammateAttackCore(teammate, enemies, log) {
     const weaponHitRate = weapon ? (weapon.hitRate || weapon.hit || 90) : 90;
     const weaponCritRate = weapon ? (weapon.critRate || weapon.crit || 5) : 5;
     const weaponMpCost = weapon ? (weapon.mpCost || weapon.mp_cost || 0) : 0;
-    const weaponApt = weapon ? (weapon.apt || 1) : 1;
+    // normalizeWeapon 把 apt 映射成 attacksPerTurn，故两个名字都兜底
+    const weaponApt = weapon ? (weapon.attacksPerTurn || weapon.apt || 1) : 1;
 
     const teammateStats = getTeammateActualStats(teammate);
     const enemyStats = getEnemyActualStats(target);

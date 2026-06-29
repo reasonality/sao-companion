@@ -586,10 +586,17 @@ export function initCalendarIfNeeded() {
         cal.canonDataVersion = CANON_DATA_VERSION;
         log('日历初始化完成 v' + CANON_DATA_VERSION + '，提取了 ' + extractedCount + ' 个时间线条目（header-month-fix）');
         console.log('[SAO Calendar] ✓ 重新提取完成 v' + CANON_DATA_VERSION + '，' + extractedCount + ' 个事件，开始保存...');
+        // M3: 用 persistCalendar 而非 saveStore，确保 calendarVersion 自增，
+        // 否则并发 calendarModelUpdate 带陈旧 snapshotVersion 会覆盖刚写入的 canon 数据。
+        // 函数本身非 async，保持与原 saveStore() 的 fire-and-forget 语义，加 catch 防未处理拒绝。
         // 关键：保存修改到持久化存储，否则重启后数据回滚
         try {
-            saveStore();
-            console.log('[SAO Calendar] ✓ 保存完成');
+            // 外层 try 仅捕获 persistCalendar 同步阶段抛错(如 calendarVersion 自增)；异步拒绝由 .catch 处理
+            persistCalendar(cal).then(() => {
+                console.log('[SAO Calendar] ✓ 保存完成');
+            }).catch(saveErr => {
+                console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);
+            });
         } catch (saveErr) {
             console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);
         }

@@ -134,11 +134,18 @@ export async function callViaMainModel(messages, maxTokens) {
     });
 }
 
-/** 专家面板调用——3 级回退：specialist 档 → extract 档 → 主模型 */
+/** 专家面板调用——4 级回退：专家专属档 → specialist 档 → extract 档 → 主模型。
+ *  specialistRole = 'map'/'equipment'/'swordskill'/'status'/'quest' 等面板类型。
+ *  专家专属档为可选：仅当 settings.models[specialistRole] 被显式配置时启用，
+ *  否则跳过（DEFAULT_SETTINGS.models 不含这些键，getSettings 不会回填它们）。 */
 export async function callSpecialist(specialistRole, messages, maxTokens = 512, opts = {}) {
     const settings = getSettings();
     const tryConfig = (cfg) => cfg && cfg.url && cfg.model;
     const label = (r) => ROLE_LABELS[r] || r;
+    // 0. 专家专属档（per-panel）——可选，显式配置才生效
+    if (specialistRole && settings.models[specialistRole] && tryConfig(settings.models[specialistRole])) {
+        return _fetchOpenAICompat(label(specialistRole), settings.models[specialistRole], messages, maxTokens, opts);
+    }
     // 1. specialist 档
     if (settings.models.specialist && tryConfig(settings.models.specialist)) {
         return _fetchOpenAICompat(label('specialist'), settings.models.specialist, messages, maxTokens, opts);

@@ -8,8 +8,7 @@ import { getPlayerStore } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
 import { getInventoryStore, getCurrency } from './sao-store-inventory.js';
-import { getQuestStore, createQuest, completeQuest } from './sao-store-quest.js';
-import { equipItem, unequipItem } from './sao-store-player.js';
+import { getQuestStore } from './sao-store-quest.js';
 import { log, esc } from './sao-core.js';
 
 // ============================================================
@@ -153,7 +152,8 @@ function getCombatHp() {
     try {
         const player = getStore()?.runtime?._zd_parsed?.player;
         if (player?.hp != null) {
-            return { hp: player.hp, maxHp: player.maxHp ?? player.hp };
+            // parseZdStatus 存 max_hp (snake_case)，非 maxHp。两个名字都兜底。
+            return { hp: player.hp, maxHp: player.maxHp ?? player.max_hp ?? player.hp };
         }
     } catch { /* ignore */ }
     return null;
