@@ -357,6 +357,35 @@ export function getTimelineForPrompt(currentDate, maxChars = 1500) {
 }
 
 /**
+ * 按需查询原作时间线事件。供 function calling 工具使用，不注入主 prompt。
+ * @param {{date?:string,start_date?:string,end_date?:string,month?:string,max?:number}} query
+ * @returns {Array<{date:string,title:string}>}
+ */
+export function queryTimeline(query = {}) {
+    const normalizeDate = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) ? v.trim() : null;
+    const normalizeMonth = (v) => (typeof v === 'string' && /^\d{4}-\d{2}$/.test(v.trim())) ? v.trim() : null;
+    let start = normalizeDate(query.date) || normalizeDate(query.start_date);
+    let end = normalizeDate(query.date) || normalizeDate(query.end_date);
+    const month = normalizeMonth(query.month);
+    if (month && !start && !end) {
+        start = month + '-01';
+        const [y, m] = month.split('-').map(Number);
+        end = y + '-' + String(m).padStart(2, '0') + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0');
+    }
+    if (!start && !end) return [];
+    if (!start) start = end;
+    if (!end) end = start;
+    if (start > end) [start, end] = [end, start];
+
+    const parsedMax = parseInt(query.max);
+    const max = Math.max(1, Math.min(Number.isFinite(parsedMax) ? parsedMax : 40, 120));
+    return _filterTimelineEntries(null, { monthWindow: null })
+        .filter(ev => ev.date >= start && ev.date <= end)
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+        .slice(0, max);
+}
+
+/**
  * 解析 first_mes 中的 <calendar> 标签，提取用户预填的原作时间线。
  * 格式为自定义 YAML-like：
  *   year: 2022

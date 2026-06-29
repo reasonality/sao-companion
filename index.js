@@ -34,7 +34,7 @@ import {
     initToolSystem,
 } from './sao-tools.js';
 // memory.js 已移除
-import { cleanSaoPromptText, injectMemoryAndState } from './sao-prompt.js';
+import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
 import { ROLES, fetchModelList, callModel } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels } from './sao-specialists.js';
@@ -771,9 +771,12 @@ function bindEvents() {
             if (!settings.enabled) return;
 
             if (data.chat && Array.isArray(data.chat)) {
+                const ctx = getContext();
+                const stripTimeline = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
                 for (const msg of data.chat) {
                     if (typeof msg.content === 'string' && msg.content) {
                         msg.content = cleanSaoPromptText(msg.content);
+                        if (stripTimeline) msg.content = cleanTimelinePromptText(msg.content);
                     }
                 }
             }

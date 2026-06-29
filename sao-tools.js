@@ -2,7 +2,7 @@
 // Extracted from index.js: function calling tools, effect code table
 
 import { getSaoData, getCurrentCharacter, isSaoCard, log, getContext } from './sao-core.js';
-import { initCalendarIfNeeded, formatCalendarForLLM } from './sao-calendar.js';
+import { initCalendarIfNeeded, formatCalendarForLLM, queryTimeline } from './sao-calendar.js';
 import { eventSource, event_types } from '../../../events.js';
 
 // ============================================================================
@@ -550,12 +550,45 @@ export function registerGetWorldLore(ctx) {
     });
 }
 
+export function registerGetTimeline(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_timeline',
+        displayName: 'Get Timeline',
+        formatMessage: () => '查询原作时间线...',
+        description: '按需查询原作时间线。需要了解某一天、某段日期或某个月发生的原作剧情时使用；不要凭空猜测时间线。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                date: { type: 'string', description: '查询单日 (YYYY-MM-DD)，如 2022-11-06' },
+                start_date: { type: 'string', description: '范围起始日期 (YYYY-MM-DD)' },
+                end_date: { type: 'string', description: '范围结束日期 (YYYY-MM-DD)' },
+                month: { type: 'string', description: '查询整月 (YYYY-MM)，如 2022-12' },
+                max: { type: 'integer', description: '最多返回事件数，默认40，上限120' },
+            },
+            required: [],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                const events = queryTimeline(args || {});
+                if (!events.length) return '未找到匹配的原作时间线事件。请使用 date、start_date/end_date 或 month 查询。';
+                return events.map(ev => `${ev.date}: ${ev.title}`).join('\n');
+            } catch (e) {
+                log('get_timeline 失败: ' + e.message, 'warn');
+                return '获取时间线失败: ' + e.message;
+            }
+        }),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
 // === End Function Calling Tool Actions (P1) ===
 
 // === Function Calling Tool System (P0: framework only, tools registered in P1) ===
 
 export const SAO_TOOL_NAMES = ['get_player_status', 'get_calendar', 'get_character_info',
-                        'get_floor_info', 'get_skill_info', 'get_world_lore'];
+                        'get_floor_info', 'get_skill_info', 'get_world_lore', 'get_timeline'];
 
 export function registerTools() {
     const ctx = getContext();
@@ -568,14 +601,15 @@ export function registerTools() {
         log('当前 API/设置不支持 function calling，工具未注册（保持现有世界书注入模式）');
         return false;
     }
-    // P1: 注册 6 个 function calling 工具
+    // P1: 注册 function calling 工具
     registerGetPlayerStatus(ctx);
     registerGetCalendar(ctx);
     registerGetCharacterInfo(ctx);
     registerGetFloorInfo(ctx);
     registerGetSkillInfo(ctx);
     registerGetWorldLore(ctx);
-    log('function calling 工具系统已就绪（6 个工具已注册）');
+    registerGetTimeline(ctx);
+    log('function calling 工具系统已就绪（7 个工具已注册）');
     return true;
 }
 
@@ -641,4 +675,4 @@ export function wrapToolAction(originalAction) {
         }
     };
 }
-
+

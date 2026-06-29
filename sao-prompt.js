@@ -48,6 +48,23 @@ export function cleanSaoPromptText(text) {
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * 从主 LLM prompt 副本中移除自动注入的大段原作时间线世界书内容。
+ * 仅在 function calling 可用时调用；不可用时保留原注入作为 fallback。
+ * @param {string} text
+ * @returns {string}
+ */
+export function cleanTimelinePromptText(text) {
+    if (!text || typeof text !== 'string') return text;
+    const dateHeaderCount = (text.match(/^\s*#{1,6}\s*\*{0,2}\s*\d{1,2}月\d{1,2}日/gm) || []).length;
+    const isoDateLineCount = (text.match(/^\s*\d{4}-\d{2}-\d{2}\s*[:：]/gm) || []).length;
+    const hasTimelineKeyword = /世界历史背景|时间线|原作/.test(text);
+    const looksLikeTimelineBook = hasTimelineKeyword && dateHeaderCount >= 2;
+    const looksLikeTimelineList = hasTimelineKeyword && isoDateLineCount >= 3;
+    if (!looksLikeTimelineBook && !looksLikeTimelineList) return text;
+    return '[原作时间线]已改为按需查询：需要具体日期、范围或月份时调用 get_timeline 工具。不要根据被省略的时间线内容猜测。';
+}
+
 // ============================================================
 // 状态注入
 // ============================================================
@@ -108,6 +125,10 @@ export function injectMemoryAndState() {
     // P2b: inject calendar date if available
     if (data?.calendar?.currentDate) {
         parts.push(`[日期]${data.calendar.currentDate}`);
+        const toolSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
+        if (toolSupported) {
+            parts.push('[原作时间线]不要猜测或编造原作时间线；需要某日/某月原作事件时调用 get_timeline 工具按需查询。');
+        }
     }
 
     if (parts.length > 0) {
