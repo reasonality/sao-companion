@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "player_store.v1",
+  "type": "object",
+  "required": ["player_id", "identity", "progression", "attributes", "vitals", "position", "equipment", "skills"],
+  "properties": {
+    "player_id": { "type": "string" },
+    "identity": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "title": { "type": ["string", "null"] }
+      }
+    },
+    "progression": {
+      "type": "object",
+      "required": ["level", "totalExp"],
+      "properties": {
+        "level": { "type": "integer", "minimum": 1 },
+        "totalExp": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "attributes": {
+      "type": "object",
+      "required": ["str", "agi", "int", "vit"],
+      "properties": {
+        "str": { "type": "number", "minimum": 0 },
+        "agi": { "type": "number", "minimum": 0 },
+        "int": { "type": "number", "minimum": 0 },
+        "vit": { "type": "number", "minimum": 0 }
+      }
+    },
+    "vitals": {
+      "type": "object",
+      "required": ["hp", "maxHp", "mp", "maxMp"],
+      "properties": {
+        "hp": { "type": "number", "minimum": 0 },
+        "maxHp": { "type": "number", "minimum": 1 },
+        "mp": { "type": "number", "minimum": 0 },
+        "maxMp": { "type": "number", "minimum": 0 }
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": ["floor_id", "location"],
+      "properties": {
+        "floor_id": { "type": "string" },
+        "location": { "type": "string" }
+      }
+    },
+    "equipment": {
+      "type": "object",
+      "required": ["weapon", "off_hand", "head", "chest", "hands", "legs", "accessory"],
+      "properties": {
+        "weapon": { "type": ["string", "null"] },
+        "off_hand": { "type": ["string", "null"] },
+        "head": { "type": ["string", "null"] },
+        "chest": { "type": ["string", "null"] },
+        "hands": { "type": ["string", "null"] },
+        "legs": { "type": ["string", "null"] },
+        "accessory": { "type": ["string", "null"] }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill_id", "name", "proficiency"],
+        "properties": {
+          "skill_id": { "type": "string" },
+          "name": { "type": "string" },
+          "proficiency": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "customSkills": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

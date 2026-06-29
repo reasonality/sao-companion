@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "skill_store.v1",
+  "type": "object",
+  "required": ["byId", "nameToId"],
+  "properties": {
+    "byId": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["skill_id", "name", "rarity", "category", "combat", "effects"],
+        "properties": {
+          "skill_id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "rarity": { "type": "string", "enum": ["common", "uncommon", "rare", "epic"] },
+          "category": { "type": "string" },
+          "weapon_type": { "type": "string" },
+          "combat": {
+            "type": "object",
+            "properties": {
+              "atk": { "type": "number", "minimum": 0 },
+              "hit": { "type": "number", "minimum": 0 },
+              "crit": { "type": "number", "minimum": 0 },
+              "apt": { "type": "integer", "minimum": 1 },
+              "tpa": { "type": "integer", "minimum": 1 },
+              "mpCost": { "type": "integer", "minimum": 0 },
+              "cd": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "effects": {
+            "type": "object",
+            "properties": {
+              "wn": { "type": "string" },
+              "en": { "type": "array", "items": { "type": "string" } },
+              "mn": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "description": { "type": "string" },
+          "source": { "type": "string", "enum": ["initial", "specialist", "manual"] }
+        }
+      }
+    },
+    "nameToId": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

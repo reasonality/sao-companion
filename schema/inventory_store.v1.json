@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "inventory_store.v1",
+  "type": "object",
+  "required": ["owner_id", "currency", "items"],
+  "properties": {
+    "owner_id": { "type": "string", "minLength": 1 },
+    "currency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cor"],
+      "properties": {
+        "cor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["item_id", "type", "equipment_id", "qty"],
+            "properties": {
+              "item_id": { "type": "string", "minLength": 1 },
+              "type": { "const": "equipment" },
+              "equipment_id": { "type": "string", "minLength": 1 },
+              "qty": { "type": "integer", "minimum": 1, "maximum": 1 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["item_id", "type", "name", "qty"],
+            "properties": {
+              "item_id": { "type": "string", "minLength": 1 },
+              "type": { "const": "consumable" },
+              "name": { "type": "string", "minLength": 1 },
+              "qty": { "type": "integer", "minimum": 1 },
+              "description": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["item_id", "type", "name", "qty"],
+            "properties": {
+              "item_id": { "type": "string", "minLength": 1 },
+              "type": { "const": "quest_item" },
+              "name": { "type": "string", "minLength": 1 },
+              "qty": { "type": "integer", "minimum": 1, "maximum": 1 },
+              "description": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["item_id", "type", "name", "qty"],
+            "properties": {
+              "item_id": { "type": "string", "minLength": 1 },
+              "type": { "const": "material" },
+              "name": { "type": "string", "minLength": 1 },
+              "qty": { "type": "integer", "minimum": 1 }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
