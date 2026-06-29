@@ -8,9 +8,9 @@
  */
 export const SAO_CALENDAR_CSS = `
 :host{display:block;margin:0;padding:0;box-sizing:border-box;}
-.sao-cal-grid{display:grid!important;grid-template-columns:repeat(7,1fr)!important;grid-template-rows:22px!important;grid-auto-rows:76px!important;gap:3px!important;position:relative!important;}
+.sao-cal-grid{display:grid!important;grid-template-columns:repeat(7,1fr)!important;grid-template-rows:22px!important;grid-auto-rows:minmax(76px,76px)!important;gap:3px!important;position:relative!important;}
 .sao-cal-header{text-align:center!important;padding:0!important;font-family:"Rajdhani","Noto Sans SC",sans-serif!important;font-size:0.65em!important;font-weight:700!important;color:rgba(255,255,255,0.7)!important;text-transform:uppercase!important;letter-spacing:0.08em!important;border-bottom:1px solid rgba(0,210,255,0.18)!important;display:flex!important;align-items:center!important;justify-content:center!important;min-height:0!important;height:100%!important;}
-.sao-cal-cell{min-height:76px!important;padding:4px 5px!important;background:rgba(22,30,46,0.6)!important;border:1px solid rgba(255,255,255,0.06)!important;border-radius:6px!important;position:relative!important;cursor:pointer!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important;gap:2px!important;transition:border-color 0.2s ease,background 0.2s ease,box-shadow 0.2s ease!important;box-shadow:0 2px 6px rgba(0,0,0,0.2)!important;overflow:hidden!important;min-width:0!important;}
+.sao-cal-cell{height:76px!important;min-height:0!important;box-sizing:border-box!important;padding:4px 5px!important;background:rgba(22,30,46,0.6)!important;border:1px solid rgba(255,255,255,0.06)!important;border-radius:6px!important;position:relative!important;cursor:pointer!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important;gap:2px!important;transition:border-color 0.2s ease,background 0.2s ease,box-shadow 0.2s ease!important;box-shadow:0 2px 6px rgba(0,0,0,0.2)!important;overflow:hidden!important;min-width:0!important;}
 .sao-cal-cell:hover{border-color:rgba(0,210,255,0.3)!important;background:rgba(28,38,58,0.7)!important;box-shadow:0 4px 12px rgba(0,210,255,0.12)!important;}
 .sao-cal-cell.sao-cal-today{background:rgba(0,214,138,0.12)!important;border:1px solid rgba(0,214,138,0.5)!important;box-shadow:0 0 10px rgba(0,214,138,0.15)!important;}
 .sao-cal-cell.sao-cal-today:hover{background:rgba(0,214,138,0.18)!important;box-shadow:0 4px 14px rgba(0,214,138,0.2)!important;}
@@ -34,8 +34,8 @@ export const SAO_CALENDAR_CSS = `
 .sao-cal-nav-btn:hover{background:rgba(0,210,255,0.2);}
 .sao-cal-details summary{display:flex;align-items:center;gap:6px;}
 @media(max-width:640px){
-.sao-cal-grid{grid-template-rows:18px!important;grid-auto-rows:56px!important;gap:2px!important;}
-.sao-cal-cell{padding:3px 4px!important;border-radius:4px!important;}
+.sao-cal-grid{grid-template-rows:18px!important;grid-auto-rows:minmax(56px,56px)!important;gap:2px!important;}
+.sao-cal-cell{height:56px!important;padding:3px 4px!important;border-radius:4px!important;}
 .sao-cal-day-num{font-size:0.75em!important;}
 .sao-cal-event-text{font-size:0.55em!important;}
 .sao-cal-header{font-size:0.55em!important;}

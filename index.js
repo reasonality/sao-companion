@@ -2158,7 +2158,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.43 初始化中... (clean data bypass: render reads worldbook directly, not cal.days)');
+    console.log('[SAO Companion] v0.6.44 初始化中... (clean calendar modal + fixed chat row height)');
     registerSaoDompurifyHook();
     loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);
@@ -2203,8 +2203,13 @@ export function init() {
             if (!modal || !titleEl || !bodyEl) return;
             titleEl.textContent = dateStr + ' \u4e8b\u4ef6';
             const saoData = (typeof getSaoData === 'function') ? getSaoData() : null;
-            const dayData = saoData?.calendar?.days?.[dateStr];
-            const events = dayData?.events || [];
+            // 聊天日历详情弹框必须与聊天日历格子使用同一份干净 canon 数据；
+            // 不能直接读取 saoData.calendar.days，因为那份持久化数据可能包含历史污染。
+            const cleanDays = buildCleanCalendarDays(saoData?.calendar?.currentDate);
+            const cleanEvents = cleanDays?.[dateStr]?.events || [];
+            const savedEvents = saoData?.calendar?.days?.[dateStr]?.events || [];
+            const manualEvents = savedEvents.filter(ev => ev.type !== 'canon');
+            const events = [...cleanEvents, ...manualEvents];
             if (events.length === 0) {
                 bodyEl.innerHTML = '<span style="opacity:0.6;font-size:0.9em;">\u65e0\u4e8b\u4ef6</span>';
             } else {
