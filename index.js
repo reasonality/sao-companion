@@ -7,10 +7,15 @@ import {
     MODULE_NAME, logs,
     esc, getContext, getCurrentCharacter, isSaoCard,
     getSettings,
-    getSaoData, saveSaoDataNow,
+    getSaoData,
     safeJsonParse,
     log, updateLogDisplay,
 } from './sao-core.js';
+import { getStore, saveStore } from './sao-store-core.js';
+import { getPlayerStore } from './sao-store-player.js';
+import { getEquipmentById } from './sao-store-equipment.js';
+import { getSkillById } from './sao-store-skill.js';
+import { getInventoryStore } from './sao-store-inventory.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
     generateEquipment, generateSkill, generateLoot,
@@ -33,6 +38,9 @@ import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
 } from './sao-tools.js';
+import { initNpcFromWorldBook } from './sao-store-npc.js';
+import { initFloorFromWorldBook } from './sao-store-floor.js';
+import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
@@ -45,9 +53,9 @@ import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calenda
 // ============================================================
 
 const SLOT_LABELS = {
-    weapon: '武器', main_hand: '主手', off_hand: '副手',
-    armor: '防具', body: '身体', helmet: '头盔', head: '头部',
-    boots: '靴子', feet: '脚部', gloves: '手套', hands: '手部',
+    weapon: '武器', off_hand: '副手',
+    armor: '防具', chest: '胸部', helmet: '头盔', head: '头部',
+    boots: '靴子', legs: '腿部', gloves: '手套', hands: '手部',
     shield: '盾牌', accessory: '饰品', ring: '戒指', necklace: '项链',
     cape: '披风', belt: '腰带',
 };
@@ -121,7 +129,7 @@ function saveBattleStateThrottled() {
             if (snapshot) {
                 if (!data.battle) data.battle = {};
                 data.battle = snapshot;
-                saveSaoDataNow();
+                saveStore();
             }
         } catch (e) {
             log('保存战斗状态失败: ' + e.message, 'warn');
@@ -137,7 +145,7 @@ function clearBattleState() {
         const data = getSaoData();
         if (data && data.battle) {
             data.battle = null;
-            saveSaoDataNow();
+            saveStore();
         }
     } catch (e) {
         log('清除战斗状态失败: ' + e.message, 'warn');
@@ -516,6 +524,7 @@ import {
     detectPlayerAction,
     selectEnemySkill,
     getEquipmentStatsFromState,
+    getEquipmentStatsFromStore,
     persistCooldowns,
     buildCombatNarrativeHint,
     normalizeWeapon,
@@ -543,6 +552,19 @@ function bindEvents() {
             enableCompatMode();
             injectMemoryAndState();
             initCalendarIfNeeded();
+
+            // B3: Initialize stores from world book
+            const char = getCurrentCharacter();
+            if (char?.data?.character_book?.entries) {
+                const entries = char.data.character_book.entries;
+                const entryCount = entries.length;
+                const npcCount = initNpcFromWorldBook(entries);
+                const floorCount = initFloorFromWorldBook(entries);
+                if (npcCount > 0 || floorCount > 0) {
+                    saveStore();
+                }
+                log(`Phase B 初始化: ${npcCount} NPC, ${floorCount} 楼层 (索引 ${entryCount} 条目)`);
+            }
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
                 refreshStatus();
@@ -642,8 +664,8 @@ function bindEvents() {
                     }
                     data._lastCombatResult = combatResult;
                     if (combatResult.narrativeHint) {
-                        if (!data.state) data.state = {};
-                        data.state.lastCombatHint = combatResult.narrativeHint;
+                        if (!data.runtime) data.runtime = {};
+                        data.runtime.lastCombatHint = combatResult.narrativeHint;
                     }
                 }
                 log(`战斗结算完成: ${combatResult.log.length} 条日志`);
@@ -651,8 +673,8 @@ function bindEvents() {
             // FIX3: 本轮无战斗提示时清除过期的 lastCombatHint
             if (!combatResult?.narrativeHint) {
                 const hintData = getSaoData();
-                if (hintData?.state?.lastCombatHint) {
-                    delete hintData.state.lastCombatHint;
+                if (hintData?.runtime?.lastCombatHint) {
+                    delete hintData.runtime.lastCombatHint;
                 }
             }
 
@@ -665,10 +687,12 @@ function bindEvents() {
             // v2 CALENDAR MODEL: 必须在 P2d 清除 arcChangedThisTurn 之前读取。
             // 若 P2d 块位置变动，此读取点必须同步移动。
             // 见 CALENDAR_MODEL_V2_DESIGN.md §3 条件 #3
-            const _arcChangedForCalendar = !!saoData?.state?.arcChangedThisTurn;
+            const _arcChangedForCalendar = !!saoData?.runtime?.arcChangedThisTurn;
+            // B6: Quest specialist also needs arcChanged before P2d clears it
+            const _arcChangedForQuest = !!saoData?.runtime?.arcChangedThisTurn;
 
             // P2d: Arc-change calendar trigger (v1 consumer of arcChangedThisTurn) — v2 trigger condition #3.
-            if (saoData?.state?.arcChangedThisTurn) {
+            if (saoData?.runtime?.arcChangedThisTurn) {
                 try {
                     const cal = saoData.calendar;
                     log('章节切换触发日历检查: arc=' + saoData.arc + ', 日期=' + (cal?.currentDate || '未初始化'));
@@ -680,13 +704,13 @@ function bindEvents() {
                 } catch (e) {
                     log('章节切换日历检查失败: ' + e.message, 'warn');
                 } finally {
-                    saoData.state.arcChangedThisTurn = false; // clear after consumption (one-shot)
+                    saoData.runtime.arcChangedThisTurn = false; // clear after consumption (one-shot)
                 }
             }
 
             // P2c: Periodic calendar health check (every 20 turns) — v1 consumer of calendarTurnCounter.
             // Also serves as the entry point for v2 trigger condition #4 (see CALENDAR_MODEL_V2_DESIGN.md §3).
-            const preIncrement = saoData?.state?.calendarTurnCounter || 0;
+            const preIncrement = saoData?.runtime?.calendarTurnCounter || 0;
             if (shouldTriggerPeriodicCalendarCheck({ calendarTurnCounter: preIncrement })) {
                 try {
                     const cal = saoData.calendar;
@@ -700,12 +724,20 @@ function bindEvents() {
                 }
             }
 
-            if (saoData?.state) {
-                saoData.state.calendarTurnCounter = (saoData.state.calendarTurnCounter || 0) + 1;
+            if (!saoData.runtime) saoData.runtime = {};
+            saoData.runtime.calendarTurnCounter = (saoData.runtime.calendarTurnCounter || 0) + 1;
+
+            // B6: Quest specialist — check every 5 turns or on arc change
+            const _questTurnCounter = saoData.runtime.calendarTurnCounter;
+            const _shouldCheckQuests = (_questTurnCounter % 5 === 0) || _arcChangedForQuest;
+            if (_shouldCheckQuests) {
+                checkQuestsFromNarrative(rawText, messageId).catch(e =>
+                    log('Quest specialist 检查失败: ' + e.message, 'warn')
+                );
             }
 
             // Persist all state changes from this processing cycle
-            await saveSaoDataNow();
+            await saveStore();
 
             // Phase B: 重渲染所有面板。
             // status 专家 + extractAll + updateCalendarIncremental 已写入 chatMetadata，
@@ -716,7 +748,7 @@ function bindEvents() {
                 if (el) renderAllTags(el, rawText, messageId);
             } catch (e) { log('锁内重渲染失败: ' + e.message, 'warn'); }
 
-            // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveSaoDataNow 之后、lock 块结束前）。
+            // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveStore 之后、lock 块结束前）。
             // 不 await，不阻塞后处理链。opt-in 由 shouldTriggerCalendarModel 内部守护（§10.2）。
             // 见 CALENDAR_MODEL_V2_DESIGN.md §3/§5.3
             if (shouldTriggerCalendarModel(rawText, saoData, { arcChangedThisTurn: _arcChangedForCalendar })) {
@@ -817,6 +849,8 @@ function bindEvents() {
             const msgEl = getMessageElement(messageId);
             if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
             // P2: swipe 后重新触发装饰专家 + P3 status 专家
+            // C6: Phase C — renderUserStatus 优先从 store projection 渲染（specialist 写 store → projection 读 store）
+            // panel 缓存仅作 fallback，权威数据在 store 中
             if (getSettings().specialistPanels?.enabled !== false) {
                 callStatusSpecialist(messageId, msg.mes || '')
                     .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
@@ -844,6 +878,8 @@ function bindEvents() {
             const msgEl = getMessageElement(messageId);
             if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
             // P2: 编辑后重新触发装饰专家 + P3 status 专家
+            // C6: Phase C — renderUserStatus 优先从 store projection 渲染（specialist 写 store → projection 读 store）
+            // panel 缓存仅作 fallback，权威数据在 store 中
             if (getSettings().specialistPanels?.enabled !== false) {
                 callStatusSpecialist(messageId, msg.mes || '')
                     .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
@@ -1821,8 +1857,8 @@ function initPanelLogic() {
             // Mark that the arc changed this turn — v2 calendar trigger condition #3 (CALENDAR_MODEL_V2_DESIGN.md §3).
             // v1 consumer: log the arc change for diagnostics. Cleared after the next MESSAGE_RECEIVED cycle.
             if (data) {
-                if (!data.state) data.state = {};
-                data.state.arcChangedThisTurn = true;
+                if (!data.runtime) data.runtime = {};
+                data.runtime.arcChangedThisTurn = true;
                 log('章节切换标记 arcChangedThisTurn=true (arc: ' + arc + ')');
             }
             switchWorldInfoEntries(arc);
@@ -2023,78 +2059,112 @@ function updateModelStatus(role, ok) {
 }
 
 function refreshStatus() {
-    const data = getSaoData();
     const settings = getSettings();
-    if (!data) return;
+    
+    // A0: read from stores instead of data.state
+    const player = getPlayerStore();
+    if (!player) return;
+    const inventory = getInventoryStore();
+    
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? '-'; };
+    const setBar = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, pct)) + '%'; };
 
-    // 更新玩家状态卡片
-    if (data.state) {
-        const s = data.state;
-        const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? '-'; };
-        const setBar = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, pct)) + '%'; };
+    // 玩家名
+    const playerName = player.identity?.name || getContext().name1 || '冒险者';
+    setText('sao_player_name', playerName);
 
-        // 玩家名
-        const playerName = s.player_name || getContext().name1 || '冒险者';
-        setText('sao_player_name', playerName);
+    // Location/floor
+    const floorNum = typeof player.position?.floor_id === 'number' 
+        ? player.position.floor_id 
+        : (parseInt(String(player.position?.floor_id || '').replace(/\D/g, '')) || 0);
+    setText('sao_player_location', `${player.position?.location || '?'} / ${floorNum || '?'}F`);
+    // HP soft-guard: during combat, read from runtime._zd_parsed for real-time HP
+    const _store = getStore();
+    const _zdCombat = _store?.runtime?._zd_parsed?.enemies?.some(e => e.hp > 0);
+    const hpVal = _zdCombat ? _store.runtime._zd_parsed.player.hp : player.vitals?.hp;
+    const maxHpVal = _zdCombat ? _store.runtime._zd_parsed.player.max_hp : player.vitals?.maxHp;
+    const mpVal = _zdCombat ? _store.runtime._zd_parsed.player.mp : player.vitals?.mp;
+    const maxMpVal = _zdCombat ? _store.runtime._zd_parsed.player.max_mp : player.vitals?.maxMp;
+    setText('sao_hp_text', `${hpVal ?? '?'}/${maxHpVal ?? '?'}${_zdCombat ? ' (战斗中)' : ''}`);
+    setText('sao_mp_text', `${mpVal ?? '?'}/${maxMpVal ?? '?'}`);
+    if (maxHpVal > 0) setBar('sao_hp_bar', (hpVal / maxHpVal) * 100);
+    if (maxMpVal > 0) setBar('sao_mp_bar', (mpVal / maxMpVal) * 100);
+    setText('sao_stat_str', player.attributes?.str ?? '?');
+    setText('sao_stat_agi', player.attributes?.agi ?? '?');
+    setText('sao_stat_int', player.attributes?.int ?? '?');
+    setText('sao_stat_vit', player.attributes?.vit ?? '?');
+    setText('sao_level_text', player.progression?.level ?? '?');
+    setText('sao_cor_text', inventory?.currency?.cor ?? '?');
+    setText('sao_floor_text', floorNum || '?');
 
-        setText('sao_player_location', `${s.location || '?'} / ${s.floor || '?'}F`);
-        setText('sao_hp_text', `${s.hp ?? '?'}/${s.max_hp ?? '?'}`);
-        setText('sao_mp_text', `${s.mp ?? '?'}/${s.max_mp ?? '?'}`);
-        if (s.max_hp > 0) setBar('sao_hp_bar', (s.hp / s.max_hp) * 100);
-        if (s.max_mp > 0) setBar('sao_mp_bar', (s.mp / s.max_mp) * 100);
-        setText('sao_stat_str', s.str ?? '?');
-        setText('sao_stat_agi', s.agi ?? '?');
-        setText('sao_stat_int', s.int ?? '?');
-        setText('sao_stat_vit', s.vit ?? '?');
-        setText('sao_level_text', s.level ?? '?');
-        setText('sao_cor_text', s.cor ?? '?');
-        setText('sao_floor_text', s.floor ?? '?');
-
-        // 装备列表 - 显示名字+事件委托
-        const equipEl = document.getElementById('sao_equipment_list');
-        if (equipEl) {
-            if (s.equipment && Object.keys(s.equipment).length > 0) {
-                const equipArr = Object.entries(s.equipment).filter(([, item]) => item && item.name);
-                equipEl.innerHTML = equipArr.map(([slot, item], i) =>
-                    `<div class="sao-tag sao-tag-equip" data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(SLOT_LABELS[slot] || slot)}: ${esc(item.name)}</div>`
-                ).join('');
-                window._saoCurrentData = window._saoCurrentData || {};
-                window._saoCurrentData.equipment = equipArr.map(([slot, item]) => ({ slot, item }));
-            } else {
-                equipEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无装备数据</span>';
-                if (window._saoCurrentData) window._saoCurrentData.equipment = [];
+    // 装备列表 - read from playerStore.equipment (IDs) + equipmentStore
+    const equipEl = document.getElementById('sao_equipment_list');
+    if (equipEl) {
+        const slots = ['weapon', 'off_hand', 'head', 'chest', 'hands', 'legs', 'accessory'];
+        const equipArr = [];
+        for (const slot of slots) {
+            const equipId = player.equipment?.[slot];
+            if (!equipId) continue;
+            const equip = getEquipmentById(equipId);
+            if (equip && equip.name) {
+                equipArr.push({ slot, name: equip.name, item: equip });
             }
         }
-
-        // 背包列表 - 显示名字+数量+事件委托
-        const invEl = document.getElementById('sao_inventory_list');
-        if (invEl) {
-            if (s.inventory && s.inventory.length > 0) {
-                const invFiltered = s.inventory.filter(i => i.qty > 0);
-                invEl.innerHTML = invFiltered.map((item, i) =>
-                    `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${i}" style="cursor:pointer;">${esc(item.name)} x${esc(item.qty)}${item.item_level ? ' ⭐' + item.item_level : ''}</div>`
-                ).join('');
-                window._saoCurrentData = window._saoCurrentData || {};
-                window._saoCurrentData.inventory = invFiltered;
-            } else {
-                invEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-                if (window._saoCurrentData) window._saoCurrentData.inventory = [];
-            }
+        if (equipArr.length > 0) {
+            equipEl.innerHTML = equipArr.map((entry, i) =>
+                `<div class="sao-tag sao-tag-equip" data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(SLOT_LABELS[entry.slot] || entry.slot)}: ${esc(entry.name)}</div>`
+            ).join('');
+            window._saoCurrentData = window._saoCurrentData || {};
+            window._saoCurrentData.equipment = equipArr;
+        } else {
+            equipEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无装备数据</span>';
+            if (window._saoCurrentData) window._saoCurrentData.equipment = [];
         }
+    }
 
-        // 技能列表 - 显示名字+等级+事件委托
-        const skillEl = document.getElementById('sao_skills_list');
-        if (skillEl) {
-            if (s.skills && s.skills.length > 0) {
-                skillEl.innerHTML = s.skills.map((sk, i) =>
-                    `<div class="sao-tag sao-tag-skill" data-detail-type="skill" data-detail-index="${i}" style="cursor:pointer;">${esc(sk.name)}</div>`
-                ).join('');
-                window._saoCurrentData = window._saoCurrentData || {};
-                window._saoCurrentData.skills = s.skills;
-            } else {
-                skillEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-                if (window._saoCurrentData) window._saoCurrentData.skills = [];
-            }
+    // 背包列表 - read from inventoryStore
+    const invEl = document.getElementById('sao_inventory_list');
+    if (invEl) {
+        if (inventory?.items && inventory.items.length > 0) {
+            const invFiltered = inventory.items.filter(i => i.qty > 0);
+            invEl.innerHTML = invFiltered.map((item, i) => {
+                let displayName = item.name || '';
+                // If equipment item, look up name from equipmentStore
+                if (item.type === 'equipment' && item.equipment_id) {
+                    const eq = getEquipmentById(item.equipment_id);
+                    if (eq) displayName = eq.name;
+                }
+                const itemLevel = item.type === 'equipment' && item.equipment_id 
+                    ? getEquipmentById(item.equipment_id)?.item_level 
+                    : null;
+                return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${i}" style="cursor:pointer;">${esc(displayName)} x${esc(item.qty)}${itemLevel ? ' ⭐' + itemLevel : ''}</div>`;
+            }).join('');
+            window._saoCurrentData = window._saoCurrentData || {};
+            window._saoCurrentData.inventory = invFiltered;
+        } else {
+            invEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
+            if (window._saoCurrentData) window._saoCurrentData.inventory = [];
+        }
+    }
+
+    // 技能列表 - read from playerStore.skills + skillStore
+    const skillEl = document.getElementById('sao_skills_list');
+    if (skillEl) {
+        if (player.skills && player.skills.length > 0) {
+            const skillsWithDefs = player.skills.map(ps => ({
+                name: ps.name,
+                skill_id: ps.skill_id,
+                proficiency: ps.proficiency,
+                def: getSkillById(ps.skill_id)
+            }));
+            skillEl.innerHTML = skillsWithDefs.map((sk, i) =>
+                `<div class="sao-tag sao-tag-skill" data-detail-type="skill" data-detail-index="${i}" style="cursor:pointer;">${esc(sk.name)}</div>`
+            ).join('');
+            window._saoCurrentData = window._saoCurrentData || {};
+            window._saoCurrentData.skills = skillsWithDefs;
+        } else {
+            skillEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
+            if (window._saoCurrentData) window._saoCurrentData.skills = [];
         }
     }
 
@@ -2249,6 +2319,7 @@ if (typeof globalThis !== 'undefined' && globalThis.process && globalThis.proces
         detectPlayerAction,
         selectEnemySkill,
         getEquipmentStatsFromState,
+        getEquipmentStatsFromStore,
         persistCooldowns,
         buildCombatNarrativeHint,
         normalizeWeapon,

@@ -2,7 +2,10 @@
 // Extracted from index.js: function calling tools, effect code table
 
 import { getSaoData, getCurrentCharacter, isSaoCard, log, getContext } from './sao-core.js';
-import { initCalendarIfNeeded, formatCalendarForLLM, queryTimeline } from './sao-calendar.js';
+import { initCalendarIfNeeded, queryTimeline } from './sao-calendar.js';
+import { getNpcByName } from './sao-store-npc.js';
+import { getFloorByNumber } from './sao-store-floor.js';
+import { getStore } from './sao-store-core.js';
 import { eventSource, event_types } from '../../../events.js';
 
 // ============================================================================
@@ -97,95 +100,16 @@ export function resetEffectCodeTable() {
 // Tool Action Helpers
 // ============================================================================
 
-export function formatFullState(state) {
-    if (!state) return 'No SAO state available.';
-    const parts = [];
-
-    // Core stats (reuse formatCompactState's core)
-    if (state.player_name) parts.push(`[玩家]${state.player_name}`);
-    if (state.level != null) parts.push(`Lv${state.level}`);
-    if (state.hp != null) parts.push(`HP:${state.hp}/${state.max_hp || '?'}`);
-    if (state.mp != null) parts.push(`MP:${state.mp}/${state.max_mp || '?'}`);
-    if (state.floor != null) parts.push(`${state.floor}F`);
-    if (state.location) parts.push(`@${state.location}`);
-    if (state.cor != null) parts.push(`珂尔:${state.cor}`);
-
-    // Equipment detailed stats
-    if (state.equipment) {
-        parts.push('\n[装备详情]');
-        for (const [slot, eq] of Object.entries(state.equipment)) {
-            if (!eq || !eq.name) continue;
-            const stats = eq.stats || {};
-            parts.push(`  ${slot}: ${eq.name} (STR+${stats.str||0} AGI+${stats.agi||0} INT+${stats.int||0} VIT+${stats.vit||0} HP+${stats.max_hp||0})`);
-        }
-    }
-
-    // Inventory
-    if (state.inventory?.length) {
-        parts.push('\n[背包]');
-        state.inventory.slice(0, 10).forEach(item => {
-            parts.push(`  ${item.name || item.type || '?'} x${item.qty || 1}`);
-        });
-        if (state.inventory.length > 10) parts.push(`  ... 共${state.inventory.length}件`);
-    }
-
-    // Skills with combat attributes
-    if (state.skills?.length) {
-        parts.push('\n[技能详情]');
-        const effectTable = getEffectCodeTable();
-        state.skills.forEach(skill => {
-            const atk = skill.atk || skill.base_damage || 0;
-            const hit = skill.hit || skill.hit_rate || 0;
-            const crit = skill.crit || skill.crit_rate || 0;
-            const apt = skill.apt || skill.hits || 1;
-            const tpa = skill.tpa || skill.targets || 1;
-            const mpCost = skill.mpCost || skill.mp_cost || 0;
-            const cd = skill.cd || skill.cooldown || 0;
-            const wn = skill.wn || skill.core_code || 'A1';
-            let line = `  ${skill.name || '?'}(Lv${skill.level||skill.skill_level||1}) ATK:${atk} 命中:${hit}% 暴击:${crit}% 连击:${apt} 目标:${tpa} MP:${mpCost} CD:${cd}轮 ${wn}`;
-            // Affix descriptions
-            const affixCodes = skill.affix_codes || skill.en || [];
-            if (affixCodes.length > 0) {
-                const affixDescs = affixCodes.map(code => {
-                    const bareCode = code.replace(/^EN:/, '').split(',')[0];
-                    const entry = effectTable[bareCode];
-                    if (entry?.fmt) {
-                        const params = code.split(',').slice(1).map(Number);
-                        return entry.fmt(params);
-                    }
-                    return bareCode;
-                });
-                line += ` [${affixDescs.join(', ')}]`;
-            }
-            parts.push(line);
-        });
-    }
-
-    // Last combat hint
-    if (state.lastCombatHint) parts.push('\n' + state.lastCombatHint);
-
-    return parts.join('\n');
-}
-
 /**
  * 从多个数据源查找角色信息
- * 优先级: state.relationships → character_book → char.data.description
+ * 优先级: character_book → char.data.description
  */
 export function getCharacterInfoFromSources(name, aspect) {
     try {
-        const data = getSaoData();
         const char = getCurrentCharacter();
         const results = [];
 
-        // 1. 关系数据（如果存在）
-        if (aspect === 'relationship' || aspect === 'full') {
-            const rel = data && data.state && data.state.relationships && data.state.relationships[name];
-            if (rel) {
-                results.push('[关系] ' + (typeof rel === 'string' ? rel : JSON.stringify(rel)));
-            }
-        }
-
-        // 2. character_book 条目
+        // 1. character_book 条目
         const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
         if (entries) {
             const nameLower = name.toLowerCase();
@@ -200,7 +124,7 @@ export function getCharacterInfoFromSources(name, aspect) {
             }
         }
 
-        // 3. 角色卡描述（fallback）
+        // 2. 角色卡描述（fallback）
         if (results.length === 0 && char && char.data && char.data.description) {
             const desc = char.data.description.substring(0, 500);
             results.push('[角色卡描述] ' + desc);
@@ -248,160 +172,26 @@ export function getFloorInfo(floor, topic) {
     }
 }
 
-/**
- * 格式化所有技能概览
- */
-export function formatAllSkillsBrief(skills) {
-    if (!skills || !skills.length) return '当前无已学习技能';
-    try {
-        const lines = skills.map((sk, i) => {
-            let s = (i + 1) + '. ' + sk.name;
-            if (sk.skill_level) s += ' Lv' + sk.skill_level;
-            if (sk.core_code) s += ' [' + sk.core_code + ']';
-            return s;
-        });
-        return lines.join('\n');
-    } catch (e) {
-        return '格式化技能列表失败: ' + e.message;
-    }
-}
-
-/**
- * 格式化单个技能详细信息
- */
-export function formatSkillDetail(skill) {
-    if (!skill) return '技能数据为空';
-    try {
-        const parts = ['技能: ' + skill.name];
-        if (skill.skill_level) parts.push('等级: ' + skill.skill_level);
-        if (skill.base_damage != null) parts.push('攻击力(ATK): ' + skill.base_damage);
-        if (skill.hit_rate != null) parts.push('命中率(Hit): ' + skill.hit_rate);
-        if (skill.crit_rate != null) parts.push('暴击率(Crit): ' + skill.crit_rate);
-        if (skill.hits != null) parts.push('连击数(Apt): ' + skill.hits);
-        if (skill.targets != null) parts.push('目标数(TPA): ' + skill.targets);
-        if (skill.mp_cost != null) parts.push('MP消耗: ' + skill.mp_cost);
-        if (skill.cooldown != null) parts.push('冷却: ' + skill.cooldown);
-
-        // 词缀描述
-        const table = getEffectCodeTable();
-        if (table) {
-            if (skill.core_code) {
-                const prefix = skill.core_code[0];
-                const entry = table[prefix] && table[prefix][skill.core_code];
-                if (entry) parts.push('核心效果: [' + skill.core_code + '] ' + entry.label);
-            }
-            if (skill.affix_codes && skill.affix_codes.length) {
-                const affixDescs = skill.affix_codes.map(code => {
-                    const p = code[0];
-                    const e = table[p] && table[p][code];
-                    return e ? code + '(' + e.label + ')' : code;
-                });
-                parts.push('词缀: ' + affixDescs.join(', '));
-            }
-            if (skill.effects_description) {
-                parts.push('效果描述: ' + skill.effects_description);
-            }
-        }
-
-        return parts.join('\n');
-    } catch (e) {
-        return '格式化技能详情失败: ' + e.message;
-    }
-}
-
-/**
- * 搜索世界书条目（按话题关键词）
- * 名称/关键词/内容加权匹配，返回 top 3
- */
-export function searchWorldBookEntries(topic) {
-    try {
-        const char = getCurrentCharacter();
-        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
-        if (!entries) return '世界书数据不可用';
-
-        const topicLower = topic.toLowerCase();
-        const scored = [];
-
-        for (const e of entries) {
-            const name = (e.comment || e.name || '').toLowerCase();
-            const content = (e.content || '').toLowerCase();
-            const keys = (e.keys || []).map(k => k.toLowerCase());
-
-            let score = 0;
-            // 名称匹配（最高权重）
-            if (name.includes(topicLower)) score += 3;
-            // 关键词匹配
-            if (keys.some(k => k.includes(topicLower) || topicLower.includes(k))) score += 2;
-            // 内容匹配
-            if (content.includes(topicLower)) score += 1;
-
-            if (score > 0) {
-                scored.push({ entry: e, score: score });
-            }
-        }
-
-        // 按分数排序，取 top 3
-        scored.sort((a, b) => b.score - a.score);
-        const top = scored.slice(0, 3);
-
-        if (top.length === 0) return '未找到与"' + topic + '"相关的世界书条目';
-
-        return top.map(item => {
-            const e = item.entry;
-            const ename = e.comment || e.name || '未命名条目';
-            const econtent = (e.content || '').substring(0, 500);
-            return '[' + ename + '] ' + econtent;
-        }).join('\n---\n');
-    } catch (e) {
-        return '搜索世界书失败: ' + e.message;
-    }
-}
-
 // ============================================================================
 // Function Calling Tool System
 // ============================================================================
 
 // --- Tool Registration Functions (P1) ---
 
-export function registerGetPlayerStatus(ctx) {
-    ctx.registerFunctionTool({
-        name: 'get_player_status',
-        displayName: 'Get Player Status',
-        formatMessage: () => '读取玩家状态...',
-        description: '获取玩家的完整状态：属性(HP/MP/STR/AGI/INT/VIT)、装备详情、背包物品、技能战斗属性。当需要查看玩家当前状态时使用。',
-        parameters: {
-            '$schema': 'http://json-schema.org/draft-04/schema#',
-            type: 'object',
-            properties: {},
-            required: [],
-        },
-        action: wrapToolAction(async () => {
-            try {
-                const data = getSaoData();
-                if (!data || !data.state) return '玩家状态数据尚未初始化';
-                return formatFullState(data.state);
-            } catch (e) {
-                log('get_player_status 失败: ' + e.message, 'warn');
-                return '获取数据失败: ' + e.message;
-            }
-        }),
-        shouldRegister: () => isSaoCard(),
-        stealth: false,
-    });
-}
-
 export function registerGetCalendar(ctx) {
     ctx.registerFunctionTool({
         name: 'get_calendar',
         displayName: 'Get Calendar',
-        formatMessage: () => '查询日历...',
-        description: '获取游戏内日历信息：查看日期范围内的事件和日程安排。',
+        formatMessage: () => '查询日历/时间线...',
+        description: '查询游戏日历与原作时间线。可查单日、整月或日期范围。返回原作事件(canon) + 游戏约定(appointments)。不要凭空猜测原作时间线。',
         parameters: {
             '$schema': 'http://json-schema.org/draft-04/schema#',
             type: 'object',
             properties: {
-                date: { type: 'string', description: '起始日期 (YYYY-MM-DD 格式)，默认今天' },
-                range_days: { type: 'integer', description: '查询天数范围，默认 7 天' },
+                date: { type: 'string', description: '查询单日 (YYYY-MM-DD)，如 2022-11-06' },
+                month: { type: 'string', description: '查询整月 (YYYY-MM)，如 2022-12' },
+                range_days: { type: 'integer', description: '从 date 起查询 N 天范围，默认 7' },
+                max: { type: 'integer', description: '最多返回事件数，默认 40，上限 120' },
             },
             required: [],
         },
@@ -410,10 +200,85 @@ export function registerGetCalendar(ctx) {
                 initCalendarIfNeeded();
                 const data = getSaoData();
                 const cal = data && data.calendar;
-                return formatCalendarForLLM(cal, args && args.date, args && args.range_days);
+
+                // 1. Canon timeline from queryTimeline (world book, real-time)
+                const query = {};
+                if (args?.date) query.date = args.date;
+                if (args?.month) {
+                    // Parse month to start_date + end_date for queryTimeline
+                    const [y, m] = args.month.split('-');
+                    const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+                    query.start_date = `${args.month}-01`;
+                    query.end_date = `${args.month}-${String(lastDay).padStart(2, '0')}`;
+                }
+                if (args?.range_days && args?.date) {
+                    // queryTimeline doesn't have range_days, but we can compute start_date
+                    query.start_date = args.date;
+                    const d = new Date(args.date);
+                    d.setDate(d.getDate() + args.range_days);
+                    query.end_date = d.toISOString().split('T')[0];
+                }
+                if (args?.max) query.max = args.max;
+
+                const canonEvents = queryTimeline(query);
+
+                // 2. Game calendar events (appointments, custom events)
+                let gameEvents = [];
+                if (cal && cal.appointments) {
+                    gameEvents = cal.appointments.map(apt => ({
+                        date: apt.date || '',
+                        type: '[约定]',
+                        title: apt.title || apt.description || '',
+                    }));
+                }
+
+                // 2b. calendarStore (chatMetadata.sao_companion.calendarStore)
+                // NOTE: calendarStore write-migration is deferred to a future PR;
+                // this read future-proofs the migration path.
+                const store = getStore();
+                const calStore = store?.calendarStore;
+                if (calStore) {
+                    if (Array.isArray(calStore.appointments)) {
+                        gameEvents.push(...calStore.appointments.map(apt => ({
+                            date: apt.date || '',
+                            type: '[约定]',
+                            title: apt.title || apt.description || '',
+                        })));
+                    }
+                    if (calStore.events && typeof calStore.events === 'object') {
+                        for (const [dateKey, events] of Object.entries(calStore.events)) {
+                            if (!Array.isArray(events)) continue;
+                            for (const ev of events) {
+                                gameEvents.push({
+                                    date: dateKey || ev.date || '',
+                                    type: ev.type === 'custom' ? '[自定义]' : '[事件]',
+                                    title: ev.title || ev.description || '',
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 3. Merge and tag
+                const taggedCanon = canonEvents.map(ev => ({
+                    date: ev.date,
+                    type: '[原作]',
+                    title: ev.title,
+                }));
+
+                const allEvents = [...taggedCanon, ...gameEvents];
+
+                // Sort by date
+                allEvents.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+                if (!allEvents.length) {
+                    return '未找到匹配的日历/时间线事件。可使用 date（单日）、month（整月）或 date+range_days（范围）查询。';
+                }
+
+                return allEvents.map(ev => `${ev.date} ${ev.type} ${ev.title}`).join('\n');
             } catch (e) {
                 log('get_calendar 失败: ' + e.message, 'warn');
-                return '获取数据失败: ' + e.message;
+                return '获取日历失败: ' + e.message;
             }
         }),
         shouldRegister: () => isSaoCard(),
@@ -440,6 +305,20 @@ export function registerGetCharacterInfo(ctx) {
             try {
                 const name = args && args.name;
                 if (!name) return '请提供角色名称';
+                // B4: Try npcStore first
+                const npc = getNpcByName(name);
+                if (npc) {
+                    const parts = [`[角色] ${npc.name}`];
+                    if (npc.canon?.characterName) parts.push(`[设定] ${npc.canon.characterName}`);
+                    if (npc.state?.relationship) parts.push(`[当前关系] ${npc.state.relationship}`);
+                    if (npc.observations?.length) {
+                        parts.push('[最近观察]');
+                        parts.push(...npc.observations.slice(-5).map(o => `- ${o}`));
+                    }
+                    return parts.join('\n');
+                }
+                // Fallback: world book scan
+                log('get_character_info: npcStore 未命中，回退世界书扫描 name=' + name, 'warn');
                 return getCharacterInfoFromSources(name, (args && args.aspect) || 'full');
             } catch (e) {
                 log('get_character_info 失败: ' + e.message, 'warn');
@@ -468,8 +347,24 @@ export function registerGetFloorInfo(ctx) {
         },
         action: wrapToolAction(async (args) => {
             try {
-                if (!args || args.floor == null) return '请提供楼层数';
-                return getFloorInfo(args.floor, args.topic);
+                const floor = args && args.floor;
+                if (!floor) return '请提供楼层数';
+                // B5: Try floorStore first
+                const floorEntry = getFloorByNumber(parseInt(floor));
+                if (floorEntry) {
+                    const parts = [`[楼层] ${floorEntry.floor_number}F`];
+                    if (floorEntry.canon?.rawContent) parts.push(`[设定] ${floorEntry.canon.rawContent.substring(0, 500)}`);
+                    if (floorEntry.canon?.mainTown) parts.push(`[城镇] ${floorEntry.canon.mainTown}`);
+                    if (floorEntry.canon?.boss) parts.push(`[BOSS] ${floorEntry.canon.boss}`);
+                    if (floorEntry.state?.notes?.length) {
+                        parts.push('[探索记录]');
+                        parts.push(...floorEntry.state.notes.slice(-5).map(n => `- ${n}`));
+                    }
+                    return parts.join('\n');
+                }
+                // Fallback: world book scan
+                log('get_floor_info: floorStore 未命中，回退世界书扫描 floor=' + floor, 'warn');
+                return getFloorInfo(parseInt(floor), args.topic);
             } catch (e) {
                 log('get_floor_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
@@ -480,119 +375,15 @@ export function registerGetFloorInfo(ctx) {
     });
 }
 
-export function registerGetSkillInfo(ctx) {
-    ctx.registerFunctionTool({
-        name: 'get_skill_info',
-        displayName: 'Get Skill Info',
-        formatMessage: () => '查询技能信息...',
-        description: '获取技能信息：查看已学习技能列表，或查询特定技能的详细战斗属性（ATK/命中/暴击/连击/词缀效果）。',
-        parameters: {
-            '$schema': 'http://json-schema.org/draft-04/schema#',
-            type: 'object',
-            properties: {
-                skill_name: { type: 'string', description: '技能名称。不提供则返回所有技能概览列表' },
-            },
-            required: [],
-        },
-        action: wrapToolAction(async (args) => {
-            try {
-                const data = getSaoData();
-                const skills = data && data.state && data.state.skills;
-                if (!skills || !skills.length) return '当前无已学习技能';
-
-                const skillName = args && args.skill_name;
-                if (!skillName) {
-                    return formatAllSkillsBrief(skills);
-                }
-
-                const skill = skills.find(s => s.name === skillName);
-                if (!skill) {
-                    const available = skills.map(s => s.name).join(', ');
-                    return '未找到技能 "' + skillName + '"。可用技能: ' + available;
-                }
-                return formatSkillDetail(skill);
-            } catch (e) {
-                log('get_skill_info 失败: ' + e.message, 'warn');
-                return '获取数据失败: ' + e.message;
-            }
-        }),
-        shouldRegister: () => isSaoCard(),
-        stealth: false,
-    });
-}
-
-export function registerGetWorldLore(ctx) {
-    ctx.registerFunctionTool({
-        name: 'get_world_lore',
-        displayName: 'Get World Lore',
-        formatMessage: () => '查询世界观...',
-        description: '搜索世界观设定：从角色卡世界书中按关键词搜索世界观、背景、设定、规则等条目信息。',
-        parameters: {
-            '$schema': 'http://json-schema.org/draft-04/schema#',
-            type: 'object',
-            properties: {
-                topic: { type: 'string', description: '搜索话题关键词（必填），如 "艾恩葛朗特"、"刀剑技能"、"珂尔"' },
-            },
-            required: ['topic'],
-        },
-        action: wrapToolAction(async (args) => {
-            try {
-                const topic = args && args.topic;
-                if (!topic) return '请提供搜索话题';
-                return searchWorldBookEntries(topic);
-            } catch (e) {
-                log('get_world_lore 失败: ' + e.message, 'warn');
-                return '获取数据失败: ' + e.message;
-            }
-        }),
-        shouldRegister: () => isSaoCard(),
-        stealth: false,
-    });
-}
-
-export function registerGetTimeline(ctx) {
-    ctx.registerFunctionTool({
-        name: 'get_timeline',
-        displayName: 'Get Timeline',
-        formatMessage: () => '查询原作时间线...',
-        description: '按需查询原作时间线。需要了解某一天、某段日期或某个月发生的原作剧情时使用；不要凭空猜测时间线。',
-        parameters: {
-            '$schema': 'http://json-schema.org/draft-04/schema#',
-            type: 'object',
-            properties: {
-                date: { type: 'string', description: '查询单日 (YYYY-MM-DD)，如 2022-11-06' },
-                start_date: { type: 'string', description: '范围起始日期 (YYYY-MM-DD)' },
-                end_date: { type: 'string', description: '范围结束日期 (YYYY-MM-DD)' },
-                month: { type: 'string', description: '查询整月 (YYYY-MM)，如 2022-12' },
-                max: { type: 'integer', description: '最多返回事件数，默认40，上限120' },
-            },
-            required: [],
-        },
-        action: wrapToolAction(async (args) => {
-            try {
-                const events = queryTimeline(args || {});
-                if (!events.length) return '未找到匹配的原作时间线事件。请使用 date、start_date/end_date 或 month 查询。';
-                return events.map(ev => `${ev.date}: ${ev.title}`).join('\n');
-            } catch (e) {
-                log('get_timeline 失败: ' + e.message, 'warn');
-                return '获取时间线失败: ' + e.message;
-            }
-        }),
-        shouldRegister: () => isSaoCard(),
-        stealth: false,
-    });
-}
 
 // === End Function Calling Tool Actions (P1) ===
 
 // === Function Calling Tool System (P0: framework only, tools registered in P1) ===
 
-export const SAO_TOOL_NAMES = ['get_player_status', 'get_calendar', 'get_character_info',
-                        'get_floor_info', 'get_skill_info', 'get_world_lore', 'get_timeline'];
+export const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info'];
 
 export function registerTools() {
     const ctx = getContext();
-    // 软门控：不支持时静默跳过，不报错，不注册工具
     if (typeof ctx.registerFunctionTool !== 'function') {
         log('当前环境不支持 function calling，工具未注册（保持现有世界书注入模式）');
         return false;
@@ -601,15 +392,10 @@ export function registerTools() {
         log('当前 API/设置不支持 function calling，工具未注册（保持现有世界书注入模式）');
         return false;
     }
-    // P1: 注册 function calling 工具
-    registerGetPlayerStatus(ctx);
     registerGetCalendar(ctx);
     registerGetCharacterInfo(ctx);
     registerGetFloorInfo(ctx);
-    registerGetSkillInfo(ctx);
-    registerGetWorldLore(ctx);
-    registerGetTimeline(ctx);
-    log('function calling 工具系统已就绪（7 个工具已注册）');
+    log('function calling 工具系统已就绪（3 个工具已注册）');
     return true;
 }
 

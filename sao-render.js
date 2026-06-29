@@ -4,11 +4,15 @@
 import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
+import { projectStatusPanelHtml } from './sao-state-projection.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
+import { equipItem, unequipItem } from './sao-store-player.js';
+import { getEquipmentById } from './sao-store-equipment.js';
+import { createQuest, completeQuest } from './sao-store-quest.js';
 
 // 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
 const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
@@ -573,17 +577,35 @@ function cleanupSaoLightDom(messageEl) {
     });
 }
 
+/**
+ * 渲染用户状态面板。
+ * 三级回退策略（intentional 设计，非临时代码）：
+ * 1. store projection（Phase C 主路径，projectStatusPanelHtml）
+ * 2. panels 缓存（A0 过渡兼容 + store 不可用时 fallback）
+ * 3. rawText <user_status> 标签（最终防线）
+ * 详见 PHASE_C_STATUS_PANEL_REDESIGN_EXECUTION.md C2。
+ */
 function renderUserStatus(messageEl, rawText, messageId, refNode) {
-    // P3: 优先从 status 专家面板数据读取 userStatusHtml；回退到 mes 标签（过渡兼容）
+    // Phase C: 优先从 store projection 渲染；回退到 status 专家面板缓存；最后回退到 mes 标签
     let content = null;
-    if (messageId != null) {
+
+    // 1. 尝试 store projection（Phase C 主路径）
+    try {
+        content = projectStatusPanelHtml();
+    } catch (e) {
+        log(`projectStatusPanelHtml 失败: ${e.message}`, 'warn');
+    }
+
+    // 2. 回退：status 专家面板缓存（A0/P3 过渡兼容）
+    if (!content && messageId != null) {
         const panel = getSaoData()?.panels?.[messageId]?.status;
-        // panel.html 存的是 {state, zdText, userStatusHtml} 对象（或字符串）
         const panelData = panel && (typeof panel.html === 'string') ? safeJsonParse(panel.html) : panel?.html;
         if (panelData && typeof panelData.userStatusHtml === 'string' && panelData.userStatusHtml.length > 0) {
             content = panelData.userStatusHtml;
         }
     }
+
+    // 3. 回退：rawText 标签提取
     if (!content) {
         content = extractTag(rawText, 'user_status')
         if (content === null) return
@@ -775,14 +797,169 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 .details-character-status > div > details[open] > summary {
                     margin-bottom: 2px !important;
                 }
+                /* C3/C5.5: 操作按钮样式 */
+                .sao-equip-btn, .sao-quest-btn {
+                    display: inline-block;
+                    padding: 1px 6px;
+                    margin-left: 4px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: var(--char-text-color);
+                    background-color: var(--char-button-bg);
+                    border: 1px solid var(--char-button-border);
+                    border-radius: 3px;
+                    cursor: pointer;
+                    vertical-align: middle;
+                    line-height: 1.4;
+                    transition: background-color 0.1s;
+                }
+                .sao-equip-btn:hover, .sao-quest-btn:hover {
+                    background-color: var(--char-button-hover);
+                }
+                .sao-equip-btn:active, .sao-quest-btn:active {
+                    background-color: var(--char-button-active);
+                    box-shadow: inset 1px 1px 0 var(--char-button-highlight);
+                }
+                /* C4: 技能详情展开样式 */
+                .sao-skill-details {
+                    margin: 2px 0 !important;
+                }
+                .sao-skill-details > summary {
+                    cursor: pointer;
+                    list-style: none;
+                    padding: 2px 0;
+                }
+                .sao-skill-details > summary::-webkit-details-marker,
+                .sao-skill-details > summary::marker {
+                    display: none;
+                    content: '';
+                }
+                .sao-skill-details > summary::before {
+                    content: '▸ ';
+                    display: inline;
+                    font-size: 11px;
+                    color: #8b7d6b;
+                }
+                .sao-skill-details[open] > summary::before {
+                    content: '▾ ';
+                }
         </style>
         <div class="character-status-wrapper">
             <details class="details-character-status" open>
                 <summary>角色状态栏</summary>
-                <div>${safeContent}</div>
+                <div class="sao-status-content">${safeContent}</div>
             </details>
         </div>
     `
+    // C3/C4/C5.5: 附加交互事件监听
+    _attachStatusPanelListeners(shadow);
+}
+
+/**
+ * C3/C5.5: 为状态面板交互按钮附加事件监听。
+ * 装备穿戴/卸下、任务添加/完成后重新投影渲染面板内容。
+ * @param {ShadowRoot} shadow
+ */
+function _attachStatusPanelListeners(shadow) {
+    // C3: 卸下装备
+    shadow.querySelectorAll('[data-sao-action="unequip"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const slot = btn.dataset.saoSlot;
+            try {
+                await unequipItem(slot);
+                _refreshStatusPanelContent(shadow);
+            } catch (err) {
+                log(`卸下装备失败: ${err.message}`, 'warn');
+            }
+        });
+    });
+
+    // C3: 穿戴装备（从背包）
+    shadow.querySelectorAll('[data-sao-action="equip"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const equipId = btn.dataset.saoEquipId;
+            try {
+                const equip = getEquipmentById(equipId);
+                if (equip) {
+                    await equipItem(equip.slot, equipId);
+                    _refreshStatusPanelContent(shadow);
+                }
+            } catch (err) {
+                log(`穿戴装备失败: ${err.message}`, 'warn');
+            }
+        });
+    });
+
+    // C5.5: 添加任务
+    shadow.querySelectorAll('[data-sao-action="add-quest"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const input = shadow.querySelector('[data-sao-quest-input]');
+            if (input && input.value.trim()) {
+                createQuest({ title: input.value.trim(), source: 'manual' });
+                _refreshStatusPanelContent(shadow);
+            }
+        });
+    });
+    // 回车提交
+    shadow.querySelectorAll('[data-sao-quest-input]').forEach(input => {
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const addBtn = shadow.querySelector('[data-sao-action="add-quest"]');
+                if (addBtn) addBtn.click();
+            }
+        });
+    });
+
+    // C5.5: 完成任务
+    shadow.querySelectorAll('[data-sao-action="complete-quest"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const questId = btn.dataset.saoQuestId;
+            try {
+                await completeQuest(questId);
+                _refreshStatusPanelContent(shadow);
+            } catch (err) {
+                log(`完成任务失败: ${err.message}`, 'warn');
+            }
+        });
+    });
+}
+
+/**
+ * C3/C5.5: 刷新状态面板内容区域（保留 Shadow DOM host 和 style）。
+ * 重新从 store projection 获取 HTML，替换内容区并重新附加事件监听。
+ * @param {ShadowRoot} shadow
+ */
+function _refreshStatusPanelContent(shadow) {
+    try {
+        const newHtml = projectStatusPanelHtml();
+        if (!newHtml) {
+            log('_refreshStatusPanelContent: projectStatusPanelHtml 返回 null，跳过更新（store 可能未初始化）', 'warn');
+            return;
+        }
+        const contentDiv = shadow.querySelector('.sao-status-content');
+        if (contentDiv) {
+            const safeContent = sanitizeInlineSaoHtml(newHtml.trim())
+                .replace(/^[ \t]+/gm, '')
+                .replace(/[ \t]+$/gm, '')
+                .replace(/\n{3,}/g, '\n\n')
+                .replace(/<\/summary>\s*\n+/g, '</summary>')
+                .replace(/<\/details>\s*\n+\s*<details/g, '</details><details')
+                .replace(/\s+<\/details>/g, '</details>');
+            contentDiv.innerHTML = safeContent;
+            _attachStatusPanelListeners(shadow);
+        }
+    } catch (e) {
+        log(`刷新状态面板失败: ${e.message}`, 'warn');
+    }
 }
 
 function renderEquipment(messageEl, rawText, messageId, refNode) {

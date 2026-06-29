@@ -28,7 +28,7 @@ beforeAll(async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 构造最小有效 _zd_parsed + state，用于注入 mock getSaoData。
+ * 构造最小有效 store 结构 + runtime._zd_parsed，用于注入 mock getSaoData / getStore。
  * @param {Object} overrides - 覆盖默认值
  */
 function makeSaoData(overrides = {}) {
@@ -48,8 +48,30 @@ function makeSaoData(overrides = {}) {
         skills: [{ name: '挥砍', atk: 30, hit: 70, crit: 5, apt: 1, tpa: 1 }],
         attackPattern: ['挥砍'],
     };
+
+    // Build equipment store from overrides (test provides inline stats)
+    const equipmentStore = { byId: {}, nameToId: {} };
+    const playerEquipment = { weapon: null, off_hand: null, head: null, chest: null, hands: null, legs: null, accessory: null };
+    if (overrides.equipment) {
+        let equipIdx = 1;
+        for (const [slot, equipData] of Object.entries(overrides.equipment)) {
+            if (!equipData || !equipData.stats) continue;
+            const equipId = `equip_test_${String(equipIdx).padStart(3, '0')}`;
+            equipmentStore.byId[equipId] = {
+                equipment_id: equipId,
+                name: `test_${slot}`,
+                slot: slot,
+                stats: equipData.stats,
+                source: 'manual'
+            };
+            playerEquipment[slot] = equipId;
+            equipIdx++;
+        }
+    }
+
     return {
-        state: {
+        schemaVersion: 1,
+        runtime: {
             _zd_parsed: {
                 player: { ...basePlayer, ...overrides.player },
                 skills: overrides.skills || [baseSkill],
@@ -57,9 +79,27 @@ function makeSaoData(overrides = {}) {
                 teammates: overrides.teammates || [],
             },
             skillCooldowns: {},
-            equipment: { ...overrides.equipment },
+        },
+        playerStore: {
+            player_id: 'player',
+            identity: { name: '桐人', title: null },
+            progression: { level: 1, totalExp: 0 },
+            attributes: { str: 0, agi: 0, int: 0, vit: 0 },
+            vitals: { hp: 100, maxHp: 100, mp: 20, maxMp: 20 },
+            position: { floor_id: 'floor_001', location: '' },
+            equipment: playerEquipment,
+            skills: [],
             customSkills: overrides.customSkills || [],
         },
+        equipmentStore,
+        skillStore: { byId: {}, nameToId: {} },
+        inventoryStore: { owner_id: 'player', currency: { cor: 0 }, items: [] },
+        npcStore: { byId: {}, nameToId: {} },
+        floorStore: { byId: {}, numberToId: {} },
+        calendarStore: { currentDate: null, events: {}, appointments: [] },
+        questStore: { byId: {}, activeIds: [], completedIds: [] },
+        panels: {},
+        calendarPanels: {},
         arc: 'sao',
         calendar: null,
         ...overrides.meta,
@@ -89,19 +129,19 @@ describe('E2E: resolveCombatRound 完整路径', () => {
 
     describe('1. 基本结构与空输入', () => {
         it('无 _zd_parsed 时返回 null，不崩溃', () => {
-            injectMockData({ state: null, arc: 'sao' });
+            injectMockData({ runtime: {}, arc: 'sao' });
             const result = SAO.resolveCombatRound('一些消息');
             expect(result).toBeNull();
         });
 
         it('无 player 时返回 null', () => {
-            injectMockData({ state: { _zd_parsed: { enemies: [] } }, arc: 'sao' });
+            injectMockData({ runtime: { _zd_parsed: { enemies: [] } }, arc: 'sao' });
             const result = SAO.resolveCombatRound('');
             expect(result).toBeNull();
         });
 
         it('无 enemies 时返回 null', () => {
-            injectMockData({ state: { _zd_parsed: { player: { name: 'p' }, enemies: [] } }, arc: 'sao' });
+            injectMockData({ runtime: { _zd_parsed: { player: { name: 'p' }, enemies: [] } }, arc: 'sao' });
             const result = SAO.resolveCombatRound('');
             expect(result).toBeNull();
         });
@@ -139,7 +179,7 @@ describe('E2E: resolveCombatRound 完整路径', () => {
             const data = makeSaoData();
             injectMockData(data);
             SAO.resolveCombatRound('旋风斩');
-            const zdEnemy = data.state._zd_parsed.enemies[0];
+            const zdEnemy = data.runtime._zd_parsed.enemies[0];
             expect(zdEnemy.hp).toBeLessThan(200);
             expect(zdEnemy.hp).toBeGreaterThanOrEqual(0);
         });
@@ -148,7 +188,7 @@ describe('E2E: resolveCombatRound 完整路径', () => {
             const data = makeSaoData();
             injectMockData(data);
             SAO.resolveCombatRound('旋风斩');
-            const zdPlayer = data.state._zd_parsed.player;
+            const zdPlayer = data.runtime._zd_parsed.player;
             // 玩家可能受反击伤害，HP <= 初始 500
             expect(zdPlayer.hp).toBeLessThanOrEqual(500);
         });
@@ -163,13 +203,13 @@ describe('E2E: resolveCombatRound 完整路径', () => {
 
             const r1 = SAO.resolveCombatRound('旋风斩');
             expect(r1).toBeDefined();
-            const enemyHpAfterR1 = data.state._zd_parsed.enemies[0].hp;
+            const enemyHpAfterR1 = data.runtime._zd_parsed.enemies[0].hp;
             expect(enemyHpAfterR1).toBeLessThan(1000);
 
             // 第二轮不重置 state，再调用
             const r2 = SAO.resolveCombatRound('旋风斩');
             expect(r2).toBeDefined();
-            const enemyHpAfterR2 = data.state._zd_parsed.enemies[0].hp;
+            const enemyHpAfterR2 = data.runtime._zd_parsed.enemies[0].hp;
             expect(enemyHpAfterR2).toBeLessThanOrEqual(enemyHpAfterR1); // 持续递减
         });
 
@@ -278,8 +318,7 @@ describe('E2E: resolveCombatRound 完整路径', () => {
 
     describe('8. buildPlayerEntity E2E', () => {
         it('从 _zd_parsed.player + skills + equipment 正确构建实体', () => {
-            // getEquipmentStatsFromState 读 equipment 的 slots（每个 slot 有 .stats），
-            // 不是直接 {str,agi}。构造正确格式。
+            // getEquipmentStatsFromStore 从 playerStore.equipment + equipmentStore.byId 读取属性加成
             const data = makeSaoData({
                 equipment: {
                     weapon: { stats: { str: 5, agi: 3, int: 0, vit: 2 } },
@@ -287,9 +326,9 @@ describe('E2E: resolveCombatRound 完整路径', () => {
             });
             injectMockData(data);
             const player = SAO.buildPlayerEntity(
-                data.state._zd_parsed.player,
-                data.state._zd_parsed.skills,
-                SAO.getEquipmentStatsFromState(),
+                data.runtime._zd_parsed.player,
+                data.runtime._zd_parsed.skills,
+                SAO.getEquipmentStatsFromStore(),
             );
             expect(player.name).toBe('桐人');
             expect(player.hp).toBe(500);
@@ -305,7 +344,7 @@ describe('E2E: resolveCombatRound 完整路径', () => {
             const data = makeSaoData({ skills: [] });
             injectMockData(data);
             const player = SAO.buildPlayerEntity(
-                data.state._zd_parsed.player,
+                data.runtime._zd_parsed.player,
                 [],
                 {},
             );

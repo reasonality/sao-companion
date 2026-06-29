@@ -12,6 +12,11 @@ vi.mock('../sao-core.js', () => ({
     MODULE_NAME: 'sao_companion',
 }));
 
+vi.mock('../sao-store-core.js', () => ({
+    getStore: vi.fn(),
+    saveStore: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
     addAppointmentToCalendar,
     getTimelineForPrompt,
@@ -25,6 +30,7 @@ import {
     formatDate,
 } from '../sao-calendar.js';
 import { saveSaoDataNow, getCurrentCharacter, getSaoData } from '../sao-core.js';
+import { saveStore } from '../sao-store-core.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: fresh calendar object
@@ -452,15 +458,15 @@ describe('persistCalendar', () => {
         expect(cal.calendarVersion).toBe(1);
     });
 
-    it('calls saveSaoDataNow', async () => {
+    it('calls saveStore', async () => {
         const cal = makeCalendar();
         await persistCalendar(cal);
-        expect(saveSaoDataNow).toHaveBeenCalledTimes(1);
+        expect(saveStore).toHaveBeenCalledTimes(1);
     });
 
     it('does not throw when calendar is null', async () => {
         await expect(persistCalendar(null)).resolves.not.toThrow();
-        expect(saveSaoDataNow).toHaveBeenCalledTimes(1);
+        expect(saveStore).toHaveBeenCalledTimes(1);
     });
 });
 

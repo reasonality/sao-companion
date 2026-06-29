@@ -1,7 +1,8 @@
 // sao-skills.js — 自定义技能系统
 // 技能定义表 + 解锁检查 + 查找 + 通知 + 移除
 
-import { getSaoData, saveSaoDataNow, log } from './sao-core.js';
+import { getSaoData, log } from './sao-core.js';
+import { getPlayerStore, setCustomSkills } from './sao-store-player.js';
 
 // === 自定义技能定义 ===
 /**
@@ -69,19 +70,26 @@ function injectSkillAcquisition(def) {
  */
 export function checkCustomSkillUnlocks(messageText) {
     const data = getSaoData();
-    if (!data?.state) return;
-    if (!data.state.customSkills) data.state.customSkills = [];
-    const alreadyHas = new Set(data.state.customSkills);
+    const player = getPlayerStore();
+    if (!player) return;
+    if (!player.customSkills) player.customSkills = [];
+    const alreadyHas = new Set(player.customSkills);
     for (const [id, def] of Object.entries(CUSTOM_SKILL_DEFS)) {
         if (alreadyHas.has(id)) continue;
         let unlocked = false;
         switch (def._unlock.type) {
-            case 'floor': unlocked = data.state.floor >= def._unlock.floor; break;
+            case 'floor': {
+                const floorVal = typeof player.position.floor_id === 'number' 
+                    ? player.position.floor_id 
+                    : (parseInt(String(player.position.floor_id || '').replace(/\D/g, '')) || 0);
+                unlocked = floorVal >= def._unlock.floor; 
+                break;
+            }
             case 'chapter': unlocked = data.arc === def._unlock.arc; break;
             case 'keyword': unlocked = messageText.includes(def._unlock.keyword); break;
         }
         if (unlocked) {
-            data.state.customSkills.push(id); // store ID only, not full def
+            player.customSkills.push(id); // store ID only, not full def
             log(`获得自定义技能: ${def.name}`);
             injectSkillAcquisition(def);
         }

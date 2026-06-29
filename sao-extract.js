@@ -1,7 +1,12 @@
 // sao-extract.js — 数据提取模块
 // 从 AI 回复中提取 SAO 状态标签（zd_status/user_status）并应用到 state
 
-import { getSettings, log, getSaoData, saveSaoDataNow, safeJsonParse } from './sao-core.js';
+import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
+import { getStore, saveStore } from './sao-store-core.js';
+import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem } from './sao-store-player.js';
+import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
+import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
+import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 
 // === 纯解析函数 ===
 
@@ -174,7 +179,7 @@ function parseUserStatus(statusText) {
 
     // 装备解析: "主手: ⭐Lv.5 铁剑 (耐:100/100)" followed by stats line "❤️+50 💪+2 🏃+0 🧠+0 🔋+6"
     state.equipment = {};
-    const equipSlotMap = { '主手': 'main_hand', '副手': 'off_hand', '头部': 'head', '胸部': 'body', '手部': 'hands', '腿部': 'feet', '饰品': 'accessory' };
+    const equipSlotMap = { '主手': 'weapon', '副手': 'off_hand', '头部': 'head', '胸部': 'chest', '手部': 'hands', '腿部': 'legs', '饰品': 'accessory' };
     // 匹配 "主手: ⭐Lv.5 铁剑 (耐:100/100)" 格式
     const equipLines = statusText.match(/(?:主手|副手|头部|胸部|手部|腿部|饰品)\s*(?:1|2)?\s*[：:]\s*[^\n]+/g) || [];
     for (const line of equipLines) {
@@ -452,63 +457,150 @@ ${aiMessage.substring(0, 8000)}`;
 
 export async function applyExtractedData(extracted, customSkillDefs) {
     if (!extracted) return;
-    const data = getSaoData();
+    const data = getStore();
     if (!data) return;
 
     if (extracted.state) {
         const s = extracted.state;
-        if (!data.state) data.state = {};
 
-        // 标量字段直接覆盖
-        const scalars = ['hp','max_hp','mp','max_mp','str','agi','int','vit','level','exp','cor','location','floor','arc','player_name'];
-        for (const k of scalars) {
-            if (s[k] != null) data.state[k] = s[k];
+        // 1. Scalars → playerStore
+        if (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null) {
+            await updatePlayerVitals({
+                hp: s.hp, maxHp: s.max_hp, mp: s.mp, maxMp: s.max_mp
+            }, true);
+        }
+        if (s.str != null || s.agi != null || s.int != null || s.vit != null) {
+            await updatePlayerAttributes({ str: s.str, agi: s.agi, int: s.int, vit: s.vit }, true);
+        }
+        if (s.level != null || s.exp != null) {
+            await updatePlayerProgression(s.level, s.exp, true);
+        }
+        if (s.cor != null) {
+            await updateCurrency(s.cor, true);
+        }
+        if (s.location != null || s.floor != null) {
+            const player = getPlayerStore();
+            await updatePlayerPosition(s.floor || player.position.floor_id, s.location || player.position.location, true);
+        }
+        if (s.player_name != null) {
+            const player = getPlayerStore();
+            await updatePlayerIdentity(s.player_name, player.identity.title, true);
         }
 
-        // equipment: 深度合并（保留已有槽位）
+        // 2. Equipment → equipmentStore + playerStore.equipment (via equipItem)
         if (s.equipment && typeof s.equipment === 'object') {
-            if (!data.state.equipment) data.state.equipment = {};
-            Object.assign(data.state.equipment, s.equipment);
+            for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
+                if (!equipData || typeof equipData !== 'object') continue;
+                const newSlot = oldSlot;
+                // Find or create equipment in equipmentStore
+                const equipId = findOrCreateEquipment({
+                    name: equipData.name,
+                    slot: newSlot,
+                    weapon_type: equipData.weapon_type,
+                    statType: equipData.statType || equipData.type,
+                    rarity: equipData.rarity || 'common',
+                    item_level: equipData.item_level || 1,
+                    stats: equipData.stats || {},
+                    affixes: equipData.affixes || [],
+                    description: equipData.description || '',
+                    source: 'specialist'
+                });
+                // Equip it (handles inventory movement + old gear back to inventory)
+                await equipItem(newSlot, equipId, true);
+            }
         }
 
-        // inventory: 合并（按 name 去重，用新数据完全覆盖旧条目以保留 description/item_level 等）
+        // 3. Inventory → inventoryStore (consumables/materials/quest items only; equipment handled by equipItem)
         if (Array.isArray(s.inventory) && s.inventory.length > 0) {
-            if (!data.state.inventory) data.state.inventory = [];
-            for (const newItem of s.inventory) {
-                const existingIdx = data.state.inventory.findIndex(i => i.name === newItem.name);
-                if (existingIdx >= 0) {
-                    // 用新数据完全覆盖旧条目（保留完整字段：description, item_level, rarity 等）
-                    data.state.inventory[existingIdx] = { ...newItem };
+            for (const item of s.inventory) {
+                if (!item || !item.name) continue;
+                // Determine type: if item has stats/equipment-like fields, route to equipment+inventory (backpack)
+                if (item.stats || item.slot) {
+                    const equipId = findOrCreateEquipment({
+                        name: item.name,
+                        slot: item.slot,
+                        weapon_type: item.weapon_type,
+                        statType: item.statType || item.type,
+                        rarity: item.rarity || 'common',
+                        item_level: item.item_level || 1,
+                        stats: item.stats || {},
+                        affixes: item.affixes || [],
+                        description: item.description || '',
+                        source: 'specialist'
+                    });
+                    if (equipId) await addEquipmentItem(equipId, true);
+                    continue;
+                }
+                const type = item.type || 'consumable';
+                const qty = item.qty || 1;
+                if (type === 'material') {
+                    await addMaterial(item.name, qty, true);
+                } else if (type === 'quest_item') {
+                    await addQuestItem(item.name, item.description || '', true);
                 } else {
-                    data.state.inventory.push({ ...newItem });
+                    // consumable (default)
+                    await addConsumable(item.name, qty, item.description || '', true);
                 }
             }
         }
 
-        // skills: 合并（按 name 去重，用新数据完全覆盖旧条目以保留 base_damage/hit_rate 等）
+        // 4. Skills → skillStore (definitions) + playerStore.skills (references with proficiency)
         if (Array.isArray(s.skills) && s.skills.length > 0) {
-            if (!data.state.skills) data.state.skills = [];
-            for (const newSk of s.skills) {
-                // P4c: 保护自定义技能不被提取数据覆盖
-                const isCustom = (data.state.customSkills || []).some(id =>
-                    customSkillDefs && customSkillDefs[id]?.name === newSk.name
-                );
-                if (isCustom) continue; // 跳过，不覆盖自定义技能
-                const existingIdx = data.state.skills.findIndex(sk => sk.name === newSk.name);
-                if (existingIdx >= 0) {
-                    // 用新数据完全覆盖旧条目（保留完整战斗属性）
-                    data.state.skills[existingIdx] = { ...newSk };
-                } else {
-                    data.state.skills.push({ ...newSk });
+            // Protect custom skills
+            const player = getPlayerStore();
+            const customSkillNames = new Set();
+            const customIds = player.customSkills || [];
+            if (customSkillDefs) {
+                for (const id of customIds) {
+                    if (customSkillDefs[id]?.name) customSkillNames.add(customSkillDefs[id].name);
                 }
+            }
+
+            for (const sk of s.skills) {
+                if (!sk.name) continue;
+                // Skip custom skills (don't overwrite)
+                if (customSkillNames.has(sk.name)) continue;
+
+                // Find or create skill definition in skillStore
+                // (findOrCreateSkill already merges combat/effects when found)
+                const skillId = findOrCreateSkill({
+                    name: sk.name,
+                    rarity: sk.rarity || 'common',
+                    category: sk.category || 'sword_skill',
+                    weapon_type: sk.weapon_type,
+                    combat: {
+                        atk: sk.base_damage || sk.atk || 0,
+                        hit: sk.hit_rate || sk.hit || 0,
+                        crit: sk.crit_rate || sk.crit || 0,
+                        apt: sk.hits || sk.apt || 1,
+                        tpa: sk.targets || sk.tpa || 1,
+                        mpCost: sk.mp_cost || sk.mpCost || 0,
+                        cd: sk.cooldown || sk.cd || 0
+                    },
+                    effects: {
+                        wn: sk.core_code || sk.wn || '',
+                        en: sk.affix_codes || sk.en || [],
+                        mn: []
+                    },
+                    description: sk.effects_description || '',
+                    source: 'specialist'
+                });
+
+                // Add/update player skill reference with proficiency
+                const proficiency = sk.skill_level || sk.proficiency || 0;
+                await addPlayerSkill(skillId, sk.name, proficiency, true);
             }
         }
 
-        // 保留 zd 解析的内部数据（供战斗系统使用）
-        if (s._zd_parsed) data.state._zd_parsed = s._zd_parsed;
+        // 5. _zd_parsed → runtime (NOT data.state)
+        if (s._zd_parsed) {
+            const d = getStore();
+            if (!d.runtime) d.runtime = {};
+            d.runtime._zd_parsed = s._zd_parsed;
+        }
 
-        log('状态已更新');
+        log('状态已更新（store 架构）');
     }
 
-    await saveSaoDataNow();
+    await saveStore();
 }

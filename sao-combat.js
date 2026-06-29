@@ -5,6 +5,8 @@
 import { getSaoData, log } from './sao-core.js';
 import { resolveAffixArgs } from './sao-generators.js';
 import { CUSTOM_SKILL_DEFS } from './sao-skills.js';
+import { getPlayerStore } from './sao-store-player.js';
+import { getEquipmentById } from './sao-store-equipment.js';
 import {
     getPlayerStatsCore,
     calculateActionOrderCore,
@@ -79,11 +81,12 @@ export function normalizeWeapon(rawSkill, skillCooldowns) {
  */
 export function buildPlayerEntity(zdPlayer, zdSkills, equipmentStats) {
     const data = getSaoData();
-    const cooldowns = data?.state?.skillCooldowns || {};
+    const cooldowns = data?.runtime?.skillCooldowns || {};
     const weapons = (zdSkills || []).map(s => normalizeWeapon(s, cooldowns)).filter(Boolean);
 
     // P4c: 注入已解锁的自定义技能到武器列表
-    const customSkillIds = data?.state?.customSkills || [];
+    const _player = getPlayerStore();
+    const customSkillIds = _player?.customSkills || [];
     for (const id of customSkillIds) {
         const def = CUSTOM_SKILL_DEFS[id];
         if (!def) continue;
@@ -275,44 +278,55 @@ export function selectEnemySkill(enemy) {
  * 从装备栏聚合属性加成
  * @returns {Object} {str, agi, int, vit}
  */
-export function getEquipmentStatsFromState() {
-    const data = getSaoData();
-    const equip = data?.state?.equipment;
-    if (!equip) return { str: 0, agi: 0, int: 0, vit: 0 };
-    let str = 0, agi = 0, int = 0, vit = 0;
-    for (const slot of Object.values(equip)) {
-        if (!slot || !slot.stats) continue;
-        str += slot.stats.str || 0;
-        agi += slot.stats.agi || 0;
-        int += slot.stats.int || 0;
-        vit += slot.stats.vit || 0;
+export function getEquipmentStatsFromStore() {
+    const player = getPlayerStore();
+    if (!player || !player.equipment) return { str: 0, agi: 0, int: 0, vit: 0, atk: 0, maxHp: 0, maxMp: 0, hit: 0, crit: 0 };
+    let str = 0, agi = 0, int = 0, vit = 0, atk = 0, maxHp = 0, maxMp = 0, hit = 0, crit = 0;
+    for (const slot of Object.values(player.equipment)) {
+        if (!slot) continue;
+        const equip = getEquipmentById(slot);
+        if (!equip || !equip.stats) continue;
+        str += equip.stats.str || 0;
+        agi += equip.stats.agi || 0;
+        int += equip.stats.int || 0;
+        vit += equip.stats.vit || 0;
+        atk += equip.stats.atk || 0;
+        maxHp += equip.stats.maxHp || 0;
+        maxMp += equip.stats.maxMp || 0;
+        hit += equip.stats.hit || 0;
+        crit += equip.stats.crit || 0;
     }
-    return { str, agi, int, vit };
+    return { str, agi, int, vit, atk, maxHp, maxMp, hit, crit };
+}
+
+// Deprecated alias — use getEquipmentStatsFromStore
+export function getEquipmentStatsFromState() {
+    return getEquipmentStatsFromStore();
 }
 
 /**
- * 将冷却状态写回 state.skillCooldowns
+ * 将冷却状态写回 data.runtime.skillCooldowns
  * @param {Object} player - 玩家战斗实体
  */
 export function persistCooldowns(player) {
     if (!player?.weapons) return;
     const data = getSaoData();
     if (!data) return;
-    if (!data.state) data.state = {};
-    if (!data.state.skillCooldowns) data.state.skillCooldowns = {};
+    if (!data.runtime) data.runtime = {};
+    if (!data.runtime.skillCooldowns) data.runtime.skillCooldowns = {};
     // §5.8 Step 1: 先递减所有已有冷却条目（处理LLM遗漏的技能）
-    for (const name of Object.keys(data.state.skillCooldowns)) {
-        data.state.skillCooldowns[name]--;
-        if (data.state.skillCooldowns[name] <= 0) {
-            delete data.state.skillCooldowns[name];
+    for (const name of Object.keys(data.runtime.skillCooldowns)) {
+        data.runtime.skillCooldowns[name]--;
+        if (data.runtime.skillCooldowns[name] <= 0) {
+            delete data.runtime.skillCooldowns[name];
         }
     }
     // Step 2: 用当前武器实际值覆盖
     for (const w of player.weapons) {
         if (w.currentCooldown > 0) {
-            data.state.skillCooldowns[w.name] = w.currentCooldown;
+            data.runtime.skillCooldowns[w.name] = w.currentCooldown;
         } else {
-            delete data.state.skillCooldowns[w.name];
+            delete data.runtime.skillCooldowns[w.name];
         }
     }
 }
@@ -1142,7 +1156,7 @@ export function processEndOfRoundCore(player, enemies, teammates, log) {
  */
 export function resolveCombatRound(messageText) {
     const data = getSaoData();
-    const zd = data?.state?._zd_parsed;
+    const zd = data?.runtime?._zd_parsed;
     if (!zd?.player || !zd?.enemies?.length) {
         return null; // 无战斗数据，no-op
     }
@@ -1150,7 +1164,7 @@ export function resolveCombatRound(messageText) {
     const roundLog = [];
 
     // 构建实体
-    const player = buildPlayerEntity(zd.player, zd.skills, getEquipmentStatsFromState());
+    const player = buildPlayerEntity(zd.player, zd.skills, getEquipmentStatsFromStore());
     const teammates = (zd.teammates || []).map(t => buildTeammateEntity(t));
     const enemies = zd.enemies.filter(e => e.hp > 0).map(e => buildEnemyEntity(e));
 
@@ -1214,8 +1228,8 @@ export function resolveCombatRound(messageText) {
     // 持久化冷却
     persistCooldowns(player);
 
-    // 同步 zd 数据回 state（HP/MP 变化）
-    if (data.state && zd.player) {
+    // 同步 zd 数据回 runtime（HP/MP 变化）
+    if (zd && zd.player) {
         zd.player.hp = Math.max(0, player.hp);
         zd.player.mp = Math.max(0, player.mp);
     }

@@ -134,10 +134,10 @@ export function getSaoData() {
 }
 
 export async function saveSaoDataNow() {
-    const ctx = getContext();
-    if (ctx.saveMetadata) {
-        await ctx.saveMetadata();
-    }
+    // A0: deprecated 别名——委托 saveStore（含 checkStoreSize + trimPanels）
+    // 保留旧接口名避免外部调用方断裂；新代码应直接用 saveStore()
+    const { saveStore } = await import('./sao-store-core.js');
+    await saveStore();
 }
 
 // ============================================================

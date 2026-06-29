@@ -2,6 +2,7 @@
 // 从 index.js 拆分：SAO 标签清理、紧凑状态格式化、上下文状态注入
 
 import { getSaoData, getContext, getSettings, isSaoCard, log, esc } from './sao-core.js';
+import { projectCompactState, projectFullState } from './sao-state-projection.js';
 
 // ============================================================
 // Phase 3: Prompt 清理 / 替代 promptOnly 正则
@@ -62,7 +63,7 @@ export function cleanTimelinePromptText(text) {
     const looksLikeTimelineBook = hasTimelineKeyword && dateHeaderCount >= 2;
     const looksLikeTimelineList = hasTimelineKeyword && isoDateLineCount >= 3;
     if (!looksLikeTimelineBook && !looksLikeTimelineList) return text;
-    return '[原作时间线]已改为按需查询：需要具体日期、范围或月份时调用 get_timeline 工具。不要根据被省略的时间线内容猜测。';
+    return '[原作时间线]已改为按需查询：需要具体日期、范围或月份时调用 get_calendar 工具。不要根据被省略的时间线内容猜测。';
 }
 
 // ============================================================
@@ -73,35 +74,9 @@ export function cleanTimelinePromptText(text) {
  * 格式化紧凑状态文本（用于注入 AI 上下文）
  */
 export function formatCompactState(state) {
-    if (!state) return '';
-    const parts = [];
-    if (state.player_name) parts.push(`[玩家]${state.player_name}`);
-    if (state.level != null) parts.push(`Lv${state.level}`);
-    if (state.hp != null) parts.push(`HP:${state.hp}/${state.max_hp || '?'}`);
-    if (state.mp != null) parts.push(`MP:${state.mp}/${state.max_mp || '?'}`);
-    if (state.floor != null) parts.push(`${state.floor}F`);
-    if (state.location) parts.push(`@${state.location}`);
-    if (state.cor != null) parts.push(`珂尔:${state.cor}`);
-    // 装备摘要
-    if (state.equipment) {
-        const equips = Object.entries(state.equipment)
-            .filter(([, v]) => v && v.name)
-            .map(([k, v]) => `${k}:${v.name}`)
-            .join(',');
-        if (equips) parts.push(`[装备]${equips}`);
-    }
-    // 技能摘要
-    if (state.skills?.length) {
-        const sk = state.skills.slice(0, 5).map(s => `${s.name}Lv${s.level}`).join(',');
-        parts.push(`[技能]${sk}`);
-    }
-    // P3: 上轮战斗结算摘要（narrativeHint，让 LLM 自我修正叙事连续性，见 10.2 节）
-    // 注意：不在 formatCompactState 中 delete——swipe/重新生成时 GENERATION_AFTER_COMMANDS 会再次触发，
-    // 若已 delete 则 hint 丢失。改为在下一轮 MESSAGE_RECEIVED 处理器中清除（确认生成成功后）。
-    if (state.lastCombatHint) {
-        parts.push(state.lastCombatHint);
-    }
-    return parts.join(' | ');
+    // A0: delegate to store projection layer
+    // `state` parameter is kept for backward compat but ignored — projection reads from stores
+    return projectCompactState();
 }
 
 export function injectMemoryAndState() {
@@ -113,10 +88,14 @@ export function injectMemoryAndState() {
     if (!data) return;
     const parts = [];
 
-    // Core State（常驻，紧凑格式）
+    // toolSupported 判断（提前到函数顶部，避免重复求值）
+    const toolSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
+
+    // Core State（toolSupported 时用 full state 替代 compact；full 是 compact 超集）
     const compactState = formatCompactState(data.state);
-    if (compactState) {
-        parts.push(compactState);
+    const stateText = toolSupported ? (projectFullState() || compactState) : compactState;
+    if (stateText) {
+        parts.push(stateText);
     }
 
     // 当前章节
@@ -125,9 +104,8 @@ export function injectMemoryAndState() {
     // P2b: inject calendar date if available
     if (data?.calendar?.currentDate) {
         parts.push(`[日期]${data.calendar.currentDate}`);
-        const toolSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
         if (toolSupported) {
-            parts.push('[原作时间线]不要猜测或编造原作时间线；需要某日/某月原作事件时调用 get_timeline 工具按需查询。');
+            parts.push('[日历/原作时间线]不要猜测原作时间线或当前日程；需要查询某日、某月或范围事件时调用 get_calendar。');
         }
     }
 

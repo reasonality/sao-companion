@@ -1,7 +1,8 @@
 // sao-calendar.js — 日历模块（纯逻辑层）
 // 日期工具 + 时间线解析 + 日历初始化 + 增量更新 + 约定提取 + LLM 格式化
 
-import { getSaoData, saveSaoDataNow, getContext, getCurrentCharacter, log } from './sao-core.js';
+import { getSaoData, getContext, getCurrentCharacter, log } from './sao-core.js';
+import { saveStore } from './sao-store-core.js';
 
 // === 日期工具 ===
 
@@ -105,7 +106,7 @@ function _dedupKey(str) {
  */
 export async function persistCalendar(calendar) {
     if (calendar) calendar.calendarVersion = (calendar.calendarVersion || 0) + 1;
-    return saveSaoDataNow();
+    return saveStore();
 }
 
 // === Phase 1 专家架构：日历面板数据 ===
@@ -587,7 +588,7 @@ export function initCalendarIfNeeded() {
         console.log('[SAO Calendar] ✓ 重新提取完成 v' + CANON_DATA_VERSION + '，' + extractedCount + ' 个事件，开始保存...');
         // 关键：保存修改到持久化存储，否则重启后数据回滚
         try {
-            saveSaoDataNow();
+            saveStore();
             console.log('[SAO Calendar] ✓ 保存完成');
         } catch (saveErr) {
             console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);

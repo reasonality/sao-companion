@@ -26,12 +26,12 @@ const LOOT_TYPE_TABLE = [
 
 /** 装备插槽骰子表 (1D10): 1-2=主手, 3=副手, 4=头部, 5=胸部, 6=手部, 7=腿部, 8-10=饰品 */
 const EQUIP_SLOT_TABLE = [
-    { roll: [1,2],  slot: 'main_hand', label: '主手' },
+    { roll: [1,2],  slot: 'weapon',    label: '主手' },
     { roll: [3,3],  slot: 'off_hand',  label: '副手' },
     { roll: [4,4],  slot: 'head',      label: '头部' },
-    { roll: [5,5],  slot: 'body',      label: '胸部' },
+    { roll: [5,5],  slot: 'chest',     label: '胸部' },
     { roll: [6,6],  slot: 'hands',     label: '手部' },
-    { roll: [7,7],  slot: 'feet',      label: '腿部' },
+    { roll: [7,7],  slot: 'legs',      label: '腿部' },
     { roll: [8,10], slot: 'accessory', label: '饰品' },
 ];
 
@@ -106,6 +106,14 @@ const SKILL_RARITY_TABLE = [
     { roll: [17,19], name: '蓝色', mult: 1.5 },
     { roll: [20,20], name: '紫色', mult: 2.0 },
 ];
+
+/** 中文稀有度 → 英文枚举（equipmentStore / skillStore 通用） */
+const RARITY_TO_EN = {
+    '白色': 'common',
+    '绿色': 'uncommon',
+    '蓝色': 'rare',
+    '紫色': 'epic',
+};
 
 /** 剑技核心功能骰子表 (1D20): 1-16=伤害A1, 17=终结技A5, 18=生命恢复A2, 19=法力恢复A3, 20=牺牲增益A4 */
 const SKILL_CORE_TABLE = [
@@ -238,7 +246,7 @@ export async function generateEquipment(context, callModelFn) {
 
     // 5) 计算基础属性
     const levelBaseValue = Math.ceil(itemLevel / 5);
-    const stats = { max_hp: hpFinal, str: 0, agi: 0, int: 0, vit: 0 };
+    const stats = { maxHp: hpFinal, str: 0, agi: 0, int: 0, vit: 0 };
     if (typeEntry.mainStat === 'all') {
         stats.str += levelBaseValue;
         stats.agi += levelBaseValue;
@@ -283,8 +291,8 @@ export async function generateEquipment(context, callModelFn) {
         const equip = {
             name: nameDesc.name || `${slotEntry.label}`,
             slot: slotEntry.slot,
-            type: typeEntry.type,
-            rarity: rarityEntry.name,
+            statType: typeEntry.mainStat,
+            rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
             item_level: itemLevel,
             stats,
             affixes: affixNames,
@@ -385,7 +393,7 @@ ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
             name: nameDesc.name || `\u5251\u6280`,
             weapon_type: weaponType,
             skill_level: skillLevel,
-            rarity: rarityEntry.name,
+            rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
             base_damage: baseATK,
             hit_rate: hitRate,
             crit_rate: critRate,
@@ -444,14 +452,14 @@ export async function generateLoot(context, callModelFn) {
             // Equipment drop — placeholder; actual equipment gen is separate (generateEquipment)
             lootItems.push({
                 type: '装备',
-                rarity: rarityEntry.name,
+                rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
                 name: '',
                 description: '',
             });
         } else {
             lootItems.push({
                 type: typeEntry.type,
-                rarity: rarityEntry.name,
+                rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
                 name: '',
                 description: '',
                 qty: rollDice(3),

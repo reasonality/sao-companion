@@ -2,8 +2,10 @@
 // 从 index.js 拆出：装饰面板专家（map/equipment/swordskill）+ 状态专家（status）
 // fireSpecialistPanels 返回 Promise[] 供调用方 allSettled 重渲染
 
-import { getSaoData, saveSaoDataNow, log, safeJsonParse, getSettings } from './sao-core.js';
+import { getSaoData, log, safeJsonParse, getSettings } from './sao-core.js';
+import { saveStore } from './sao-store-core.js';
 import { callSpecialist } from './sao-models.js';
+import { projectStateHint, projectEquipmentSummary, projectSkillSummary } from './sao-state-projection.js';
 
 // ============================================================
 // P2: 装饰面板专家调用（map/equipment/swordskill）
@@ -86,29 +88,19 @@ export async function _callPanelSpecialist(panelType, panelName, instruction, st
     const html = _parseSpecialistHtml(content, panelType);
     if (!html) return;
     persistSpecialistPanel(messageId, panelType, html);
-    await saveSaoDataNow();
+    await saveStore();
 }
 
 /** 装饰面板专家配置（DRY 驱动） */
 export const PANEL_SPECIALIST_CONFIG = [
     { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '' },
-    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => {
-        const data = getSaoData();
-        return data?.state?.equipment
-            ? Object.entries(data.state.equipment).filter(([, v]) => v && v.name).map(([k, v]) => `${k}:${v.name}`).join(', ')
-            : '';
-    }},
-    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => {
-        const data = getSaoData();
-        return data?.state?.skills?.length
-            ? data.state.skills.slice(0, 10).map(s => `${s.name}Lv${s.level}`).join(', ')
-            : '';
-    }},
+    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => projectEquipmentSummary() },
+    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => projectSkillSummary() },
 ];
 
 /**
  * 触发所有装饰面板专家（并行）。
- * 每个专家成功后独立 saveSaoDataNow（避免单点失败导致全丢）。
+ * 每个专家成功后独立 saveStore（避免单点失败导致全丢）。
  * 返回 Promise 数组供调用方 allSettled 等待完成后重渲染。
  * @returns {Promise[]} 每个专家的 Promise（已 catch，不会 reject）
  */
@@ -179,20 +171,10 @@ export function _validateStatus(parsed) {
  * @returns {Promise<object|null>} { state, zdText } 或 null（失败）
  */
 export async function callStatusSpecialist(messageId, narrativeText) {
-    const data = getSaoData();
-    const cur = data?.state || {};
-    // 当前状态摘要供专家参考（避免状态剧变）
-    const stateHint = [
-        cur.player_name ? `[玩家]${cur.player_name}` : '',
-        cur.level ? `Lv${cur.level}` : '',
-        cur.hp != null ? `HP:${cur.hp}/${cur.max_hp||'?'}` : '',
-        cur.mp != null ? `MP:${cur.mp}/${cur.max_mp||'?'}` : '',
-        cur.floor ? `${cur.floor}F` : '',
-        cur.location ? `@${cur.location}` : '',
-        cur.str != null ? `STR${cur.str} AGI${cur.agi} INT${cur.int} VIT${cur.vit}` : '',
-    ].filter(Boolean).join(' | ');
-    const equipHint = cur.equipment ? Object.entries(cur.equipment).filter(([,v])=>v&&v.name).map(([k,v])=>`${k}:${v.name}`).join(',') : '';
-    const skillHint = cur.skills?.length ? cur.skills.slice(0,10).map(s=>`${s.name}Lv${s.skill_level||s.level||'?'}`).join(',') : '';
+    // A0: read from store projection instead of flat data.state
+    const stateHint = projectStateHint();
+    const equipHint = projectEquipmentSummary();
+    const skillHint = projectSkillSummary();
 
     const systemPrompt = `你是 SAO 游戏状态管理器。根据叙事正文，更新游戏状态并输出战斗数据。
 
@@ -210,7 +192,7 @@ export async function callStatusSpecialist(messageId, narrativeText) {
     "location": "string", "floor": 0,
     "equipment": { "weapon": {"name":"...","item_level":0,"durability":"100/100","stats":{"max_hp":0,"str":0,"agi":0,"int":0,"vit":0}} },
     "inventory": [ {"name":"...","qty":1} ],
-    "skills": [ {"name":"...","skill_level":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ]
+    "skills": [ {"name":"...","proficiency":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ]
   },
   "zdText": "[PR:玩家名][GR:等级][HP:当前/最大][MP:当前/最大][STR:值][AGI:值][INT:值][VIT:值][WE:技能名][ATK:值][Hit%:值][Crit%:值][APT:值][TPA:值][MPCost:值][CD:值][WN:代码][EN:代码参数][FRN:队友名][FRHP:当前/最大][FRMP:当前/最大][ENN:敌人名][ENHP:当前/最大][ENS:敌人技能名]",
   "userStatusHtml": "<内联 HTML：角色状态卡（装备/背包/技能/属性/位置），注入 Shadow DOM 内容区>"
@@ -221,7 +203,7 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 - zdText 是战斗面板的原始数据，格式为 [KEY:VALUE] token 序列，用 ][ 分隔，不含外层 []
 - 若叙事中无战斗，zdText 中仍输出玩家基础属性（PR/GR/HP/MP/STR/AGI/INT/VIT），无队友/敌人段
 - 不确定时保持当前值不变（保守更新）
-- 装备槽位：weapon/main_hand/off_hand/body/head/hands/feet/accessory
+- 装备槽位：weapon/off_hand/head/chest/hands/legs/accessory
 - 技能字段：base_damage=ATK, hit_rate=Hit%, crit_rate=Crit%, mp_cost=MPCost, cooldown=CD, hits=APT, targets=TPA, core_code=WN, affix_codes=EN（数组）
 
 ## 当前状态摘要（参考，勿剧变）
@@ -256,7 +238,7 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
                 zdText: parsed.zdText || '',
                 userStatusHtml: parsed.userStatusHtml || '',
             });
-            await saveSaoDataNow();
+            await saveStore();
         }
         return { state: parsed.state, zdText: parsed.zdText || '', userStatusHtml: parsed.userStatusHtml || '' };
     } catch (e) {
