@@ -55,7 +55,7 @@ export function buildCleanCalendarDays(currentDate) {
     const cacheKey = char?.name + '|' + (currentDate || '');
     if (_cleanDaysCache && _cleanDaysCacheKey === cacheKey) return _cleanDaysCache;
 
-    const events = _filterTimelineEntries(currentDate);
+    const events = _filterTimelineEntries(currentDate, { monthWindow: 12 });
     const days = {};
     for (const ev of events) {
         if (!days[ev.date]) days[ev.date] = { events: [] };
@@ -247,12 +247,14 @@ function extractYearFromEntryName(name) {
 // === 日历核心逻辑 ===
 
 /**
- * 共享：从世界书条目中过滤 ±1 月内的 YYYY年MM月 时间线条目，解析每个事件行。
+ * 共享：从世界书条目中过滤 currentDate 附近的 YYYY年MM月 时间线条目，解析每个事件行。
  * getTimelineForPrompt 与 initCalendarIfNeeded 共用，消除过滤逻辑重复（见 ponytail 审查）。
  * @param {string} currentDate - YYYY-MM-DD，用于 ±1 月过滤；空则不过滤
+ * @param {{monthWindow?: number|null}} [options] - 月份窗口；null 表示不过滤
  * @returns {Array<{date:string,title:string}>} 按 entry 顺序的事件列表（未排序）
  */
-function _filterTimelineEntries(currentDate) {
+function _filterTimelineEntries(currentDate, options = {}) {
+    const monthWindow = Object.prototype.hasOwnProperty.call(options, 'monthWindow') ? options.monthWindow : 1;
     const char = getCurrentCharacter();
     const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
     if (!entries || !Array.isArray(entries)) return [];
@@ -270,12 +272,11 @@ function _filterTimelineEntries(currentDate) {
         const entryName = (e.comment || e.name || '').trim();
         if (!/^\d{4}年\d{1,2}月/.test(entryName)) continue;
 
-        if (currentMonthIdx !== null) {
+        if (currentMonthIdx !== null && monthWindow != null) {
             const yearMatch = entryName.match(/^(\d{4})年(\d{1,2})月/);
             if (yearMatch) {
                 const entryMonthIdx = parseInt(yearMatch[1]) * 12 + (parseInt(yearMatch[2]) - 1);
-                // 扩大范围至 ±12 个月，让日历翻页能看到更多原作时间线
-                if (Math.abs(entryMonthIdx - currentMonthIdx) > 12) continue;
+                if (Math.abs(entryMonthIdx - currentMonthIdx) > monthWindow) continue;
             }
         }
 
@@ -350,7 +351,7 @@ function _filterTimelineEntries(currentDate) {
  * @returns {string} 时间线文本；无可用条目时返回空串
  */
 export function getTimelineForPrompt(currentDate, maxChars = 1500) {
-    const events = _filterTimelineEntries(currentDate).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const events = _filterTimelineEntries(currentDate, { monthWindow: 1 }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const result = events.map(ev => `${ev.date}: ${ev.title}`).join('\n');
     return result.length > maxChars ? result.substring(0, maxChars) : result;
 }
@@ -522,7 +523,7 @@ export function initCalendarIfNeeded() {
         }
 
         // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
-        const events = _filterTimelineEntries(cal.currentDate);
+        const events = _filterTimelineEntries(cal.currentDate, { monthWindow: 12 });
         if (!events.length) {
             log('日历初始化：未找到世界书条目');
             cal.lastCalUpdateDate = cal.currentDate;
