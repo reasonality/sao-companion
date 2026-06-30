@@ -134,7 +134,7 @@ ${messageText.substring(0, 2000)}
                             if (matched.objectives.every(o => o.done)) {
                                 await completeQuest(matched.quest_id, true);
                             }
-                            log(`Quest specialist: 任务 "${event.title}" 目标进展`);
+                            log(`Quest specialist: 任务 "${event.quest_title}" 目标进展`);
                             updated = true;
                         }
                     }
@@ -142,7 +142,7 @@ ${messageText.substring(0, 2000)}
                     const matched = _findQuestByTitle(event.quest_title);
                     if (matched) {
                         await completeQuest(matched.quest_id);
-                        log(`Quest specialist: 任务 "${event.title}" 完成`);
+                        log(`Quest specialist: 任务 "${event.quest_title}" 完成`);
                         updated = true;
                     }
                 }

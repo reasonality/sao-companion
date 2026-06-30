@@ -261,8 +261,13 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
             // 只信任有 date 字段且匹配的事件
             return ev.date === dateStrFull;
         });
-        const appointments = calDayEvents.filter(e => e.type === 'appointment');
-        const nonAptEvents = calDayEvents.filter(e => e.type !== 'appointment');
+        // 合并持久化 cal.days 中的非 canon 事件(appointment 等)，与控制台 buildCalCell 一致。
+        // buildCleanCalendarDays 只产出 canon 事件，appointment 存在 cal.days，不合并则黄点永不显示。
+        const dirtyEvents = getSaoData()?.calendar?.days?.[dateStrFull]?.events || [];
+        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon' && ev.date === dateStrFull);
+        const allEvents = [...calDayEvents, ...aptEvents];
+        const appointments = allEvents.filter(e => e.type === 'appointment');
+        const nonAptEvents = allEvents.filter(e => e.type !== 'appointment');
 
         let dotsHtml = '';
         let eventHtml = '';
@@ -273,8 +278,8 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        // 只用 calDayEvents 显示事件文字（精确日期 key），不用 dayContentMap
-        const displayEvents = calDayEvents;
+        // 显示合并后的事件文字（canon + appointment），精确日期 key
+        const displayEvents = allEvents;
         if (displayEvents.length > 0) {
             const first = displayEvents[0];
             const full = typeof first === 'string' ? first : (first.title || first.description || '');

@@ -228,7 +228,8 @@ export async function addPlayerSkill(skill_id, name, proficiency, skipSave) {
         log(`addPlayerSkill: skill_id "${skill_id}" 在 skillStore 中不存在，跳过添加`, 'warn');
         return;
     }
-    playerStore.skills.push({ skill_id, name, proficiency: proficiency || 1 });
+    // L6: schema 允许 proficiency=0；用 `?? 1` 仅在 null/undefined 时兜底，保留显式 0。
+    playerStore.skills.push({ skill_id, name, proficiency: proficiency ?? 1 });
     if (skipSave !== true) await saveStore();
     log(`玩家技能添加: ${name} (${skill_id})`);
 }

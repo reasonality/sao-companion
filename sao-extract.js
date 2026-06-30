@@ -4,6 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem } from './sao-store-player.js';
+import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
 import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
@@ -212,8 +213,10 @@ function parseUserStatus(statusText) {
         if (lvlMatch) equip.item_level = parseInt(lvlMatch[1]);
         if (durMatch) equip.durability = durMatch[1];
         if (statsLine) {
+            // Bug#store-1: schema + 所有读取者(STAT_PRIORITY/keyStat/findBestMatch)用 camelCase maxHp/maxMp，
+            // 原 snake_case max_hp 致装备 HP 加成存错键、投影/匹配全部失效。
             equip.stats = {
-                max_hp: parseInt(statsLine[1]) || 0,
+                maxHp: parseInt(statsLine[1]) || 0,
                 str: parseInt(statsLine[2]) || 0,
                 agi: parseInt(statsLine[3]) || 0,
                 int: parseInt(statsLine[4]) || 0,
@@ -492,7 +495,16 @@ export async function applyExtractedData(extracted, customSkillDefs) {
             for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
                 if (!equipData || typeof equipData !== 'object') continue;
                 const newSlot = oldSlot;
-                // Find or create equipment in equipmentStore
+                // Bug#1/#2-fix: 槽位名校验 + 空 equipId 守卫，避免 equipItem 抛错中断整条 applyExtractedData
+                // （抛错会跳过 saveStore 致 HP/MP 等已变更静默丢失）。
+                if (!SLOT_ENUM.includes(newSlot)) {
+                    log(`applyExtractedData: 非法槽位 "${newSlot}"，跳过装备 ${equipData.name || '(无名)'}`, 'warn');
+                    continue;
+                }
+                if (!equipData.name) {
+                    log('applyExtractedData: 装备缺少 name，跳过', 'warn');
+                    continue;
+                }
                 const equipId = findOrCreateEquipment({
                     name: equipData.name,
                     slot: newSlot,
@@ -505,8 +517,15 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                     description: equipData.description || '',
                     source: 'specialist'
                 });
-                // Equip it (handles inventory movement + old gear back to inventory)
-                await equipItem(newSlot, equipId, true);
+                if (!equipId) {
+                    log(`applyExtractedData: findOrCreateEquipment 返回 null，跳过装备 "${equipData.name}"`, 'warn');
+                    continue;
+                }
+                try {
+                    await equipItem(newSlot, equipId, true);
+                } catch (e) {
+                    log(`applyExtractedData: equipItem 失败 (${newSlot}/${equipData.name}): ${e.message}`, 'warn');
+                }
             }
         }
 

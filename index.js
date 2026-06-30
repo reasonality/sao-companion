@@ -1391,8 +1391,13 @@ function initPanelLogic() {
         }
 
         infoEl.textContent = _calSelectedDate;
-        const dayData = cal?.days?.[_calSelectedDate];
-        const events = dayData?.events || [];
+        // Bug#render-1: 侧栏详情应与格子(buildCalCell)/弹窗(buildCalendarDayEventsHtml)用同一份合并数据，
+        // 否则 cal.days 里的陈旧 canon 事件只在此处显示，三处视图不一致。
+        const cleanDays = buildCleanCalendarDays(_calSelectedDate);
+        const cleanEvents = cleanDays?.[_calSelectedDate]?.events || [];
+        const dirtyEvents = cal?.days?.[_calSelectedDate]?.events || [];
+        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon');
+        const events = [...cleanEvents, ...aptEvents];
 
         if (events.length === 0) {
             eventsEl.innerHTML = '<span style="opacity:0.6;font-size:0.85em;">\u65e0\u4e8b\u4ef6</span>';
@@ -1499,10 +1504,26 @@ function initPanelLogic() {
         // 合并：干净 canon 数据（从世界书重新解析）+ 约定/自定义事件（从 cal.days）
         const cleanDays = buildCleanCalendarDays(cal?.currentDate);
         const cleanEvents = cleanDays?.[dateStr]?.events || [];
-        const dirtyEvents = cal?.days?.[dateStr]?.events || [];
+        const rawEvents = cal?.days?.[dateStr]?.events || [];
         // 从 cal.days 只取 appointment 和 custom 类型（canon 用干净的）
-        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon');
+        // Bug#render-3: 编辑/删除按钮的 data-idx 必须指向 cal.days 原始数组索引（handler 据此查找），
+        // 而非合并数组索引——否则会编辑/删除错误事件（甚至只读的 canon 事件）。
+        // canon 事件来自世界书，只读，不显示编辑/删除按钮。
+        const nonCanonRawIndices = [];
+        const aptEvents = [];
+        rawEvents.forEach((ev, rawIdx) => {
+            if (ev.type !== 'canon') {
+                nonCanonRawIndices.push(rawIdx);
+                aptEvents.push(ev);
+            }
+        });
         const events = [...cleanEvents, ...aptEvents];
+        // 为每个合并后的事件确定：是否可编辑 + 在 cal.days 原始数组中的索引
+        const eventMeta = events.map((evt, mergedIdx) => {
+            if (evt.type === 'canon') return { editable: false, rawIdx: -1 };
+            const aptPos = mergedIdx - cleanEvents.length;
+            return { editable: true, rawIdx: nonCanonRawIndices[aptPos] ?? -1 };
+        });
         let html = '';
         if (events.length > 0) {
             html += events.map((evt, idx) => {
@@ -1511,15 +1532,19 @@ function initPanelLogic() {
                 else if (evt.type === 'canon') cls.push('sao-cal-event-canon');
                 const time = evt.time ? `<span style="color:var(--primary);">${esc(evt.time)}</span> ` : '';
                 const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
+                const meta = eventMeta[idx];
+                const editBtns = meta.editable
+                    ? `<div style="flex-shrink:0;display:flex;gap:4px;">
+                        <button class="sao-btn sao-btn-sm" data-action="calEditEvent" data-date="${dateStr}" data-idx="${meta.rawIdx}" style="padding:2px 8px;font-size:0.75em;">\u7f16\u8f91</button>
+                        <button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calDeleteEvent" data-date="${dateStr}" data-idx="${meta.rawIdx}" style="padding:2px 8px;font-size:0.75em;">\u5220\u9664</button>
+                    </div>`
+                    : '';
                 return `<div class="${cls.join(' ')}">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
                         <div style="flex:1;">
                             <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}
                         </div>
-                        <div style="flex-shrink:0;display:flex;gap:4px;">
-                            <button class="sao-btn sao-btn-sm" data-action="calEditEvent" data-date="${dateStr}" data-idx="${idx}" style="padding:2px 8px;font-size:0.75em;">\u7f16\u8f91</button>
-                            <button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calDeleteEvent" data-date="${dateStr}" data-idx="${idx}" style="padding:2px 8px;font-size:0.75em;">\u5220\u9664</button>
-                        </div>
+                        ${editBtns}
                     </div>
                     ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
                 </div>`;

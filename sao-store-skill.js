@@ -109,7 +109,8 @@ export function findOrCreateSkill(skillData) {
         category: skillData.category || null,
         weapon_type: skillData.weapon_type || null,
         combat: skillData.combat || { atk: 0, hit: 0, crit: 0, apt: 1, tpa: 1, mpCost: 0, cd: 0 },
-        effects: skillData.effects || { wn: null, en: [], mn: [] },
+        // L9: schema 要求 effects.wn 为 string；用 '' 兜底避免 null 违反 schema（投影层对空字符串渲染为空）。
+        effects: skillData.effects || { wn: '', en: [], mn: [] },
         description: skillData.description || '',
         source: skillData.source || 'specialist'
     };

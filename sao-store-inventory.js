@@ -112,29 +112,35 @@ export async function removeEquipmentItem(equipmentId, skipSave) {
  */
 export async function addConsumable(name, qty, description, skipSave) {
     const store = ensureInventoryStore();
+    // L5: schema 要求 qty 为正整数；强制取整 + 非负，防 LLM/调用方传负数或浮点写入违反 schema。
+    const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
 
     // 按 name + type 查找已有
     const existing = store.items.find(
         item => item.type === 'consumable' && item.name === name
     );
     if (existing) {
-        existing.qty = (existing.qty || 0) + qty;
+        existing.qty = Math.max(0, (existing.qty || 0) + safeQty);
         if (skipSave !== true) await saveStore();
-        log(`消耗品累加: ${name} +${qty} → ${existing.qty}`);
+        log(`消耗品累加: ${name} +${safeQty} → ${existing.qty}`);
         return existing.item_id;
     }
 
+    if (safeQty < 1) {
+        log(`addConsumable: qty=${qty} 无效(需≥1)，跳过创建 "${name}"`, 'warn');
+        return null;
+    }
     const itemId = generateItemId();
     const entry = {
         item_id: itemId,
         type: 'consumable',
         name: name,
-        qty: qty
+        qty: safeQty
     };
     if (description) entry.description = description;
     store.items.push(entry);
     if (skipSave !== true) await saveStore();
-    log(`消耗品添加: ${name} x${qty}`);
+    log(`消耗品添加: ${name} x${safeQty}`);
     return itemId;
 }
 
@@ -146,26 +152,31 @@ export async function addConsumable(name, qty, description, skipSave) {
  */
 export async function addMaterial(name, qty, skipSave) {
     const store = ensureInventoryStore();
+    const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
 
     const existing = store.items.find(
         item => item.type === 'material' && item.name === name
     );
     if (existing) {
-        existing.qty = (existing.qty || 0) + qty;
+        existing.qty = Math.max(0, (existing.qty || 0) + safeQty);
         if (skipSave !== true) await saveStore();
-        log(`材料累加: ${name} +${qty} → ${existing.qty}`);
+        log(`材料累加: ${name} +${safeQty} → ${existing.qty}`);
         return existing.item_id;
     }
 
+    if (safeQty < 1) {
+        log(`addMaterial: qty=${qty} 无效(需≥1)，跳过创建 "${name}"`, 'warn');
+        return null;
+    }
     const itemId = generateItemId();
     store.items.push({
         item_id: itemId,
         type: 'material',
         name: name,
-        qty: qty
+        qty: safeQty
     });
     if (skipSave !== true) await saveStore();
-    log(`材料添加: ${name} x${qty}`);
+    log(`材料添加: ${name} x${safeQty}`);
     return itemId;
 }
 
@@ -197,7 +208,9 @@ export async function addQuestItem(name, description, skipSave) {
  */
 export async function updateCurrency(cor, skipSave) {
     const store = ensureInventoryStore();
-    store.currency.cor = cor;
+    // L4: schema 要求 cor 为非负整数；强制取整 + 非负，避免 LLM 传 float/负数写入违反 schema。
+    const normalizedCor = Math.max(0, Math.floor(Number(cor) || 0));
+    store.currency.cor = normalizedCor;
     if (skipSave !== true) await saveStore();
 }
 

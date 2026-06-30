@@ -132,10 +132,11 @@ export async function updateQuest(quest_id, update, skipSave) {
         }
     }
 
-    // L9: 仅当当前状态不是显式终结态(failed/cancelled)时才自动完成。
-    // 否则 updateQuest(id, {status:'failed'}) 在 objectives 全 done 时会被错误覆盖回 completed。
+    // L9: 仅当当前状态不是显式终结态(failed/cancelled/archived)时才自动完成。
+    // 否则 updateQuest(id, {status:'failed'}) 在 objectives 全 done 时会被错误覆盖回 completed；
+    // 显式归档(archived)同样不应被自动复活为 completed。
     if (
-        quest.status !== 'failed' && quest.status !== 'cancelled' &&
+        quest.status !== 'failed' && quest.status !== 'cancelled' && quest.status !== 'archived' &&
         quest.objectives.length > 0 && quest.objectives.every(o => o.done)
     ) {
         quest.status = 'completed';

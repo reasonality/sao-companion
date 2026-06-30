@@ -3810,33 +3810,8 @@ function createBattleButton() {
                     );
                     
                     showDamageNumber('enemy', damage, true, enemyId);
-                    
-                    if (weapon.codes.some(code => code.startsWith('EN:B4'))) {
-                      const freezeMatch = weapon.codes.find(code => code.startsWith('EN:B4')).match(/EN:B4,(\d+)/);
-                      const freezeDuration = freezeMatch ? parseInt(freezeMatch[1]) : 1;
-                      
-                      enemy.pendingFreeze = true;
-                      enemy.pendingFreezeCount = freezeDuration;
-                      logBattleAction(`冷狱特效触发！${enemy.name} 将在下次行动时被晕眩！`);
-                    }
-                    
-                    if (weapon.codes.some(code => code.startsWith('EN:B3'))) {
-                      const critBoostMatch = weapon.codes
-                        .find(code => code.startsWith('EN:B3'))
-                        .match(/EN:B3,(\d+),(\d+)%/);
-                      if (critBoostMatch) {
-                        const duration = parseInt(critBoostMatch[1]);
-                        const boostAmount = parseInt(critBoostMatch[2]);
-                        battleState.playerBuffs.push({
-                          name: '乘胜加成',
-                          type: 'critBoost',
-                          value: boostAmount,
-                          duration: duration,
-                          isPositive: true,
-                        });
-                        logBattleAction(`乘胜特效触发！暴击率提升 ${boostAmount}% 持续 ${duration} 回合！`);
-                      }
-                    }
+                    // B3/B4 inline handlers removed — processEnchantmentEffects (3845) 的本地 switch 已统一处理 B1-B22。
+                    // 保留 inline 会导致 B3/B4 双重应用(critBoost buff 重复 push、pendingFreeze 重复设)。
                   } else {
                     logBattleAction(`造成 ${damage} 点伤害！`);
                     showDamageNumber('enemy', damage, false, enemyId);
@@ -4297,8 +4272,9 @@ function createBattleButton() {
                     const enchantmentTriggerRoll = Math.random();
                     const enchantmentTriggerChance = damageModifier * 100;
                     if (enchantmentTriggerRoll <= damageModifier) {
-                      
-                      const extraDamage = processEnchantmentEffects(weapon, enemy, damage, isCrit);
+                      // Bug#3-fix: A5 队友路径应调 processTeammateEnchantmentEffects（teammate 版），
+                      // 否则 B1 生命窃取治疗 player、B9 法力恢复回 player.mp、B11-14/B20-22 buff 推到 playerBuffs —— 全错对象。
+                      const extraDamage = processTeammateEnchantmentEffects(weapon, enemy, damage, isCrit, teammate);
                       damage += extraDamage;
                       if (extraDamage > 0) {
                         logBattleAction(`【终结技特效】特效触发成功！(触发概率: ${enchantmentTriggerChance.toFixed(0)}%) 额外伤害+${extraDamage}`);
@@ -4318,7 +4294,8 @@ function createBattleButton() {
                     logBattleAction(`对 ${enemy.name} 造成 ${damage} 点伤害！(暴击率: ${(finalCritRate * 100).toFixed(1)}%)`);
                   }
                   
-                  showDamageNumber(damage, enemy.id, isCrit);
+                  // Bug#6-fix: showDamageNumber(target, amount, isCrit, enemyId, teammateId) —— 原参数顺序错位致不渲染
+                  showDamageNumber('enemy', damage, isCrit, enemy.id);
                   
                   if (enemy.hp <= 0) {
                     logBattleAction(`${enemy.name} 被击败了！`);
@@ -4456,9 +4433,12 @@ function handleCritBoost(params) {
 
 function handleFreeze(params, enemy) {
   const duration = parseInt(params[0]);
-  
+  // 与 Core(battleCore.js:288-293) 保持一致：pendingFreeze + buff stun 双轨，
+  // 否则 sao-combat.js 的 hasDebuff(enemy,'stun') 检测不到晕眩。
   enemy.pendingFreeze = true;
   enemy.pendingFreezeCount = duration;
+  enemy.buffs = enemy.buffs || [];
+  enemy.buffs.push({ name: '晕眩', type: 'stun', turns: duration, duration, isPositive: false });
   logBattleAction(`晕眩效果触发！${enemy.name} 将在下次行动时被晕眩！`);
 }
 
@@ -4472,9 +4452,11 @@ function handleChanceFreeze(params, enemy) {
   const chance = parseInt(params[0].replace('%', ''));
   const duration = parseInt(params[1]);
   if (Math.random() * 100 <= chance) {
-    
+    // 与 Core(battleCore.js:303-308) 保持一致：pendingFreeze + buff stun 双轨
     enemy.pendingFreeze = true;
     enemy.pendingFreezeCount = duration;
+    enemy.buffs = enemy.buffs || [];
+    enemy.buffs.push({ name: '晕眩', type: 'stun', turns: duration, duration, isPositive: false });
     logBattleAction(`几率晕眩触发！${enemy.name} 将在下次行动时被晕眩！`);
   }
 }
@@ -4712,7 +4694,9 @@ const handleTeammateAgilityBoost = (params, teammate) =>
 const handleTeammateIntelligenceBoost = (params, teammate) =>
   BuffManager.handleAttributeBoost(params, 'intBoost', '智力', false, teammate);
 const handleTeammateVitalityBoost = (params, teammate) =>
-  BuffManager.handleAttributeBoost(params, 'vitBoost', '体力', false, teammate);
+  // Bug#5-fix: 原 'vitBoost' 不被 battleMath.js applyStatBuffs 识别(只认 strBoost/agiBoost/intBoost/endBoost)，buff 无效。
+  // 与 Core(battleCore.js:207 B14) + 玩家路径(line 4506 handleEnduranceBoost) 统一用 'endBoost'。
+  BuffManager.handleAttributeBoost(params, 'endBoost', '耐力', false, teammate);
 
       function forceUpdateUI() {
         
@@ -6473,10 +6457,15 @@ function executeTeammateAttackSequence(teammate, weapon) {
   logArr.forEach(msg => logBattleAction(msg));
 
   // Apply teammate enchantments (UI-layer, uses battleState)
-  if (instructions.some(i => i.type === 'damage')) {
+  const dmgInsts = instructions.filter(i => i.type === 'damage');
+  if (dmgInsts.length) {
     const target = battleState.enemies.find(e => e.hp > 0);
     if (target) {
-      const extraDamage = processTeammateEnchantmentEffects(weapon, target, 0, false, teammate);
+      // Bug#4-fix: 原传 damage=0,isCrit=false 致 B1 生命窃取=0、B3/B4 暴击触发永不生效、B7 额外伤害=0。
+      // 从 Core 返回的 instructions 提取实际 damage 与 isCrit（取首次命中的 damage，crit 取任一命中是否暴击）。
+      const totalDamage = dmgInsts.reduce((sum, i) => sum + (i.damage || 0), 0);
+      const anyCrit = dmgInsts.some(i => i.isCrit);
+      const extraDamage = processTeammateEnchantmentEffects(weapon, target, totalDamage, anyCrit, teammate);
       // processTeammateEnchantmentEffects handles its own logging
     }
   }
