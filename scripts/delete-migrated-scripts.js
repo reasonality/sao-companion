@@ -99,130 +99,148 @@ function filterScripts(obj) {
 }
 
 function main() {
-    const originalPngBuf = fs.readFileSync(PNG_PATH);
-    console.log(`原始 PNG 大小: ${originalPngBuf.length} bytes`);
+    const tmpPath = PNG_PATH + '.tmp';
+    try {
+        const originalPngBuf = fs.readFileSync(PNG_PATH);
+        console.log(`原始 PNG 大小: ${originalPngBuf.length} bytes`);
 
-    // Parse JSON from file to get original length
-    const originalJsonStr = fs.readFileSync(JSON_PATH, 'utf8');
-    console.log(`原始 JSON 长度: ${originalJsonStr.length} bytes`);
+        // Parse JSON from file to get original length
+        const originalJsonStr = fs.readFileSync(JSON_PATH, 'utf8');
+        console.log(`原始 JSON 长度: ${originalJsonStr.length} bytes`);
 
-    // Read PNG chunks
-    const chunks = readPngChunks(PNG_PATH);
-    console.log(`PNG chunk 数量: ${chunks.length}`);
+        // Read PNG chunks
+        const chunks = readPngChunks(PNG_PATH);
+        console.log(`PNG chunk 数量: ${chunks.length}`);
 
-    // Find chara and ccv3 tEXt chunks
-    let charaIdx = -1;
-    let ccv3Idx = -1;
-    for (let i = 0; i < chunks.length; i++) {
-        if (chunks[i].type === 'tEXt') {
-            const nullIdx = chunks[i].data.indexOf(0);
-            if (nullIdx !== -1) {
-                const keyword = chunks[i].data.slice(0, nullIdx).toString('latin1');
-                if (keyword === 'chara') charaIdx = i;
-                if (keyword === 'ccv3') ccv3Idx = i;
+        // Find chara and ccv3 tEXt chunks
+        let charaIdx = -1;
+        let ccv3Idx = -1;
+        for (let i = 0; i < chunks.length; i++) {
+            if (chunks[i].type === 'tEXt') {
+                const nullIdx = chunks[i].data.indexOf(0);
+                if (nullIdx !== -1) {
+                    const keyword = chunks[i].data.slice(0, nullIdx).toString('latin1');
+                    if (keyword === 'chara') charaIdx = i;
+                    if (keyword === 'ccv3') ccv3Idx = i;
+                }
             }
         }
-    }
-    console.log(`chara chunk index: ${charaIdx}, ccv3 chunk index: ${ccv3Idx}`);
+        console.log(`chara chunk index: ${charaIdx}, ccv3 chunk index: ${ccv3Idx}`);
 
-    if (charaIdx === -1 || ccv3Idx === -1) {
-        throw new Error('chara or ccv3 tEXt chunk not found');
-    }
-
-    // Decode chara
-    const charaText = chunks[charaIdx].data.slice(chunks[charaIdx].data.indexOf(0) + 1).toString('latin1');
-    const charaJsonStr = Buffer.from(charaText, 'base64').toString('utf8');
-    const charaObj = JSON.parse(charaJsonStr);
-
-    // Decode ccv3
-    const ccv3Text = chunks[ccv3Idx].data.slice(chunks[ccv3Idx].data.indexOf(0) + 1).toString('latin1');
-    const ccv3JsonStr = Buffer.from(ccv3Text, 'base64').toString('utf8');
-    const ccv3Obj = JSON.parse(ccv3JsonStr);
-
-    // Filter scripts in both
-    const result1 = filterScripts(charaObj);
-    const result2 = filterScripts(ccv3Obj);
-
-    if (!result1 || !result2) {
-        throw new Error('regex_scripts not found in JSON');
-    }
-
-    console.log(`\nchara: ${result1.location}`);
-    console.log(`  删除前脚本数: ${result1.before}`);
-    console.log(`  删除后脚本数: ${result1.after}`);
-    console.log(`  删除了 ${result1.before - result1.after} 个脚本`);
-
-    console.log(`\nccv3: ${result2.location}`);
-    console.log(`  删除前脚本数: ${result2.before}`);
-    console.log(`  删除后脚本数: ${result2.after}`);
-    console.log(`  删除了 ${result2.before - result2.after} 个脚本`);
-
-    // Verify remaining scripts
-    const remainingScripts = charaObj.data.extensions.regex_scripts;
-    console.log(`\n剩余脚本 (${remainingScripts.length}):`);
-    for (const s of remainingScripts) {
-        console.log(`  - ${s.scriptName} (disabled: ${s.disabled})`);
-    }
-
-    // Verify key scripts exist
-    const keepNames = remainingScripts.map(s => s.scriptName);
-    const requiredKeep = ['npc状态栏', '摘要', '公会状态栏', '快速回复', '开场白'];
-    for (const name of requiredKeep) {
-        if (!keepNames.includes(name)) {
-            console.error(`ERROR: 必须保留的脚本 "${name}" 未找到!`);
-            process.exit(1);
+        if (charaIdx === -1 || ccv3Idx === -1) {
+            throw new Error('chara or ccv3 tEXt chunk not found');
         }
+
+        // Decode chara
+        const charaText = chunks[charaIdx].data.slice(chunks[charaIdx].data.indexOf(0) + 1).toString('latin1');
+        const charaJsonStr = Buffer.from(charaText, 'base64').toString('utf8');
+        const charaObj = JSON.parse(charaJsonStr);
+
+        // Decode ccv3
+        const ccv3Text = chunks[ccv3Idx].data.slice(chunks[ccv3Idx].data.indexOf(0) + 1).toString('latin1');
+        const ccv3JsonStr = Buffer.from(ccv3Text, 'base64').toString('utf8');
+        const ccv3Obj = JSON.parse(ccv3JsonStr);
+
+        // Filter scripts in both
+        const result1 = filterScripts(charaObj);
+        const result2 = filterScripts(ccv3Obj);
+
+        if (!result1 || !result2) {
+            throw new Error('regex_scripts not found in JSON');
+        }
+
+        console.log(`\nchara: ${result1.location}`);
+        console.log(`  删除前脚本数: ${result1.before}`);
+        console.log(`  删除后脚本数: ${result1.after}`);
+        console.log(`  删除了 ${result1.before - result1.after} 个脚本`);
+
+        console.log(`\nccv3: ${result2.location}`);
+        console.log(`  删除前脚本数: ${result2.before}`);
+        console.log(`  删除后脚本数: ${result2.after}`);
+        console.log(`  删除了 ${result2.before - result2.after} 个脚本`);
+
+        // Verify remaining scripts
+        const remainingScripts = charaObj.data.extensions.regex_scripts;
+        console.log(`\n剩余脚本 (${remainingScripts.length}):`);
+        for (const s of remainingScripts) {
+            console.log(`  - ${s.scriptName} (disabled: ${s.disabled})`);
+        }
+
+        // Verify key scripts exist
+        const keepNames = remainingScripts.map(s => s.scriptName);
+        const requiredKeep = ['npc状态栏', '摘要', '公会状态栏', '快速回复', '开场白'];
+        for (const name of requiredKeep) {
+            if (!keepNames.includes(name)) {
+                console.error(`ERROR: 必须保留的脚本 "${name}" 未找到!`);
+                process.exit(1);
+            }
+        }
+        console.log('\n✓ 关键保留脚本验证通过');
+
+        // Convert to compact JSON
+        const compactJson = JSON.stringify(charaObj);
+        console.log(`\n紧凑 JSON 长度: ${compactJson.length} bytes`);
+        console.log(`JSON 压缩比: ${((1 - compactJson.length / charaJsonStr.length) * 100).toFixed(1)}%`);
+
+        // Verify chara and ccv3 produce same compact JSON
+        const ccv3Compact = JSON.stringify(ccv3Obj);
+        if (compactJson !== ccv3Compact) {
+            throw new Error('chara and ccv3 compact JSON differ!');
+        }
+        console.log('✓ chara 和 ccv3 紧凑 JSON 一致');
+
+        // Base64 encode
+        const newBase64 = Buffer.from(compactJson, 'utf8').toString('base64');
+        console.log(`base64 长度: ${newBase64.length} bytes`);
+
+        // Build new tEXt chunk data for each keyword
+        const charaTextData = buildTextChunkData('chara', newBase64);
+        const ccv3TextData = buildTextChunkData('ccv3', newBase64);
+
+        // Replace chara and ccv3 chunks with their respective keywords
+        chunks[charaIdx] = { type: 'tEXt', data: charaTextData };
+        chunks[ccv3Idx] = { type: 'tEXt', data: ccv3TextData };
+
+        // Rebuild PNG
+        const newPng = buildPng(chunks);
+        console.log(`\n新 PNG 大小: ${newPng.length} bytes`);
+        console.log(`PNG 压缩: ${originalPngBuf.length} → ${newPng.length} (${((1 - newPng.length / originalPngBuf.length) * 100).toFixed(1)}% 减少)`);
+
+        // Belt-and-suspenders: backup before overwriting
+        fs.copyFileSync(PNG_PATH, PNG_PATH + '.bak');
+
+        // Atomic PNG write: write to .tmp first, then rename (atomic on NTFS)
+        fs.writeFileSync(tmpPath, newPng);
+        fs.renameSync(tmpPath, PNG_PATH);
+        console.log(`\n✓ 已写入 ${PNG_PATH}`);
+
+        // Write extracted JSON (compact)
+        fs.writeFileSync(JSON_PATH, compactJson, 'utf8');
+        console.log(`✓ 已写入 ${JSON_PATH}`);
+
+        // Final verification: re-read PNG and verify
+        const verifyBuf = fs.readFileSync(PNG_PATH);
+        if (!verifyBuf.slice(0, 8).equals(PNG_SIGNATURE)) {
+            throw new Error('Written PNG has invalid signature!');
+        }
+        console.log('✓ PNG 签名验证通过');
+
+        console.log('\n=== 完成 ===');
+        console.log(`原始 PNG: ${originalPngBuf.length} bytes`);
+        console.log(`新 PNG:   ${newPng.length} bytes`);
+        console.log(`节省:     ${originalPngBuf.length - newPng.length} bytes (${((1 - newPng.length / originalPngBuf.length) * 100).toFixed(1)}%)`);
+    } catch (err) {
+        // Cleanup: if the .tmp file was left behind from a failed write, delete it
+        try {
+            if (fs.existsSync(tmpPath)) {
+                fs.unlinkSync(tmpPath);
+                console.error(`已清理临时文件 ${tmpPath}`);
+            }
+        } catch (_) {
+            // ignore cleanup errors
+        }
+        throw err;
     }
-    console.log('\n✓ 关键保留脚本验证通过');
-
-    // Convert to compact JSON
-    const compactJson = JSON.stringify(charaObj);
-    console.log(`\n紧凑 JSON 长度: ${compactJson.length} bytes`);
-    console.log(`JSON 压缩比: ${((1 - compactJson.length / charaJsonStr.length) * 100).toFixed(1)}%`);
-
-    // Verify chara and ccv3 produce same compact JSON
-    const ccv3Compact = JSON.stringify(ccv3Obj);
-    if (compactJson !== ccv3Compact) {
-        throw new Error('chara and ccv3 compact JSON differ!');
-    }
-    console.log('✓ chara 和 ccv3 紧凑 JSON 一致');
-
-    // Base64 encode
-    const newBase64 = Buffer.from(compactJson, 'utf8').toString('base64');
-    console.log(`base64 长度: ${newBase64.length} bytes`);
-
-    // Build new tEXt chunk data for each keyword
-    const charaTextData = buildTextChunkData('chara', newBase64);
-    const ccv3TextData = buildTextChunkData('ccv3', newBase64);
-
-    // Replace chara and ccv3 chunks with their respective keywords
-    chunks[charaIdx] = { type: 'tEXt', data: charaTextData };
-    chunks[ccv3Idx] = { type: 'tEXt', data: ccv3TextData };
-
-    // Rebuild PNG
-    const newPng = buildPng(chunks);
-    console.log(`\n新 PNG 大小: ${newPng.length} bytes`);
-    console.log(`PNG 压缩: ${originalPngBuf.length} → ${newPng.length} (${((1 - newPng.length / originalPngBuf.length) * 100).toFixed(1)}% 减少)`);
-
-    // Write PNG
-    fs.writeFileSync(PNG_PATH, newPng);
-    console.log(`\n✓ 已写入 ${PNG_PATH}`);
-
-    // Write extracted JSON (compact)
-    fs.writeFileSync(JSON_PATH, compactJson, 'utf8');
-    console.log(`✓ 已写入 ${JSON_PATH}`);
-
-    // Final verification: re-read PNG and verify
-    const verifyBuf = fs.readFileSync(PNG_PATH);
-    if (!verifyBuf.slice(0, 8).equals(PNG_SIGNATURE)) {
-        throw new Error('Written PNG has invalid signature!');
-    }
-    console.log('✓ PNG 签名验证通过');
-
-    console.log('\n=== 完成 ===');
-    console.log(`原始 PNG: ${originalPngBuf.length} bytes`);
-    console.log(`新 PNG:   ${newPng.length} bytes`);
-    console.log(`节省:     ${originalPngBuf.length - newPng.length} bytes (${((1 - newPng.length / originalPngBuf.length) * 100).toFixed(1)}%)`);
 }
 
 main();

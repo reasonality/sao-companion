@@ -1,12 +1,12 @@
 {
     "name": "sao-companion",
-    "version": "0.6.15",
+    "version": "0.6.45",
     "private": true,
     "scripts": {
         "test": "cd test && npx vitest run"
     },
     "devDependencies": {
         "jsdom": "^29.1.1",
-        "vitest": "^4.1.9"
+        "vitest": "^3.0.0"
     }
 }

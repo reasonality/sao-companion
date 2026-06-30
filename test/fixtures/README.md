@@ -24,7 +24,7 @@ All snapshots include timestamp, label, and capture source for traceability.
 ## Usage
 
 ### 1. Load the scaffold
-Open browser DevTools console (F12 → Console), then paste the entire contents of `snapshotTest.js`.
+Open browser DevTools console (F12 → Console), then paste the entire contents of `manual/snapshot-scaffold.js`.
 
 The script will report whether module-level access was obtained:
 ```

@@ -45,6 +45,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
+import { DOMPurify } from '../../../../lib.js';
 import { ROLES, fetchModelList, callModel } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
@@ -98,6 +99,7 @@ function wrapAsync(fn) {
 }
 
 const _processingLocks = {};
+let _saoCurrentData = {};
 function withProcessingLock(key, fn) {
     const prev = _processingLocks[key] || Promise.resolve();
     const next = prev.then(() => fn()).catch(e => {
@@ -163,55 +165,6 @@ function clearBattleState() {
 // <zd_status> 和 <user_status> 正则解析器 (FIX 1)
 // ============================================================
 // [sao-extract.js] parseZdStatus, parseUserStatus, extractAll, applyExtractedData 已移至 sao-extract.js
-
-async function calculateCombat(combatContext) {
-    const settings = getSettings();
-    if (!settings.enabled) return null;
-
-    const systemPrompt = '你是 SAO 战斗数值判定器。根据玩家状态、敌人状态和行动，按公式计算战斗结果。只输出 JSON。';
-    const formulas = `SAO 战斗公式:
-HPRE = 10 + VIT + floor(VIT^2/100)
-MPRE = 5 + floor(INT/4)
-AP = 2 + floor(VIT/20)
-速度 = 50 + AGI*2
-闪避率 = AGI * 0.005
-伤害加成 = STR * 0.01
-减伤值 = STR * 1
-承伤率 = 50 / (50 + VIT)
-额外命中率 = AGI * 0.01
-额外暴击率 = INT * 0.01
-暴击伤害倍率 = 1.5 + INT*0.01
-暴击率抵抗 = AGI*0.005 + INT*0.005
-暴击伤害抵抗 = STR*0.005 + INT*0.005
-最终命中率 = 技能基础命中率 + 额外命中率 - 敌人闪避率
-最终暴击率 = 技能基础暴击率 + 额外暴击率 + max(0, 最终命中率-1)*0.5 - 敌人暴击率抵抗
-最终暴击伤害倍率 = max(1.0, 暴击伤害倍率) + max(0, 最终暴击率-1)*0.5 - 敌人暴击伤害抵抗
-基础伤害 = 技能ATK * (1+伤害加成) * 敌人承伤率
-暴击后伤害 = 基础伤害 * 暴击伤害倍率
-最终伤害 = 暴击后伤害 - 敌人减伤值 (非暴击则跳过暴击乘算)`;
-    const userPrompt = `计算战斗结果，返回 JSON:
-{"hit":boolean,"damage":number,"is_crit":boolean,"player_hp_after":number,"enemy_hp_after":number,"enemy_defeated":boolean,"exp_gained":number,"loot":[{"name":string,"qty":number}],"log":string}
-${formulas}
-玩家: ${JSON.stringify(combatContext.player)}
-敌人: ${JSON.stringify(combatContext.enemy)}
-行动: ${combatContext.action}`;
-
-    try {
-        const result = await callModel('combat', [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-        ], 512);
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            log('战斗计算完成');
-            return JSON.parse(jsonMatch[0]);
-        }
-        return null;
-    } catch (e) {
-        log('战斗计算失败: ' + e.message, 'error');
-        return null;
-    }
-}
 
 // ============================================================
 // 生成子代理已迁移至 sao-generators.js
@@ -526,7 +479,6 @@ import {
     buildTeammateEntity,
     detectPlayerAction,
     selectEnemySkill,
-    getEquipmentStatsFromState,
     getEquipmentStatsFromStore,
     persistCooldowns,
     buildCombatNarrativeHint,
@@ -595,7 +547,7 @@ function bindEvents() {
                 const npcCount = initNpcFromWorldBook(entries);
                 const floorCount = initFloorFromWorldBook(entries);
                 if (npcCount > 0 || floorCount > 0) {
-                    saveStore();
+                    saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
                 }
                 log(`Phase B 初始化: ${npcCount} NPC, ${floorCount} 楼层 (索引 ${entryCount} 条目)`);
             }
@@ -780,6 +732,10 @@ function bindEvents() {
             try {
                 const el = getMessageElement(messageId);
                 if (el) renderAllTags(el, rawText, messageId);
+                if (saoData?._lastCombatResult) {
+                    updateBattlePanelAfterCombat(messageId, saoData._lastCombatResult);
+                    delete saoData._lastCombatResult;
+                }
             } catch (e) { log('锁内重渲染失败: ' + e.message, 'warn'); }
 
             // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveStore 之后、lock 块结束前）。
@@ -809,19 +765,6 @@ function bindEvents() {
 
         // 新消息的 Shadow DOM 渲染已由 CHARACTER_MESSAGE_RENDERED 事件接管（见 H1）
 
-        // fallback: 如果 CHARACTER_MESSAGE_RENDERED 事件不可用，延迟渲染新消息
-        if (!event_types.CHARACTER_MESSAGE_RENDERED) {
-            setTimeout(() => {
-                const fallbackEl = getMessageElement(messageId);
-                if (fallbackEl) renderAllTags(fallbackEl, rawText, messageId);
-                // P4b fallback: update battle panel + clear _lastCombatResult
-                const fbData = getSaoData();
-                if (fbData?._lastCombatResult) {
-                    updateBattlePanelAfterCombat(messageId, fbData._lastCombatResult);
-                    delete fbData._lastCombatResult;
-                }
-            }, 100);
-        }
     }));
 
     _bindEvt(event_types.GENERATION_AFTER_COMMANDS, () => {
@@ -940,11 +883,6 @@ function bindEvents() {
             if (!msg || msg.is_user) return;
             const msgEl = getMessageElement(messageId);
             if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
-            const data = getSaoData();
-            if (data?._lastCombatResult) {
-                updateBattlePanelAfterCombat(messageId, data._lastCombatResult);
-                delete data._lastCombatResult;
-            }
         });
     }
 
@@ -1011,8 +949,12 @@ function showDetailModal(title, html) {
     const bodyEl = document.getElementById('sao_modal_body');
     const modal = document.getElementById('sao_detail_modal');
     if (titleEl) titleEl.textContent = title;
-    if (bodyEl) bodyEl.innerHTML = html;
-    if (modal) modal.style.display = 'flex';
+    if (bodyEl) bodyEl.innerHTML = DOMPurify.sanitize(html);
+    if (modal) {
+        modal.style.display = 'flex';
+        // 聚焦模态层以激活 Esc 键关闭（panel.html 中 onkeydown 监听需 focus 才能触发）
+        if (typeof modal.focus === 'function') modal.focus();
+    }
 }
 
 function closeDetailModal() {
@@ -1173,7 +1115,7 @@ async function loadPanelHTML() {
 
 function initPanelLogic() {
     // 章节 → 世界书条目切换 (FIX 4: 使用条目名称前缀匹配)
-    window.switchWorldInfoEntries = async function switchWorldInfoEntries(arc) {
+    async function switchWorldInfoEntries(arc) {
         try {
             const ctx = getContext();
             const char = getCurrentCharacter();
@@ -1573,7 +1515,11 @@ function initPanelLogic() {
         if (descEl) descEl.value = evt.title || evt.description || '';
         if (timeEl) timeEl.value = evt.time || '';
         const idEl = document.getElementById('sao_cal_edit_id');
-        if (idEl) idEl.value = 'event_' + dateStr + '_' + eventIdx;
+        if (idEl) {
+            idEl.value = 'event';
+            idEl.dataset.editDate = dateStr;
+            idEl.dataset.editIdx = eventIdx;
+        }
         const titleEl = document.getElementById('sao_cal_form_title');
         if (titleEl) titleEl.textContent = '\u7f16\u8f91\u4e8b\u4ef6';
         const typeEl = document.getElementById('sao_cal_input_type');
@@ -1660,11 +1606,10 @@ function initPanelLogic() {
         const id = idEl.value;
 
         // Editing existing event (from modal edit button)
-        if (id.startsWith('event_')) {
-            const parts = id.split('_');
-            const eventDate = parts.slice(1, -1).join('_');
-            const eventIdx = parseInt(parts[parts.length - 1]);
-            if (cal.days?.[eventDate]?.events?.[eventIdx] != null) {
+        if (id === 'event') {
+            const eventDate = idEl.dataset.editDate;
+            const eventIdx = parseInt(idEl.dataset.editIdx);
+            if (eventDate && !isNaN(eventIdx) && cal.days?.[eventDate]?.events?.[eventIdx] != null) {
                 const evt = cal.days[eventDate].events[eventIdx];
                 evt.time = time;
                 evt.title = description;
@@ -1713,7 +1658,7 @@ function initPanelLogic() {
         // Original appointment editing (existing appointment id like 'apt_...')
         let apt;
         if (id) {
-            apt = cal.appointments.find(a => a.id === id);
+            apt = (cal.appointments || []).find(a => a.id === id);
             if (!apt) {
                 log('\u4fdd\u5b58\u7ea6\u5b9a\u5931\u8d25: \u672a\u627e\u5230\u7ea6\u5b9a', 'warn');
                 return;
@@ -1723,19 +1668,10 @@ function initPanelLogic() {
                 oldDay.events = oldDay.events.filter(e => !(e.source === 'manual' && e.title === apt.description && e.time === apt.time));
             }
         } else {
-            apt = {
-                id: 'apt_' + Date.now(),
-                date: date,
-                time: time,
-                description: description,
-                participants: participants,
-                location: location,
-                source: 'manual',
-                status: 'pending',
-                createdAt: new Date().toISOString(),
-            };
-            if (!cal.appointments) cal.appointments = [];
-            cal.appointments.push(apt);
+            // Dead branch removed: UI always sets an existing apt id or uses 'new_apt_' prefix
+            // (handled above). Fallthrough here is an impossible state.
+            log('保存约定失败: 无效的 ID 状态', 'error');
+            return;
         }
 
         apt.date = date;
@@ -1960,11 +1896,11 @@ function initPanelLogic() {
                 } else if (type === 'loot') {
                     result = await generateLoot({ enemyLevel: 3, floor: 1, enemyType: '野猪' }, callModel);
                 } else if (type === 'combat') {
-                    result = await calculateCombat({
-                        player: { hp: 585, max_hp: 585, str: 3, agi: 1, int: 1, vit: 7 },
-                        enemy: { name: '野猪', hp: 50, max_hp: 50, str: 5, agi: 3, int: 1, vit: 3 },
-                        action: '使用剑技「刺击」攻击野猪',
-                    });
+                    // 战斗测试已迁移至确定性引擎 resolveCombatRound（sao-combat.js），
+                    // 此处不再调用已删除的 LLM 版 calculateCombat。点击"战斗"测试按钮时给出提示。
+                    testEl.className = 'sao-test-result show error';
+                    testEl.textContent = '✗ 战斗测试已迁移至确定性引擎 resolveCombatRound，不再支持 LLM 测试';
+                    return;
                 }
                 if (result === null || result === undefined) {
                     testEl.className = 'sao-test-result show error';
@@ -2030,7 +1966,7 @@ function initPanelLogic() {
         if (!target) return;
         const type = target.getAttribute('data-detail-type');
         const index = parseInt(target.getAttribute('data-detail-index'), 10);
-        const cached = window._saoCurrentData;
+        const cached = _saoCurrentData;
         if (!cached) return;
         let title = '';
         let html = '';
@@ -2126,12 +2062,31 @@ function refreshStatus() {
     const settings = getSettings();
     
     // A0: read from stores instead of data.state
-    const player = getPlayerStore();
-    if (!player) return;
-    const inventory = getInventoryStore();
-    
     const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? '-'; };
     const setBar = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, pct)) + '%'; };
+
+    const player = getPlayerStore();
+    if (!player) {
+        // Clear data-dependent panels to avoid showing stale data
+        setText('sao_player_name', '-');
+        setText('sao_hp_text', '-');
+        setText('sao_mp_text', '-');
+        setText('sao_stat_str', '-');
+        setText('sao_stat_agi', '-');
+        setText('sao_stat_int', '-');
+        setText('sao_stat_vit', '-');
+        setText('sao_level_text', '-');
+        setText('sao_cor_text', '-');
+        setText('sao_floor_text', '-');
+        setText('sao_player_location', '-');
+        setBar('sao_hp_bar', 0);
+        setBar('sao_mp_bar', 0);
+        const eqEl = document.getElementById('sao_equipment_list'); if (eqEl) eqEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        const invEl = document.getElementById('sao_inventory_list'); if (invEl) invEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        const skEl = document.getElementById('sao_skills_list'); if (skEl) skEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        return;
+    }
+    const inventory = getInventoryStore();
 
     // 玩家名
     const playerName = player.identity?.name || getContext().name1 || '冒险者';
@@ -2178,11 +2133,11 @@ function refreshStatus() {
             equipEl.innerHTML = equipArr.map((entry, i) =>
                 `<div class="sao-tag sao-tag-equip" data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(SLOT_LABELS[entry.slot] || entry.slot)}: ${esc(entry.name)}</div>`
             ).join('');
-            window._saoCurrentData = window._saoCurrentData || {};
-            window._saoCurrentData.equipment = equipArr;
+            _saoCurrentData = _saoCurrentData || {};
+            _saoCurrentData.equipment = equipArr;
         } else {
             equipEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无装备数据</span>';
-            if (window._saoCurrentData) window._saoCurrentData.equipment = [];
+            if (_saoCurrentData) _saoCurrentData.equipment = [];
         }
     }
 
@@ -2203,11 +2158,11 @@ function refreshStatus() {
                     : null;
                 return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${i}" style="cursor:pointer;">${esc(displayName)} x${esc(item.qty)}${itemLevel ? ' ⭐' + itemLevel : ''}</div>`;
             }).join('');
-            window._saoCurrentData = window._saoCurrentData || {};
-            window._saoCurrentData.inventory = invFiltered;
+            _saoCurrentData = _saoCurrentData || {};
+            _saoCurrentData.inventory = invFiltered;
         } else {
             invEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-            if (window._saoCurrentData) window._saoCurrentData.inventory = [];
+            if (_saoCurrentData) _saoCurrentData.inventory = [];
         }
     }
 
@@ -2224,11 +2179,11 @@ function refreshStatus() {
             skillEl.innerHTML = skillsWithDefs.map((sk, i) =>
                 `<div class="sao-tag sao-tag-skill" data-detail-type="skill" data-detail-index="${i}" style="cursor:pointer;">${esc(sk.name)}</div>`
             ).join('');
-            window._saoCurrentData = window._saoCurrentData || {};
-            window._saoCurrentData.skills = skillsWithDefs;
+            _saoCurrentData = _saoCurrentData || {};
+            _saoCurrentData.skills = skillsWithDefs;
         } else {
             skillEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-            if (window._saoCurrentData) window._saoCurrentData.skills = [];
+            if (_saoCurrentData) _saoCurrentData.skills = [];
         }
     }
 
@@ -2382,7 +2337,6 @@ if (typeof globalThis !== 'undefined' && globalThis.process && globalThis.proces
         buildTeammateEntity,
         detectPlayerAction,
         selectEnemySkill,
-        getEquipmentStatsFromState,
         getEquipmentStatsFromStore,
         persistCooldowns,
         buildCombatNarrativeHint,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
     getPlayerStatsCore,
     calculateActionOrderCore,
@@ -13,7 +13,12 @@ import {
     healCore,
     manaRestoreCore,
     sacrificeBoostCore,
+    processEnchantmentEffectsCore,
 } from '../battle/battleCore.js';
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getPlayerStatsCore
@@ -368,7 +373,6 @@ describe('healCore', () => {
         expect(result).toHaveLength(1);
         expect(result[0]).toMatchObject({ type: 'heal', heal: 30, isCrit: false });
         expect(log[0]).toContain('30');
-        vi.restoreAllMocks();
     });
 
     it('applies crit multiplier on crit roll', () => {
@@ -385,7 +389,6 @@ describe('healCore', () => {
         expect(result[0].heal).toBe(80);
         expect(result[0].isCrit).toBe(true);
         expect(log[0]).toContain('暴击');
-        vi.restoreAllMocks();
     });
 
     it('caps heal at maxHp', () => {
@@ -399,7 +402,6 @@ describe('healCore', () => {
 
         expect(target.entity.hp).toBe(100);
         expect(result[0].heal).toBe(10); // actual heal, not weapon.attack
-        vi.restoreAllMocks();
     });
 });
 
@@ -419,7 +421,6 @@ describe('manaRestoreCore', () => {
         expect(target.entity.mp).toBe(45);
         expect(result).toHaveLength(1);
         expect(result[0]).toMatchObject({ type: 'manaRestore', restore: 25, isCrit: false });
-        vi.restoreAllMocks();
     });
 
     it('applies crit multiplier on crit', () => {
@@ -436,7 +437,6 @@ describe('manaRestoreCore', () => {
         expect(result[0].restore).toBe(75);
         expect(result[0].isCrit).toBe(true);
         expect(log[0]).toContain('暴击');
-        vi.restoreAllMocks();
     });
 
     it('caps mana restore at maxMp', () => {
@@ -450,7 +450,6 @@ describe('manaRestoreCore', () => {
 
         expect(target.entity.mp).toBe(100);
         expect(result[0].restore).toBe(10); // actual restore capped
-        vi.restoreAllMocks();
     });
 });
 
@@ -511,5 +510,98 @@ describe('sacrificeBoostCore', () => {
         expect(log[0]).toContain('牺牲增益');
         expect(log[1]).toContain('牺牲');
         expect(log.some(m => m.includes('增益效果'))).toBe(true);
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// processEnchantmentEffectsCore
+// ─────────────────────────────────────────────────────────────────────────────
+describe('processEnchantmentEffectsCore', () => {
+    it('returns empty result when weapon has no codes', () => {
+        const weapon = { attack: 50 };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 200, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 50, false, log, player, []);
+        expect(result.totalExtraDamage).toBe(0);
+        expect(result.instructions).toEqual([]);
+    });
+
+    it('returns empty result when weapon.codes is empty array', () => {
+        const weapon = { attack: 50, codes: [] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 200, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 50, false, log, player, []);
+        expect(result.totalExtraDamage).toBe(0);
+        expect(result.instructions).toEqual([]);
+    });
+
+    it('B5 DoT: applies dot buff to enemy', () => {
+        const weapon = { attack: 50, codes: ['EN:B5,3,15'] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 200, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 50, false, log, player, []);
+        expect(enemy.buffs).toHaveLength(1);
+        expect(enemy.buffs[0]).toMatchObject({ type: 'dot', value: 15, duration: 3, isPositive: false });
+        expect(result.totalExtraDamage).toBe(0);
+    });
+
+    it('B1 lifesteal: heals player based on damage dealt', () => {
+        const weapon = { attack: 50, codes: ['EN:B1,50'] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 150, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 100, false, log, player, []);
+        // healAmount = floor(100 * 50/100) = 50; player hp: 150+50 = 200
+        expect(player.hp).toBe(200);
+        expect(result.instructions).toHaveLength(1);
+        expect(result.instructions[0]).toMatchObject({ type: 'heal', targetId: 'player', heal: 50 });
+        expect(log.some(m => m.includes('生命窃取'))).toBe(true);
+    });
+
+    it('B1 lifesteal: caps heal at maxHp', () => {
+        const weapon = { attack: 50, codes: ['EN:B1,50'] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 190, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 100, false, log, player, []);
+        // healAmount = floor(100 * 0.5) = 50, but capped: 190+50=240 → 200
+        expect(player.hp).toBe(200);
+        expect(result.instructions[0].heal).toBe(10); // actual heal
+    });
+
+    it('B4 crit freeze: applies stun on crit hit', () => {
+        const weapon = { attack: 50, codes: ['EN:B4,3'] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 200, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 50, true, log, player, []);
+        expect(enemy.pendingFreeze).toBe(true);
+        expect(enemy.pendingFreezeCount).toBe(3);
+        expect(enemy.buffs).toHaveLength(1);
+        expect(enemy.buffs[0]).toMatchObject({ type: 'stun', turns: 3, duration: 3, isPositive: false });
+        expect(log.some(m => m.includes('晕眩'))).toBe(true);
+    });
+
+    it('B4 crit freeze: does NOT trigger on non-crit', () => {
+        const weapon = { attack: 50, codes: ['EN:B4,3'] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 200, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 50, false, log, player, []);
+        expect(enemy.pendingFreeze).toBeUndefined();
+        expect(enemy.buffs).toHaveLength(0);
+    });
+
+    it('ignores non-EN codes', () => {
+        const weapon = { attack: 50, codes: ['MN:M1,50', 'XX:invalid'] };
+        const enemy = { name: 'Goblin', hp: 100, maxHp: 100, buffs: [] };
+        const player = { name: 'Hero', hp: 200, maxHp: 200 };
+        const log = [];
+        const result = processEnchantmentEffectsCore(weapon, enemy, 50, false, log, player, []);
+        expect(result.totalExtraDamage).toBe(0);
+        expect(result.instructions).toEqual([]);
     });
 });

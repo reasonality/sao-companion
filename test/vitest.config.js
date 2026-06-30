@@ -27,6 +27,7 @@ export default defineConfig({
             '../../../extensions.js': resolve(__dirname, 'mocks/extensions.js'),
             '../../../events.js': resolve(__dirname, 'mocks/events.js'),
             '../../../../lib.js': resolve(__dirname, 'mocks/lib.js'),
+            '../../../../../lib.js': resolve(__dirname, 'mocks/lib.js'),
             '../../../power-user.js': resolve(__dirname, 'mocks/power-user.js'),
         },
     },

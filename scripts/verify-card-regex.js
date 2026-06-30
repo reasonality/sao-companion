@@ -169,7 +169,6 @@ function main() {
     const DELETED_SCRIPTS = [
         '战斗1.30电脑', '战斗1.30手机',
         '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
-        '摘要',
         '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
         '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏',
         '隐藏回复', '隐藏预告', '去除用户消息',
@@ -218,6 +217,16 @@ function main() {
                 results.push({ name: `${expected.name}_kept`, ok });
                 if (!ok) failures++;
             }
+        }
+
+        // Total count assertion: must match EXPECTED_SCRIPTS.length (self-maintaining)
+        if (regexScripts3.length !== EXPECTED_SCRIPTS.length) {
+            console.log(`regex_scripts 总数 ${regexScripts3.length} ≠ 期望 ${EXPECTED_SCRIPTS.length} FAIL`);
+            results.push({ name: 'script_count', ok: false });
+            failures++;
+        } else {
+            console.log(`regex_scripts 总数 ${regexScripts3.length} PASS`);
+            results.push({ name: 'script_count', ok: true });
         }
     }
 

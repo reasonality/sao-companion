@@ -223,25 +223,6 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
     if (!y || !m || y < 1 || m < 1 || m > 12) return '';
     const firstDayOfWeek = (new Date(y, m - 1, 1).getDay() + 6) % 7;
     const daysInMonth = new Date(y, m, 0).getDate();
-    const dayContentMap = {};
-    if (Array.isArray(days)) {
-        for (const d of days) {
-            const num = typeof d === 'object' ? (d.day ?? d.date) : Number(d);
-            if (num != null && !isNaN(num)) {
-                const info = typeof d === 'object' ? d : { events: [String(d)] };
-                const events = Array.isArray(info.events) ? info.events : (info.label ? [info.label] : []);
-                if (events.length) dayContentMap[Number(num)] = events.slice(0, 10);
-            }
-        }
-    } else if (days && typeof days === 'object') {
-        for (const [k, v] of Object.entries(days)) {
-            const num = Number(k);
-            if (!isNaN(num)) {
-                const items = typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : [String(v)];
-                dayContentMap[num] = items.slice(0, 10);
-            }
-        }
-    }
     const pad = n => String(n).padStart(2, '0');
     const dateStr = (d) => y + '-' + pad(m) + '-' + pad(d);
     let cells = '';
@@ -251,7 +232,6 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
     for (let day = 1; day <= daysInMonth; day++) {
         const isCurrent = day === cd;
         const cls = 'sao-cal-cell' + (isCurrent ? ' sao-cal-today' : '');
-        const events = dayContentMap[day];
         const dateStrFull = dateStr(day);
         // 硬过滤：只显示 date 字段与当前 grid 日期完全匹配的事件
         // 旧数据没有 date 字段（undefined）→ 过滤掉（不信任旧数据）
@@ -285,7 +265,7 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
             const full = typeof first === 'string' ? first : (first.title || first.description || '');
             eventHtml = '<div class="sao-cal-event-text">' + esc(full) + '</div>';
         }
-        cells += `<div class="${cls}" data-date="${dateStrFull}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${eventHtml}</div>`;
+        cells += `<div class="${cls}" data-date="${dateStrFull}" role="button" aria-label="${dateStrFull}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${eventHtml}</div>`;
     }
     return cells;
 }
@@ -351,6 +331,16 @@ function hideSaoLightDomTags(messageEl) {
         }
     `;
     target.prepend(styleEl);
+}
+
+
+/** Partial calendar update — replaces only the grid cells and summary text.
+ *  Keeps <style> and <details> shell intact (no CSS re-injection, preserves open state). */
+function _partialUpdateCalendar(shadow, summaryText, weekdaysHtml, gridCells) {
+    const summarySpan = shadow.querySelector('.sao-cal-details > summary > span');
+    if (summarySpan) summarySpan.textContent = summaryText;
+    const grid = shadow.querySelector('.sao-cal-grid');
+    if (grid) grid.innerHTML = weekdaysHtml + gridCells;
 }
 
 /** 从 chatMetadata.calendarPanels[messageId] 渲染日历面板，无数据时显示占位 */
@@ -487,7 +477,21 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
                 if (action === 'calPrev') vd.setMonth(vd.getMonth() - 1);
                 else vd.setMonth(vd.getMonth() + 1);
                 _chatCalViewDates.set(messageId, new Date(vd));
-                renderCalendar(messageEl, rawText, messageId, refNode);
+                // Partial update: only refresh grid + summary, keep <style>/<details> shell intact
+                const newVY = vd.getFullYear(), newVM = vd.getMonth() + 1;
+                const newIsHome = (newVY === year && newVM === month);
+                const newSummary = (!placeholderMode && newIsHome && currentDay)
+                    ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
+                    : `\ud83d\udcc5 ${newVY}\u5e74${newVM}\u6708`;
+                const newCalDaysMap = buildCleanCalendarDays(
+                    (year && month && currentDay) ? year + '-' + String(month).padStart(2,'0') + '-' + String(currentDay).padStart(2,'0') : null
+                );
+                const newGridCells = (!placeholderMode && year && month)
+                    ? buildCalendarGrid(newVY, newVM, newIsHome ? currentDay : 0, gridDays, newCalDaysMap, newIsHome)
+                    : '';
+                const newWeekdaysHtml = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
+                    .map(d => '<div class="sao-cal-header">' + d + '</div>').join('');
+                _partialUpdateCalendar(shadow, newSummary, newWeekdaysHtml, newGridCells);
                 return;
             }
             const cell = e.target.closest('.sao-cal-cell[data-date]');

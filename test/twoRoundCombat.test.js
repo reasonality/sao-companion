@@ -304,6 +304,16 @@ describe('M1 吸血：怪物吸血技能触发', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('A5 多段命中：每击独立命中判定', () => {
     it('with hitRate=50%, both hits and misses occur across iterations', () => {
+        // Deterministic mock: pattern [hit, critRoll, miss, hit, critRoll] repeating.
+        // finalHitRate = weaponHitRate/100 + extraHitRate - enemyEvasionRate
+        //   = 0.50 + agi*0.01 - agi*0.005 = 0.50 + 0.25 - 0.05 = 0.70
+        // So hitRoll <= 0.70 → hit; > 0.70 → miss.
+        // On hit: 2 random calls (hitRoll + critRoll); on miss: 1 call (hitRoll only).
+        // Roll sequence assumes hitRoll + critRoll per attack per enemy. Update if a5MultiHitCore changes.
+        const rolls = [0.1, 0.99, 0.8, 0.1, 0.99]; // hit, no-crit, miss, hit, no-crit (repeating)
+        let rollIdx = 0;
+        vi.spyOn(Math, 'random').mockImplementation(() => rolls[rollIdx++ % rolls.length]);
+
         const player = makePlayer({ ap: 3, mp: 100 });
         const enemy = makeEnemy({ hp: 9999, maxHp: 9999 }); // won't die
         const weapon = { name: 'A5:MultiStrike', attack: 20, hitRate: 50, critRate: 0, mpCost: 5, apt: 1 };
@@ -328,6 +338,8 @@ describe('A5 多段命中：每击独立命中判定', () => {
         // With 50% hitRate over 20 iterations * multiple hits, we should see both
         expect(hitCount).toBeGreaterThan(0);
         expect(missCount).toBeGreaterThan(0);
+
+        vi.restoreAllMocks();
     });
 
     it('with hitRate=100%, all attacks hit', () => {

@@ -299,11 +299,6 @@ export function getEquipmentStatsFromStore() {
     return { str, agi, int, vit, atk, maxHp, maxMp, hit, crit };
 }
 
-// Deprecated alias — use getEquipmentStatsFromStore
-export function getEquipmentStatsFromState() {
-    return getEquipmentStatsFromStore();
-}
-
 /**
  * 将冷却状态写回 data.runtime.skillCooldowns
  * @param {Object} player - 玩家战斗实体

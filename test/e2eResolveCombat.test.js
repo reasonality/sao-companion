@@ -16,6 +16,9 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 process.env.NODE_ENV = 'test';
 
 // 动态 import index.js（触发测试钩子挂载 globalThis.__SAO_INTERNAL__）
+// NOTE: This test depends on the __SAO_INTERNAL__ guard in index.js
+// (search for process.env.NODE_ENV === 'test'). If that guard is removed
+// or refactored, this test file fails entirely.
 let SAO;
 beforeAll(async () => {
     await import('../index.js');

@@ -29,6 +29,22 @@ import {
     performEnemyActionCore,
     executeTeammateAttackCore,
 } from './battleCore.js';
+import { DOMPurify } from '../../../../../lib.js';
+
+/**
+ * HTML-escape a string for safe interpolation into innerHTML.
+ * @param {*} str
+ * @returns {string}
+ */
+function esc(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 /**
  * applyInstructionsToDom — Execute DOM operations from Core instruction lists
@@ -115,6 +131,188 @@ function applyInstructionsToDom(instructions, options = {}) {
         delay += inst.type === 'damage' || inst.type === 'heal' ? 300 : 100;
     });
 }
+
+const StateValidator = {
+  
+  isDead(entity) {
+    return entity && entity.hp <= 0;
+  },
+  
+  isPlayerDead() {
+    return this.isDead(battleState.player);
+  },
+  
+  areAllEnemiesDead() {
+    return battleState.enemies.length === 0;
+  },
+  
+  isBattleOver() {
+    return this.isPlayerDead() || this.areAllEnemiesDead();
+  },
+  
+  isVictory() {
+    return !this.isPlayerDead() && this.areAllEnemiesDead();
+  },
+  
+  isDefeat() {
+    return this.isPlayerDead();
+  },
+  
+  shouldEndAttack(currentCount, maxCount, hasTargets = true) {
+    return currentCount >= maxCount || !hasTargets || this.areAllEnemiesDead();
+  },
+  
+  isValidTarget(target) {
+    return target && target.hp > 0;
+  },
+  
+  processDeadEnemies() {
+    const deadEnemies = battleState.enemies.filter(enemy => this.isDead(enemy));
+    if (deadEnemies.length > 0) {
+      
+      deadEnemies.forEach(enemy => {
+        logBattleAction(`${enemy.name} 被击败了！`);
+        const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
+        createDeathEffect(enemyElement);
+        
+        if (typeof hateSystem !== 'undefined') {
+          hateSystem.clearEnemyHate(enemy.id);
+        }
+      });
+      
+      battleState.enemies = battleState.enemies.filter(enemy => !this.isDead(enemy));
+      
+      if (this.areAllEnemiesDead()) {
+        endBattle(true);
+        return true; 
+      }
+    }
+    return false; 
+  },
+  
+  checkEnemyDeath(enemy) {
+    if (this.isDead(enemy)) {
+      logBattleAction(`${enemy.name} 被击败了！`);
+      const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
+      createDeathEffect(enemyElement);
+      
+      battleState.enemies = battleState.enemies.filter(e => e.id !== enemy.id);
+      
+      if (typeof hateSystem !== 'undefined') {
+        hateSystem.clearEnemyHate(enemy.id);
+      }
+      
+      if (this.areAllEnemiesDead()) {
+        endBattle(true);
+        return true; 
+      }
+    }
+    return false; 
+  },
+
+  checkBatchEnemyDeath(deadEnemies) {
+    if (deadEnemies.length > 0) {
+      
+      deadEnemies.forEach(enemy => {
+        logBattleAction(`${enemy.name} 被击败了！`);
+        const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
+        createDeathEffect(enemyElement);
+        
+        if (typeof hateSystem !== 'undefined') {
+          hateSystem.clearEnemyHate(enemy.id);
+        }
+      });
+      
+      battleState.enemies = battleState.enemies.filter(enemy => !this.isDead(enemy));
+      
+      if (this.areAllEnemiesDead()) {
+        endBattle(true);
+        return true; 
+      }
+    }
+    return false; 
+  },
+};
+
+// 5a: TooltipGenerator 改为模块级（不再挂 window）
+const TooltipGenerator = {
+    generateWeaponEffectTooltip(effectKey, parts) {
+      if (weaponSpecialEffects[effectKey]) {
+        switch (effectKey) {
+          case 'A1':
+          case 'A2':
+          case 'A3':
+          case 'A4':
+          case 'A5':
+            return weaponSpecialEffects[effectKey]();
+          default:
+            return weaponSpecialEffects[effectKey] || effectKey;
+        }
+      }
+      return '';
+    },
+    generateEnchantmentTooltip(effectKey, parts) {
+      if (!enchantmentEffects[effectKey]) return '';
+      switch (effectKey) {
+        case 'B1':
+        case 'B4':
+        case 'B9':
+        case 'B15':
+        case 'B16':
+        case 'B17':
+          return parts.length >= 2 ? enchantmentEffects[effectKey](parts[1]) : '';
+        case 'B2':
+        case 'B3':
+        case 'B5':
+        case 'B6':
+        case 'B7':
+        case 'B8':
+        case 'B10':
+        case 'B11':
+        case 'B12':
+        case 'B13':
+        case 'B14':
+        case 'B18':
+        case 'B19':
+        case 'B22':
+          return parts.length >= 3 ? enchantmentEffects[effectKey](parts[1], parts[2]) : '';
+        case 'B20':
+        case 'B21':
+          return parts.length >= 2 ? enchantmentEffects[effectKey](parts[1]) : '';
+        default:
+          return enchantmentEffects[effectKey] || effectKey;
+      }
+    },
+    generateEffectCodeHtml(codes) {
+      let effectsHtml = '';
+      codes.forEach(code => {
+        const [codeType, codeValue] = code.split(':');
+        const parts = codeValue.split(',');
+        const effectKey = parts[0];
+        let tooltipText = '';
+        if (codeType === 'WN') {
+          tooltipText = this.generateWeaponEffectTooltip(effectKey, parts);
+        } else if (codeType === 'EN') {
+          tooltipText = this.generateEnchantmentTooltip(effectKey, parts);
+        }
+        if (tooltipText) {
+          effectsHtml += `<div class="weapon-effect-code status-effect">${effectKey}
+                              <span class="effect-tooltip">${tooltipText}</span>
+                          </div>`;
+        }
+      });
+      return effectsHtml;
+    },
+    generateAttributeTooltip(attribute) {
+      const tooltips = {
+        str: '物理伤害+生命恢复',
+        agi: '速度+闪避+暴击',
+        int: '暴击+法力恢复',
+        vit: '行动点+生命恢复',
+      };
+      return tooltips[attribute] || '';
+    },
+};
 
 // battle/battleLogic.js
 // 战斗逻辑 - 从卡片正则迁移
@@ -840,7 +1038,7 @@ function updateTeammatesStatus(teammates) {
       });
       weaponsHtml += `</div></div>`;
     }
-    teammateItem.innerHTML = `
+    teammateItem.innerHTML = DOMPurify.sanitize(`
                     <div class="teammate-info">
                         <div class="teammate-name">${
                           teammate.name
@@ -903,7 +1101,7 @@ function updateTeammatesStatus(teammates) {
                         </div>
                     </div>
                     ${weaponsHtml}
-                `;
+                `);
     teammatesList.appendChild(teammateItem);
   });
   teammatesDiv.appendChild(teammatesList);
@@ -1184,7 +1382,7 @@ function updatePlayerStatus(player) {
                     </div>`;
   });
   html += `</div></div>`;
-  domRoot.getElementById('player-status').innerHTML = html;
+  domRoot.getElementById('player-status').innerHTML = DOMPurify.sanitize(html);
 }
 
 function updateEnemiesDisplay(enemies) {
@@ -1294,7 +1492,7 @@ function updateEnemiesDisplay(enemies) {
                     </div>`;
   });
   html += `</div>`;
-  domRoot.getElementById('pilots-container').innerHTML = html;
+  domRoot.getElementById('pilots-container').innerHTML = DOMPurify.sanitize(html);
   
   domRoot.querySelectorAll('#pilots-container .enemy-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -1479,32 +1677,22 @@ function createBattleButton() {
             
             if (!StateValidator.isValidTarget(target)) continue;
             
-            const attackerStats = {
-              extraHitRate: (battleState.player.agi || 0) * 0.01,
-              extraCritRate: (battleState.player.int || 0) * 0.01,
-              baseCritMultiplier: 1.5 + (battleState.player.int || 0) * 0.01,
-            };
-            const targetStats = {
-              evasionRate: (target.agi || 0) * 0.005,
-              critRateResistance: (target.agi || 0) * 0.005 + (target.int || 0) * 0.005,
-            };
-            const finalHitRate = calculateFinalHitRate(weapon.hitRate, attackerStats, targetStats);
+            const playerActualStats = getPlayerActualStats();
+            const enemyActualStats = getEnemyActualStats(target);
+            const finalHitRate = calculateFinalHitRate(weapon.hitRate, playerActualStats, enemyActualStats);
             const hitRoll = Math.random();
             
             if (hitRoll <= Math.min(1.0, finalHitRate)) {
 
-              const finalCritRate = calculateFinalCritRate(weapon.critRate, attackerStats, targetStats, finalHitRate);
+              const finalCritRate = calculateFinalCritRate(weapon.critRate, playerActualStats, enemyActualStats, finalHitRate);
               const critRoll = Math.random();
               
               const isCrit = critRoll <= finalCritRate;
               
-              let damage = calculateDamage(
-                weapon,
-                target,
-                isCrit,
-                battleState.player.str || 0,
-                battleState.player.int || 0,
-              );
+              const critMultiplier = isCrit
+                ? calculateFinalCritMultiplier(playerActualStats, enemyActualStats, finalCritRate)
+                : 1.0;
+              let damage = calculateFinalDamage(weapon.attack, playerActualStats, enemyActualStats, isCrit, critMultiplier);
               
               battleState.weaponUsage[weapon.name].damage += damage;
               
@@ -1574,25 +1762,6 @@ function createBattleButton() {
                 battleState.enemies[0],
               ),
             ];
-      }
-      
-      function calculateDamage(weapon, target, isCrit, attackerStr = 0, attackerInt = 0) {
-        
-        const attackerStats = {
-          damageBonus: attackerStr * 0.01,
-          extraCritRate: 0, 
-          baseCritMultiplier: 1.5 + attackerInt * 0.01, 
-        };
-        const targetStats = {
-          damageTakenRate: 50 / (50 + (target.vit || 0)),
-          physicalReduction: (target.str || 0) * 1,
-          critDamageResistance: 0, 
-        };
-        
-        const finalCritMultiplier = isCrit
-          ? Math.max(1.0, attackerStats.baseCritMultiplier - targetStats.critDamageResistance)
-          : 1.0;
-        return calculateFinalDamage(weapon.attack, attackerStats, targetStats, isCrit, finalCritMultiplier);
       }
       
       function tryUseHealingItem() {
@@ -1773,7 +1942,7 @@ function createBattleButton() {
         summaryHtml += `</ul>`;
       }
       
-      domRoot.getElementById('result-summary').innerHTML = summaryHtml;
+      domRoot.getElementById('result-summary').innerHTML = DOMPurify.sanitize(summaryHtml);
       domRoot.getElementById('result-modal').style.display = 'flex';
       
       domRoot.getElementById('close-result').removeEventListener('click', closeResultHandler);
@@ -2618,7 +2787,7 @@ function createBattleButton() {
           });
         }
         
-        domRoot.getElementById('combat-player-panel').innerHTML = html;
+        domRoot.getElementById('combat-player-panel').innerHTML = DOMPurify.sanitize(html);
         
         domRoot.querySelector('.combat-entity.player').addEventListener('click', function () {
           
@@ -2721,7 +2890,7 @@ function createBattleButton() {
         if (!lazyRenderManager.shouldRenderCombat()) {
           return;
         }
-        domRoot.getElementById('combat-enemy-panel').innerHTML = battleState.enemies
+        domRoot.getElementById('combat-enemy-panel').innerHTML = DOMPurify.sanitize(battleState.enemies
           .map((enemy, index) => {
             
             const actualStats = getEnemyActualStats(enemy);
@@ -3007,7 +3176,7 @@ function createBattleButton() {
                     </div>
                 `;
           })
-          .join('');
+          .join(''));
         
         domRoot.querySelectorAll('.combat-entity.enemy').forEach(enemyElement => {
           enemyElement.addEventListener('click', function () {
@@ -3272,7 +3441,7 @@ function createBattleButton() {
 
         const detailedStatsDisplay = domRoot.getElementById('detailed-stats-display');
         if (detailedStatsDisplay) {
-          detailedStatsDisplay.innerHTML = statsHtml;
+          detailedStatsDisplay.innerHTML = DOMPurify.sanitize(statsHtml);
 
           const characterSelectorDiv = detailedStatsDisplay.querySelector('.character-selector');
           if (characterSelectorDiv) {
@@ -3378,7 +3547,7 @@ function createBattleButton() {
         }
         
         const allWeapons = battleState.player.weapons || [];
-        domRoot.getElementById('melee-weapon-list').innerHTML =
+        domRoot.getElementById('melee-weapon-list').innerHTML = DOMPurify.sanitize(
           allWeapons.length > 0
             ? allWeapons
                 .map(weapon => {
@@ -3434,7 +3603,7 @@ function createBattleButton() {
                     `;
                 })
                 .join('')
-            : '<div style="text-align: center; padding: 10px;">没有可用的剑技</div>';
+            : '<div style="text-align: center; padding: 10px;">没有可用的剑技</div>');
         
         const attackControls = domRoot.querySelector('.attack-controls');
         attackControls.innerHTML = `
@@ -3461,7 +3630,7 @@ function createBattleButton() {
         const items = battleState.player.items || [];
         
         const itemsList = domRoot.getElementById('items-list');
-        itemsList.innerHTML =
+        itemsList.innerHTML = DOMPurify.sanitize(
           items.length > 0
             ? items
                 .map(item => {
@@ -3508,7 +3677,7 @@ function createBattleButton() {
                     `;
                 })
                 .join('')
-            : '<div style="text-align: center; padding: 10px;">没有可用的道具</div>';
+            : '<div style="text-align: center; padding: 10px;">没有可用的道具</div>');
         
         EventManager.bindItemButtons(battleState.player.items);
       }
@@ -5028,6 +5197,10 @@ const handleTeammateVitalityBoost = (params, teammate) =>
         notifyBattleStateChange();
       }
       
+      // Module-level handler refs for full-battle result modal (prevents listener stacking)
+      let _fullBattleCloseHandler = null;
+      let _fullBattleSendHandler = null;
+      
       function endBattle(isVictory) {
         
         domRoot
@@ -5068,24 +5241,30 @@ const handleTeammateVitalityBoost = (params, teammate) =>
             });
           }
           victoryHtml += `</div>`;
-          domRoot.getElementById('result-summary').innerHTML = victoryHtml;
+          domRoot.getElementById('result-summary').innerHTML = DOMPurify.sanitize(victoryHtml);
         } else {
           logBattleAction(`战斗失败！你被击败了！`);
-          domRoot.getElementById('result-summary').innerHTML = `
+          domRoot.getElementById('result-summary').innerHTML = DOMPurify.sanitize(`
                       <h3 class="defeat">战斗失败！</h3>
                       <p>你被${battleState.lastKilledBy ? ' ' + battleState.lastKilledBy + ' ' : ''}击败了！</p>
                       <p>HP变为0</p>
-                  `;
+                  `);
         }
         
         const battleStats = collectBattleStatistics();
         
         domRoot.getElementById('result-modal').style.display = 'flex';
         
-        domRoot.getElementById('close-result').removeEventListener('click', closeResultHandler);
-        domRoot.getElementById('send-result').removeEventListener('click', sendResultHandler);
+        // Remove previous full-battle handlers (prevents stacking on repeat calls)
+        if (_fullBattleCloseHandler) {
+          domRoot.getElementById('close-result').removeEventListener('click', _fullBattleCloseHandler);
+        }
+        if (_fullBattleSendHandler) {
+          domRoot.getElementById('send-result').removeEventListener('click', _fullBattleSendHandler);
+        }
         
-        domRoot.getElementById('close-result').addEventListener('click', function () {
+        // Define named handlers (captured in module-level refs for removal)
+        _fullBattleCloseHandler = function handleFullBattleCloseResult() {
           domRoot.getElementById('result-modal').style.display = 'none';
           domRoot.getElementById('combat-interface').style.display = 'none';
           domRoot.querySelector('.container').style.display = 'block';
@@ -5096,9 +5275,9 @@ const handleTeammateVitalityBoost = (params, teammate) =>
           domRoot.getElementById('extra-result-text').value = '';
           updatePlayerStatus(battleState.player);
           createBattleButton();
-        });
+        };
         
-        domRoot.getElementById('send-result').addEventListener('click', function () {
+        _fullBattleSendHandler = function handleFullBattleSendResult() {
           
           const extraText = domRoot.getElementById('extra-result-text').value.trim();
           
@@ -5199,7 +5378,11 @@ const handleTeammateVitalityBoost = (params, teammate) =>
           domRoot.getElementById('extra-result-text').value = '';
           updatePlayerStatus(battleState.player);
           createBattleButton();
-        });
+        };
+        
+        // Add the named handlers
+        domRoot.getElementById('close-result').addEventListener('click', _fullBattleCloseHandler);
+        domRoot.getElementById('send-result').addEventListener('click', _fullBattleSendHandler);
       }
       
       function logBattleAction(message) {
@@ -5537,188 +5720,6 @@ const EventManager = {
   },
 };
 
-const StateValidator = {
-  
-  isDead(entity) {
-    return entity && entity.hp <= 0;
-  },
-  
-  isPlayerDead() {
-    return this.isDead(battleState.player);
-  },
-  
-  areAllEnemiesDead() {
-    return battleState.enemies.length === 0;
-  },
-  
-  isBattleOver() {
-    return this.isPlayerDead() || this.areAllEnemiesDead();
-  },
-  
-  isVictory() {
-    return !this.isPlayerDead() && this.areAllEnemiesDead();
-  },
-  
-  isDefeat() {
-    return this.isPlayerDead();
-  },
-  
-  shouldEndAttack(currentCount, maxCount, hasTargets = true) {
-    return currentCount >= maxCount || !hasTargets || this.areAllEnemiesDead();
-  },
-  
-  isValidTarget(target) {
-    return target && target.hp > 0;
-  },
-  
-  processDeadEnemies() {
-    const deadEnemies = battleState.enemies.filter(enemy => this.isDead(enemy));
-    if (deadEnemies.length > 0) {
-      
-      deadEnemies.forEach(enemy => {
-        logBattleAction(`${enemy.name} 被击败了！`);
-        const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
-        createDeathEffect(enemyElement);
-        
-        if (typeof hateSystem !== 'undefined') {
-          hateSystem.clearEnemyHate(enemy.id);
-        }
-      });
-      
-      battleState.enemies = battleState.enemies.filter(enemy => !this.isDead(enemy));
-      
-      if (this.areAllEnemiesDead()) {
-        endBattle(true);
-        return true; 
-      }
-    }
-    return false; 
-  },
-  
-  checkEnemyDeath(enemy) {
-    if (this.isDead(enemy)) {
-      logBattleAction(`${enemy.name} 被击败了！`);
-      const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
-      createDeathEffect(enemyElement);
-      
-      battleState.enemies = battleState.enemies.filter(e => e.id !== enemy.id);
-      
-      if (typeof hateSystem !== 'undefined') {
-        hateSystem.clearEnemyHate(enemy.id);
-      }
-      
-      if (this.areAllEnemiesDead()) {
-        endBattle(true);
-        return true; 
-      }
-    }
-    return false; 
-  },
-
-  checkBatchEnemyDeath(deadEnemies) {
-    if (deadEnemies.length > 0) {
-      
-      deadEnemies.forEach(enemy => {
-        logBattleAction(`${enemy.name} 被击败了！`);
-        const enemyElement = domRoot.querySelector(`.combat-entity.enemy[data-enemy-id="${enemy.id}"]`);
-        createDeathEffect(enemyElement);
-        
-        if (typeof hateSystem !== 'undefined') {
-          hateSystem.clearEnemyHate(enemy.id);
-        }
-      });
-      
-      battleState.enemies = battleState.enemies.filter(enemy => !this.isDead(enemy));
-      
-      if (this.areAllEnemiesDead()) {
-        endBattle(true);
-        return true; 
-      }
-    }
-    return false; 
-  },
-};
-
-// 5a: TooltipGenerator 改为模块级（不再挂 window）
-const TooltipGenerator = {
-    generateWeaponEffectTooltip(effectKey, parts) {
-      if (weaponSpecialEffects[effectKey]) {
-        switch (effectKey) {
-          case 'A1':
-          case 'A2':
-          case 'A3':
-          case 'A4':
-          case 'A5':
-            return weaponSpecialEffects[effectKey]();
-          default:
-            return weaponSpecialEffects[effectKey] || effectKey;
-        }
-      }
-      return '';
-    },
-    generateEnchantmentTooltip(effectKey, parts) {
-      if (!enchantmentEffects[effectKey]) return '';
-      switch (effectKey) {
-        case 'B1':
-        case 'B4':
-        case 'B9':
-        case 'B15':
-        case 'B16':
-        case 'B17':
-          return parts.length >= 2 ? enchantmentEffects[effectKey](parts[1]) : '';
-        case 'B2':
-        case 'B3':
-        case 'B5':
-        case 'B6':
-        case 'B7':
-        case 'B8':
-        case 'B10':
-        case 'B11':
-        case 'B12':
-        case 'B13':
-        case 'B14':
-        case 'B18':
-        case 'B19':
-        case 'B22':
-          return parts.length >= 3 ? enchantmentEffects[effectKey](parts[1], parts[2]) : '';
-        case 'B20':
-        case 'B21':
-          return parts.length >= 2 ? enchantmentEffects[effectKey](parts[1]) : '';
-        default:
-          return enchantmentEffects[effectKey] || effectKey;
-      }
-    },
-    generateEffectCodeHtml(codes) {
-      let effectsHtml = '';
-      codes.forEach(code => {
-        const [codeType, codeValue] = code.split(':');
-        const parts = codeValue.split(',');
-        const effectKey = parts[0];
-        let tooltipText = '';
-        if (codeType === 'WN') {
-          tooltipText = this.generateWeaponEffectTooltip(effectKey, parts);
-        } else if (codeType === 'EN') {
-          tooltipText = this.generateEnchantmentTooltip(effectKey, parts);
-        }
-        if (tooltipText) {
-          effectsHtml += `<div class="weapon-effect-code status-effect">${effectKey}
-                              <span class="effect-tooltip">${tooltipText}</span>
-                          </div>`;
-        }
-      });
-      return effectsHtml;
-    },
-    generateAttributeTooltip(attribute) {
-      const tooltips = {
-        str: '物理伤害+生命恢复',
-        agi: '速度+闪避+暴击',
-        int: '暴击+法力恢复',
-        vit: '行动点+生命恢复',
-      };
-      return tooltips[attribute] || '';
-    },
-};
-
 function showHealNumber(amount) {
   const healElement = document.createElement('div');
   healElement.className = 'heal-number';
@@ -5983,7 +5984,7 @@ function updatePreparationSummary(enemies) {
       const displayNames = enemies.length > 3 
         ? `${enemies.slice(0, 3).map(e => e.name).join('、')}等${enemies.length}个敌人`
         : enemyNames;
-      summary.innerHTML = `战前准备 <span style="color: #ff6b6b; font-weight: bold; margin-left: 8px;">📍 ${displayNames}</span>`;
+      summary.innerHTML = `战前准备 <span style="color: #ff6b6b; font-weight: bold; margin-left: 8px;">📍 ${esc(displayNames)}</span>`;
     } else {
       summary.textContent = '战前准备';
     }
@@ -6225,7 +6226,7 @@ function showMidActionResult() {
     statusInfo += `</div>`;
   }
   
-  domRoot.getElementById('result-summary').innerHTML = statusInfo;
+  domRoot.getElementById('result-summary').innerHTML = DOMPurify.sanitize(statusInfo);
   domRoot.getElementById('result-modal').style.display = 'flex';
   
   domRoot.getElementById('close-result').removeEventListener('click', closeMidActionHandler);
@@ -6382,7 +6383,7 @@ function updateTeammateWeaponsList() {
   
   const currentAction = battleState.actionOrder[battleState.currentActionIndex];
   if (currentAction && currentAction.type === 'teammate') {
-        domRoot.getElementById('melee-toggle').innerHTML = `<i class="fas fa-hand-fist"></i> ${currentAction.name}的剑技`;
+        domRoot.getElementById('melee-toggle').innerHTML = `<i class="fas fa-hand-fist"></i> ${esc(currentAction.name)}的剑技`;
   } else {
     domRoot.getElementById('melee-toggle').innerHTML = '<i class="fas fa-hand-fist"></i> 队友剑技';
   }
@@ -6395,7 +6396,7 @@ function updateTeammateWeaponsList() {
     meleeWeaponList.innerHTML = '<div style="text-align: center; padding: 10px;">该队友没有可用的剑技</div>';
     return;
   }
-  meleeWeaponList.innerHTML =
+  meleeWeaponList.innerHTML = DOMPurify.sanitize(
     battleState.currentTeammate.weapons.length > 0
       ? battleState.currentTeammate.weapons
           .map(weapon => {
@@ -6426,7 +6427,7 @@ function updateTeammateWeaponsList() {
                     `;
           })
           .join('')
-      : '<div style="text-align: center; padding: 10px;">该队友没有可用的剑技</div>';
+      : '<div style="text-align: center; padding: 10px;">该队友没有可用的剑技</div>');
   
   if (battleState.currentTeammate && battleState.currentTeammate.weapons) {
     EventManager.bindWeaponButtons(battleState.currentTeammate.weapons, true);
