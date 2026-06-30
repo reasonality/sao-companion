@@ -6770,7 +6770,8 @@ function processSupportEnchantmentEffects(weapon, target, targetName) {
           const value = parseInt(params[1]);
           buffsArray.push({
             name: '耐力增益',
-            type: 'vitBoost',
+            // Bug#5b: 同 handleTeammateVitalityBoost/Core，用 'endBoost' 而非 'vitBoost'(applyStatBuffs 不识别 vitBoost)
+            type: 'endBoost',
             value: value,
             duration: duration,
             isPositive: true,
