@@ -2728,6 +2728,8 @@ function createBattleButton() {
             const buffsHtml =
               enemy.buffs && enemy.buffs.length > 0
                 ? enemy.buffs
+                    // Bug#stun-double: stun 类型由下方 freezeHtml(pendingFreeze) 单独渲染，此处过滤避免双重显示
+                    .filter(buff => buff.type !== 'stun')
                     .map(buff => {
                       
                       let buffClass = buff.isPositive ? 'positive' : 'negative';
