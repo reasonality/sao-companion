@@ -408,10 +408,22 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
     }
 
     // 确定当前视图月份（支持翻页）
+    // Bug A fix: when panel data IS available (year && month valid), reset cached viewDate
+    // if it was poisoned by an earlier placeholder render (year=0 → new Date() stored).
+    // The second render (panel data arrives) must override the poisoned cache.
     let viewDate = _chatCalViewDates.get(messageId);
-    if (!viewDate || !year) {
-        viewDate = (year && month) ? new Date(year, month - 1, 1) : new Date();
-        _chatCalViewDates.set(messageId, viewDate);
+    if (year && month) {
+        // Panel data present: reset viewDate if cache is empty or was poisoned by placeholder render
+        if (!viewDate || viewDate.getFullYear() !== year || viewDate.getMonth() !== month - 1) {
+            viewDate = new Date(year, month - 1, 1);
+            _chatCalViewDates.set(messageId, viewDate);
+        }
+    } else {
+        // Placeholder mode (no panel data): use current date as fallback
+        if (!viewDate) {
+            viewDate = new Date();
+            _chatCalViewDates.set(messageId, viewDate);
+        }
     }
     // GC: 限制 _chatCalViewDates 大小，防止长会话内存泄漏
     if (_chatCalViewDates.size > 50) {
@@ -472,22 +484,43 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
                 e.preventDefault();
                 e.stopPropagation();
                 const action = navBtn.getAttribute('data-action');
+                // Bug C fix: read FRESH state at click time (not stale closure-captured render locals)
+                const freshPanel = getSaoData()?.calendarPanels?.[messageId];
+                let freshYear = 0, freshMonth = 0, freshCurrentDay = 0;
+                let freshGridDays = null;
+                if (freshPanel && freshPanel.grid) {
+                    const g = freshPanel.grid;
+                    freshYear = Number(g.year) || 0;
+                    freshMonth = Number(g.month) || 0;
+                    freshCurrentDay = Number(g.current_day) || 0;
+                    freshGridDays = Array.isArray(g.days) ? g.days : null;
+                }
+                // Reset cache if panel data now available but cache was poisoned
                 let vd = _chatCalViewDates.get(messageId);
-                if (!vd) vd = (year && month) ? new Date(year, month - 1, 1) : new Date();
+                if (freshYear && freshMonth) {
+                    if (!vd || vd.getFullYear() !== freshYear || vd.getMonth() !== freshMonth - 1) {
+                        vd = new Date(freshYear, freshMonth - 1, 1);
+                        _chatCalViewDates.set(messageId, vd);
+                    }
+                } else if (!vd) {
+                    vd = new Date();
+                }
                 if (action === 'calPrev') vd.setMonth(vd.getMonth() - 1);
                 else vd.setMonth(vd.getMonth() + 1);
-                _chatCalViewDates.set(messageId, new Date(vd));
+                const newVd = new Date(vd);
+                _chatCalViewDates.set(messageId, newVd);
                 // Partial update: only refresh grid + summary, keep <style>/<details> shell intact
-                const newVY = vd.getFullYear(), newVM = vd.getMonth() + 1;
-                const newIsHome = (newVY === year && newVM === month);
-                const newSummary = (!placeholderMode && newIsHome && currentDay)
-                    ? (() => { const wd = new Date(year, month - 1, currentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${month}\u6708${currentDay}\u65e5 ${wdNames[wd]}`; })()
+                const newVY = newVd.getFullYear(), newVM = newVd.getMonth() + 1;
+                const newIsHome = (newVY === freshYear && newVM === freshMonth);
+                const newSummary = (freshYear && freshMonth && newIsHome && freshCurrentDay)
+                    ? (() => { const wd = new Date(freshYear, freshMonth - 1, freshCurrentDay).getDay(); const wdNames = ['\u5468\u65e5','\u5468\u4e00','\u5468\u4e8c','\u5468\u4e09','\u5468\u56db','\u5468\u4e94','\u5468\u516d']; return `\ud83d\udcc5 ${freshMonth}\u6708${freshCurrentDay}\u65e5 ${wdNames[wd]}`; })()
                     : `\ud83d\udcc5 ${newVY}\u5e74${newVM}\u6708`;
-                const newCalDaysMap = buildCleanCalendarDays(
-                    (year && month && currentDay) ? year + '-' + String(month).padStart(2,'0') + '-' + String(currentDay).padStart(2,'0') : null
-                );
-                const newGridCells = (!placeholderMode && year && month)
-                    ? buildCalendarGrid(newVY, newVM, newIsHome ? currentDay : 0, gridDays, newCalDaysMap, newIsHome)
+                const homeDateStr = (freshYear && freshMonth && freshCurrentDay)
+                    ? freshYear + '-' + String(freshMonth).padStart(2,'0') + '-' + String(freshCurrentDay).padStart(2,'0')
+                    : null;
+                const newCalDaysMap = buildCleanCalendarDays(homeDateStr);
+                const newGridCells = (freshYear && freshMonth)
+                    ? buildCalendarGrid(newVY, newVM, newIsHome ? freshCurrentDay : 0, freshGridDays, newCalDaysMap, newIsHome)
                     : '';
                 const newWeekdaysHtml = ['\u4e00','\u4e8c','\u4e09','\u56db','\u4e94','\u516d','\u65e5']
                     .map(d => '<div class="sao-cal-header">' + d + '</div>').join('');

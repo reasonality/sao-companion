@@ -6576,11 +6576,6 @@ let lazyRenderManager = {
 // B3 fix: side effects moved to initializeBattleSideEffects()
 
 function autoCollapseAfterSend() {
-  if (battleState) {
-    try {
-      localStorage.setItem('battleState_backup', JSON.stringify(battleState));
-    } catch (e) {}
-  }
   const preparationDetails = domRoot.getElementById('preparation-details');
   if (preparationDetails && preparationDetails.open) {
     setTimeout(() => {
@@ -7167,6 +7162,11 @@ export function destroyBattleSideEffects() {
   }
   sideEffectsState.runCmdPatched = false;
   sideEffectsState.initialized = false;
+
+  // Clean up any legacy localStorage backup that leaked across chats (cross-chat data leak fix)
+  try {
+    localStorage.removeItem('battleState_backup');
+  } catch (e) {}
 }
 
 // ============================================================
