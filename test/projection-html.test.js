@@ -48,6 +48,18 @@ vi.mock('../sao-store-quest.js', () => ({
     getQuestStore: vi.fn(() => mockStore?.questStore || { byId: {}, activeIds: [], completedIds: [] }),
 }));
 
+vi.mock('../sao-store-world.js', () => ({
+    getWorldStore: vi.fn(() => mockStore?.worldStore || { currentWeather: null, areaStatus: null, worldEvents: [], rules: {} }),
+    applyWorldUpdates: vi.fn(),
+    projectWorldHint: vi.fn(() => ''),
+}));
+
+vi.mock('../sao-store-floor.js', () => ({
+    getFloorStore: vi.fn(() => mockStore?.floorStore || { byId: {}, numberToId: {} }),
+    initFloorFromWorldBook: vi.fn(() => 0),
+    updateFloorState: vi.fn(),
+}));
+
 // Import AFTER mocks
 import { projectStatusPanelHtml, projectQuestSummary } from '../sao-state-projection.js';
 
@@ -188,6 +200,104 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('技能');
         expect(html).toContain('任务');
         expect(html).toContain('背包');
+        // 双栏布局新增：世界状态 section
+        expect(html).toContain('世界状态');
+    });
+
+    it('renders 2-row × 2-col grid with player/world on row1 and items/equip-stack on row2', () => {
+        mockStore = {
+            playerStore: {
+                identity: { name: '桐人', title: null },
+                progression: { level: 25, totalExp: 50000 },
+                attributes: { str: 50, agi: 60, int: 10, vit: 20 },
+                vitals: { hp: 585, maxHp: 585, mp: 120, maxMp: 120 },
+                position: { floor_id: 48, location: '黑铁宫' },
+                equipment: { weapon: 'e1', off_hand: null, head: null, chest: null, hands: null, legs: null, accessory: null },
+                skills: [{ skill_id: 's1', name: '水平方阵斩', proficiency: 3 }],
+                customSkills: [],
+            },
+            equipmentStore: {
+                byId: { e1: { name: '阐释者', slot: 'weapon', stats: { atk: 40, str: 10 } } },
+                nameToId: {},
+            },
+            skillStore: {
+                byId: { s1: { name: '水平方阵斩', combat: { atk: 45, hit: 80 } } },
+                nameToId: {},
+            },
+            inventoryStore: { owner_id: 'player', currency: { cor: 5000 }, items: [] },
+            questStore: { byId: {}, activeIds: [], completedIds: [] },
+            runtime: {},
+        };
+
+        const html = projectStatusPanelHtml();
+
+        // 两个 grid row 容器（sao-status-row1 在 sao-status-row2 之前）
+        const idxRow1 = html.indexOf('sao-status-row1');
+        const idxRow2 = html.indexOf('sao-status-row2');
+        expect(idxRow1).toBeGreaterThan(-1);
+        expect(idxRow2).toBeGreaterThan(idxRow1);
+
+        // 列容器与右列堆叠类
+        expect(html).toContain('sao-status-col');
+        expect(html).toContain('sao-status-right-stack');
+
+        // 行 1（在 row2 标记之前）应包含 info、vitals、world 三个 section
+        const row1Slice = html.slice(idxRow1, idxRow2);
+        expect(row1Slice).toContain('data-sao-section="info"');
+        expect(row1Slice).toContain('data-sao-section="vitals"');
+        expect(row1Slice).toContain('data-sao-section="world"');
+
+        // 行 2（在 row2 标记之后）应包含 quests、inventory、equip、skills
+        const row2Slice = html.slice(idxRow2);
+        expect(row2Slice).toContain('data-sao-section="quests"');
+        expect(row2Slice).toContain('data-sao-section="inventory"');
+        expect(row2Slice).toContain('data-sao-section="equip"');
+        expect(row2Slice).toContain('data-sao-section="skills"');
+    });
+
+    it('renders world rows with location/weather/area/clearing/events (always 5 rows)', () => {
+        mockStore = {
+            playerStore: {
+                identity: { name: '桐人', title: null },
+                progression: { level: 25, totalExp: 0 },
+                attributes: { str: 50, agi: 60, int: 10, vit: 20 },
+                vitals: { hp: 585, maxHp: 585, mp: 120, maxMp: 120 },
+                position: { floor_id: 48, location: '黑铁宫' },
+                equipment: { weapon: null, off_hand: null, head: null, chest: null, hands: null, legs: null, accessory: null },
+                skills: [],
+                customSkills: [],
+            },
+            equipmentStore: { byId: {}, nameToId: {} },
+            skillStore: { byId: {}, nameToId: {} },
+            inventoryStore: { owner_id: 'player', currency: { cor: 0 }, items: [] },
+            questStore: { byId: {}, activeIds: [], completedIds: [] },
+            worldStore: {
+                currentWeather: { condition: '晴朗' },
+                areaStatus: { location: '黑铁宫', danger_level: 'high', description: '危险' },
+                worldEvents: [{ event: '首通黑铁宫 BOSS' }],
+                rules: {},
+            },
+            floorStore: {
+                byId: {
+                    48: { floor_id: '48', floor_number: 48, state: { cleared: false }, canon: { boss: '守护者' } },
+                },
+                numberToId: {},
+            },
+            runtime: {},
+        };
+
+        const html = projectStatusPanelHtml();
+        // 5 行世界卡（位置/天气/区域/攻略/事件）
+        const rowMatches = html.match(/sao-world-row/g) || [];
+        expect(rowMatches.length).toBeGreaterThanOrEqual(5);
+
+        // 数据值出现
+        expect(html).toContain('黑铁宫');      // location
+        expect(html).toContain('晴朗');        // weather
+        expect(html).toContain('危险');        // description (area)
+        expect(html).toContain('攻略中');      // 当前楼层未攻略
+        expect(html).toContain('守护者');      // BOSS 名
+        expect(html).toContain('首通黑铁宫 BOSS');  // 最近事件
     });
 
     it('uses structured HUD classes and data-sao-section attributes', () => {
@@ -259,6 +369,18 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('data-sao-section="skills"');
         expect(html).toContain('data-sao-section="quests"');
         expect(html).toContain('data-sao-section="inventory"');
+        expect(html).toContain('data-sao-section="world"');
+
+        // 双栏布局（与侧边面板 panel.html:48-104 同语言）
+        expect(html).toContain('sao-status-row1');
+        expect(html).toContain('sao-status-row2');
+        expect(html).toContain('sao-status-row ');
+        expect(html).toContain('sao-status-col');
+        expect(html).toContain('sao-status-right-stack');
+        // 世界行卡（5 行：位置/天气/区域/攻略/事件）
+        expect(html).toContain('sao-world-row');
+        expect(html).toContain('sao-world-label');
+        expect(html).toContain('sao-world-value');
 
         // HUD structure
         expect(html).toContain('sao-hud-card');

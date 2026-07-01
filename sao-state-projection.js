@@ -9,7 +9,12 @@ import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
 import { getInventoryStore, getCurrency } from './sao-store-inventory.js';
 import { getQuestStore } from './sao-store-quest.js';
+import { getWorldStore } from './sao-store-world.js';
+import { getFloorStore } from './sao-store-floor.js';
 import { log, esc } from './sao-core.js';
+
+/** 区域危险度 → 中文标签（与面板侧栏 index.js DANGER_LABEL 对齐） */
+const DANGER_LABEL = { safe: '安全', low: '低危', medium: '中危', high: '高危', extreme: '极危' };
 
 // ============================================================
 // 常量 & 映射
@@ -747,8 +752,75 @@ export function renderQuestPanel() {
 }
 
 /**
+ * 投影世界状态面板行（位置/天气/区域/攻略/事件）。
+ * 数据来源：worldStore + floorStore + playerStore.position。
+ * 与侧边面板 panel.html:76-83 同语言（sao-world-row）。
+ * 任何字段缺失时回退到 "-" 占位，保持布局稳定。
+ *
+ * @returns {string} HTML 字符串；store 不可用时返回最小的 "sao-world-row" 网格
+ */
+export function renderWorldPanel() {
+    const ws = safe(() => getWorldStore(), 'getWorldStore');
+    const player = safe(() => getPlayerStore(), 'getPlayerStore');
+    const floorStore = safe(() => getFloorStore(), 'getFloorStore');
+
+    // 位置：areaStatus.location > player.position.location > "-"
+    let locationText = '-';
+    try {
+        if (ws?.areaStatus?.location) locationText = esc(ws.areaStatus.location);
+        else if (player?.position?.location) locationText = esc(player.position.location);
+    } catch { /* keep "-" */ }
+
+    // 天气
+    const weatherText = esc(ws?.currentWeather?.condition) || '-';
+
+    // 区域（危险度 + 描述）
+    let areaText = '-';
+    try {
+        const area = ws?.areaStatus;
+        if (area) {
+            const danger = DANGER_LABEL[area.danger_level] || area.danger_level || '';
+            const desc = area.description || '';
+            areaText = esc(danger && desc ? `${danger} - ${desc}` : (danger || desc));
+        }
+    } catch { /* keep "-" */ }
+
+    // 攻略：当前楼层 cleared 状态 + BOSS 名（对齐侧边栏：只显示当前楼层，不再列出全部）
+    let clearingText = '-';
+    try {
+        const currentFloorId = player?.position?.floor_id;
+        const currentFloor = currentFloorId ? floorStore?.byId?.[currentFloorId] : null;
+        if (currentFloor) {
+            const num = currentFloor.floor_number ?? currentFloorId;
+            const cleared = currentFloor.state?.cleared;
+            clearingText = esc(`${num}F ${cleared ? '✓ 已攻略' : '✗ 攻略中'}`);
+            if (currentFloor.canon?.boss) clearingText += esc(` (BOSS: ${currentFloor.canon.boss})`);
+        }
+    } catch { /* keep "-" */ }
+
+    // 事件：最近 1 条
+    let eventsText = '-';
+    try {
+        const events = ws?.worldEvents || [];
+        if (events.length > 0) eventsText = esc(events[events.length - 1].event);
+    } catch { /* keep "-" */ }
+
+    return [
+        `<div class="sao-world-row"><span class="sao-world-label">📍 位置</span><span class="sao-world-value">${locationText}</span></div>`,
+        `<div class="sao-world-row"><span class="sao-world-label">🌤 天气</span><span class="sao-world-value">${weatherText}</span></div>`,
+        `<div class="sao-world-row"><span class="sao-world-label">⚠ 区域</span><span class="sao-world-value">${areaText}</span></div>`,
+        `<div class="sao-world-row"><span class="sao-world-label">🏰 攻略</span><span class="sao-world-value">${clearingText}</span></div>`,
+        `<div class="sao-world-row"><span class="sao-world-label">📢 事件</span><span class="sao-world-value">${eventsText}</span></div>`,
+    ].join('');
+}
+
+/**
  * 投影状态面板 HTML（用于 Shadow DOM 渲染）。
  * 内部调用 C1 结构化数据函数，再转换为 HTML。
+ *
+ * 布局：与侧边面板状态监控 tab 同语言（panel.html:48-104）——
+ * 第 1 行：玩家状态（左） | 世界状态（右）
+ * 第 2 行：物品相关（左） | 装备+技能（右堆叠）
  *
  * @returns {string|null} HTML 字符串，store 不可用时返回 null（让 renderUserStatus 回退）
  */
@@ -1004,7 +1076,52 @@ export function projectStatusPanelHtml() {
         );
     }
 
-    // ---- 组装 ----
-    if (!sections.length) return null;
-    return sections.join('\n');
+    // ---- 7b. 世界状态（HUD 世界行卡） — 与侧边面板 panel.html:76-83 同语言 ----
+    // 总是渲染（占位 -），保持视觉密度稳定。
+    const worldRows = (() => {
+        try { return renderWorldPanel(); }
+        catch (e) {
+            log(`[projection] renderWorldPanel 失败: ${e.message}`, 'warn');
+            return '';
+        }
+    })();
+    sections.push(
+        `<div class="sao-status-section" data-sao-section="world">
+            <div class="sao-status-section-title">世界状态</div>
+            <div class="sao-hud-card">${worldRows}</div>
+        </div>`
+    );
+
+    // ---- 8. 装配：2 行 × 2 列网格，与侧边面板 panel.html:48-104 同语言 ----
+    // 把 8 个 section 按视觉密度分到两个 stack 列，避免单栏纵向堆叠冗长。
+    // 行 1：玩家（info+vitals） | 世界（world）
+    // 行 2：物品（quests+inventory） | 装备+技能（equip+skills+npcs 堆叠）
+    if (sections.length === 0) return null;
+
+    // 按 data-sao-section 名归类到对应列（同 section 渲染顺序敏感，回退友好）
+    const byName = (name) => sections.find(s => s.includes(`data-sao-section="${name}"`)) || '';
+    const infoHtml     = byName('info');
+    const vitalsHtml   = byName('vitals');
+    const worldHtml    = byName('world');
+    const questsHtml   = byName('quests');
+    const inventoryHtml = byName('inventory');
+    const equipHtml    = byName('equip');
+    const skillsHtml   = byName('skills');
+    const npcsHtml     = byName('npcs');
+
+    const row1Left  = [infoHtml, vitalsHtml].filter(Boolean).join('\n');
+    const row1Right = worldHtml;
+    const row2Left  = [questsHtml, inventoryHtml].filter(Boolean).join('\n');
+    const row2Right = [equipHtml, skillsHtml, npcsHtml].filter(Boolean).join('\n');
+
+    return [
+        `<div class="sao-status-row sao-status-row1">`,
+            `<div class="sao-status-col">${row1Left}</div>`,
+            `<div class="sao-status-col">${row1Right}</div>`,
+        `</div>`,
+        `<div class="sao-status-row sao-status-row2">`,
+            `<div class="sao-status-col">${row2Left}</div>`,
+            `<div class="sao-status-col sao-status-right-stack">${row2Right}</div>`,
+        `</div>`,
+    ].join('\n');
 }

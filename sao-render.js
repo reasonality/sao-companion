@@ -950,6 +950,64 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 position: relative;
             }
             .sao-status-section:last-child { margin-bottom: 0; }
+
+            /* === 双栏布局（与侧边面板 panel.html:48-104 同语言） === */
+            .sao-status-content { display: block; }
+            .sao-status-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px 12px;
+                align-items: start;
+            }
+            .sao-status-row + .sao-status-row { margin-top: 10px; }
+            .sao-status-col {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                min-width: 0;  /* 防止 grid 子项内部内容溢出 */
+            }
+            .sao-status-col .sao-status-section {
+                margin: 0;  /* 列内间隙由 .sao-status-col gap 控制 */
+            }
+            .sao-status-right-stack {
+                gap: 10px;  /* 行 2 右列堆叠节奏 */
+            }
+            /* === 世界行卡（与 style.css sao-world-row 对齐） === */
+            .sao-world-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                padding: 6px 0;
+                border-bottom: 1px solid rgba(255,255,255,0.06);
+                font-size: 0.86em;
+            }
+            .sao-world-row:last-child {
+                border-bottom: none;
+                padding-bottom: 0;
+            }
+            .sao-world-label {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.78em;
+                letter-spacing: 0.4px;
+                color: var(--text-secondary);
+                flex-shrink: 0;
+            }
+            .sao-world-value {
+                font-weight: 600;
+                color: var(--text-primary);
+                text-align: right;
+                word-break: break-word;
+                min-width: 0;
+            }
+            /* 窄屏（≤560px）降级单列 — 与已有响应式断点保持一致 */
+            @media (max-width: 560px) {
+                .sao-status-row {
+                    grid-template-columns: 1fr;
+                    gap: 10px;
+                }
+                .sao-status-row + .sao-status-row { margin-top: 10px; }
+            }
             .sao-status-section-title {
                 display: flex;
                 align-items: center;
@@ -1708,7 +1766,7 @@ function _refreshStatusPanelContent(shadow) {
         const contentDiv = shadow.querySelector('.sao-status-content');
         if (contentDiv) {
             // 外壳 details 是唯一需要保留 open 状态的折叠节点；
-            // 内部 7 个分区已改为直接展示（无 <details>），不再需要恢复开合。
+            // 内部 8 个分区已改为直接展示（无 <details>），不再需要恢复开合。
             const outerDetails = shadow.querySelector('.details-character-status');
             const outerWasOpen = outerDetails ? outerDetails.open : false;
 
