@@ -3,12 +3,14 @@
 
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
+import { getWorldStore } from './sao-store-world.js';
 import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
-import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
+import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById } from './sao-store-npc.js';
+import { findOrCreateConsumable } from './sao-store-consumable.js';
 
 // === 纯解析函数 ===
 
@@ -405,6 +407,13 @@ export async function extractAll(aiMessage, callModelFn, messageId) {
             if (parts.length >= 6 && !state.location) {
                 state.location = parts[parts.length - 2].trim();
             }
+            // weather 是最后一个 part（跳过占位词"天气"）
+            if (parts.length >= 7) {
+                const weatherText = parts[parts.length - 1].trim();
+                if (weatherText && weatherText !== '天气') {
+                    state._weather = weatherText;
+                }
+            }
         }
     }
 
@@ -489,6 +498,17 @@ export async function applyExtractedData(extracted, customSkillDefs) {
         if (s.player_name != null) {
             const player = getPlayerStore();
             await updatePlayerIdentity(s.player_name, player.identity.title, true);
+        }
+
+        // cursor_type → playerStore.cursor_type（顶层字段，不在 identity 里）
+        if (s.cursor_type != null) {
+            const CURSOR_TYPE_ENUM = ['green', 'orange', 'red'];
+            const player = getPlayerStore();
+            if (CURSOR_TYPE_ENUM.includes(s.cursor_type)) {
+                player.cursor_type = s.cursor_type;
+            } else {
+                player.cursor_type = 'green';
+            }
         }
 
         // 2. Equipment → equipmentStore + playerStore.equipment (via equipItem)
@@ -578,8 +598,17 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                 } else if (type === 'quest_item') {
                     await addQuestItem(item.name, item.description || '', true);
                 } else {
-                    // consumable (default)
-                    await addConsumable(item.name, qty, item.description || '', true);
+                    // consumable (default) — use consumableStore definition pattern
+                    const consumableId = findOrCreateConsumable({
+                        name: item.name,
+                        category: item.category || 'hp_restore',
+                        rarity: item.rarity || 'common',
+                        item_level: item.item_level || 1,
+                        effects: item.effects || [],
+                        description: item.description || '',
+                        source: 'llm'
+                    });
+                    await addConsumableItem(consumableId, qty, true);
                 }
             }
         }
@@ -637,6 +666,12 @@ export async function applyExtractedData(extracted, customSkillDefs) {
             const d = getStore();
             if (!d.runtime) d.runtime = {};
             d.runtime._zd_parsed = s._zd_parsed;
+        }
+
+        // 6. weather → worldStore.currentWeather（由 <time> 标签正则提取）
+        if (s._weather) {
+            const ws = getWorldStore();
+            ws.currentWeather = { condition: s._weather };
         }
 
         log('状态已更新（store 架构）');

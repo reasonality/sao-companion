@@ -4,7 +4,8 @@
 import { getSettings, log } from './sao-core.js';
 import { findOrCreateEquipment } from './sao-store-equipment.js';
 import { findOrCreateSkill } from './sao-store-skill.js';
-import { addEquipmentItem } from './sao-store-inventory.js';
+import { findOrCreateConsumable } from './sao-store-consumable.js';
+import { addEquipmentItem, addConsumableItem } from './sao-store-inventory.js';
 
 // ============================================================
 // 骰子表
@@ -125,6 +126,23 @@ const SKILL_CORE_TABLE = [
     { roll: [18,18], code: 'A2', name: '生命恢复' },
     { roll: [19,19], code: 'A3', name: '法力恢复' },
     { roll: [20,20], code: 'A4', name: '牺牲增益' },
+];
+
+/** 消耗品类型骰子表 (1D20): 1-5=HP药水, 6-10=MP药水, 11-14=属性药水, 15-18=万能药, 19-20=治愈药 */
+const CONSUMABLE_TYPE_TABLE = [
+    { roll: [1,5],   category: 'hp_restore',   label: 'HP药水', baseValue: (lv) => lv * 10 },
+    { roll: [6,10],  category: 'mp_restore',    label: 'MP药水', baseValue: (lv) => lv * 5 },
+    { roll: [11,14], category: 'buff',          label: '属性药水', baseValue: (lv) => Math.ceil(lv / 5) },
+    { roll: [15,18], category: 'full_restore',  label: '万能药', baseValue: (lv) => lv * 8 },
+    { roll: [19,20], category: 'cure',          label: '治愈药', baseValue: () => 1 },
+];
+
+/** 消耗品稀有度骰子表 (1D20): 1-10=普通, 11-16=优秀, 17-19=稀有, 20=史诗 */
+const CONSUMABLE_RARITY_TABLE = [
+    { roll: [1,10],  name: 'common',   mult: 1.0 },
+    { roll: [11,16], name: 'uncommon', mult: 1.3 },
+    { roll: [17,19], name: 'rare',     mult: 1.6 },
+    { roll: [20,20], name: 'epic',     mult: 2.0 },
 ];
 
 // ============================================================
@@ -458,6 +476,116 @@ ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
 }
 
 /**
+ * 根据消耗品类型和数值构造 effects 数组
+ * @param {string} category - 消耗品类型
+ * @param {number} value - 效果数值（已乘稀有度倍率）
+ * @returns {Array} effects 数组
+ */
+function buildEffects(category, value) {
+    const buffStats = ['str', 'agi', 'int', 'vit'];
+    switch (category) {
+        case 'hp_restore':
+            return [{ type: 'restore', stat: 'hp', value, duration: 0 }];
+        case 'mp_restore':
+            return [{ type: 'restore', stat: 'mp', value, duration: 0 }];
+        case 'full_restore':
+            return [
+                { type: 'restore', stat: 'hp', value, duration: 0 },
+                { type: 'restore', stat: 'mp', value, duration: 0 },
+            ];
+        case 'buff': {
+            const picked = buffStats[Math.floor(Math.random() * buffStats.length)];
+            return [{ type: 'buff', stat: picked, value, duration: 3 }];
+        }
+        case 'cure':
+            return [{ type: 'cure', stat: 'status', value: 1, duration: 0 }];
+        default:
+            return [{ type: 'restore', stat: 'hp', value, duration: 0 }];
+    }
+}
+
+/**
+ * 生成消耗品（骰子表 + LLM 命名模式）
+ * @param {object} context - { playerLevel, floor, qty }
+ * @param {Function} callModelFn - 模型调用函数
+ * @returns {Promise<object|null>} 消耗品对象
+ */
+export async function generateConsumable(context, callModelFn) {
+    if (!callModelFn) throw new Error('callModelFn is required');
+    const settings = getSettings();
+    if (!settings.enabled) return null;
+
+    const itemLevel = context.playerLevel || context.floor || 1;
+
+    // 1) 掷类型 (1D20)
+    const typeEntry = lookupRoll(CONSUMABLE_TYPE_TABLE, rollDice(20));
+
+    // 2) 掷稀有度 (1D20)
+    const rarityEntry = lookupRoll(CONSUMABLE_RARITY_TABLE, rollDice(20));
+
+    // 3) 计算效果数值（基础值 × 稀有度倍率）
+    const baseVal = typeEntry.baseValue(itemLevel);
+    const finalValue = Math.floor(baseVal * rarityEntry.mult);
+
+    // 4) 构造 effects
+    const effects = buildEffects(typeEntry.category, finalValue);
+
+    // 5) LLM 生成名称+描述
+    const effectDesc = effects.map(e => {
+        if (e.type === 'restore') return `恢复${e.stat.toUpperCase()} ${e.value}`;
+        if (e.type === 'buff') return `${e.stat.toUpperCase()} +${e.value} 持续${e.duration}回合`;
+        if (e.type === 'cure') return '治愈状态异常';
+        return '';
+    }).join('，');
+
+    const namePrompt = `为SAO消耗品生成名称和描述，返回JSON:
+{"name":string,"description":string}
+类型: ${typeEntry.label} (${typeEntry.category})
+稀有度: ${rarityEntry.name}
+物品等级: ${itemLevel}
+效果: ${effectDesc}
+要求: 名称要有SAO风格（如「治愈药水」「高级回复药」等），描述1-2句话，中文`;
+
+    try {
+        const result = await callModelFn('combat', [
+            { role: 'system', content: '你是SAO消耗品命名器。只输出JSON。' },
+            { role: 'user', content: namePrompt },
+        ], 256, { jsonSchema: true });
+        const jsonMatch = result.match(/\{[\s\S]*\}/);
+        const nameDesc = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+        const consumable = {
+            name: nameDesc.name || typeEntry.label,
+            category: typeEntry.category,
+            rarity: rarityEntry.name,
+            item_level: itemLevel,
+            effects,
+            description: nameDesc.description || '',
+            qty: context.qty || 1,
+        };
+
+        // 6) 写入 consumableStore 定义库
+        try {
+            const consumableId = findOrCreateConsumable({ ...consumable, source: 'dice' });
+            if (consumableId) {
+                consumable.consumable_id = consumableId;
+                // 7) 入背包
+                await addConsumableItem(consumableId, context.qty || 1, true);
+                log('消耗品入Store: ' + consumable.name + ' → ' + consumableId);
+            }
+        } catch (e) {
+            log('消耗品直写Store失败(非致命): ' + e.message, 'warn');
+        }
+
+        log('消耗品生成完成: ' + consumable.name);
+        return consumable;
+    } catch (e) {
+        log('消耗品生成失败: ' + e.message, 'error');
+        return null;
+    }
+}
+
+/**
  * 生成战利品/物品（混合模式：JS骰子确定数值，LLM仅生成名称/描述）
  * @param {object} context - { enemyLevel, floor, enemyType }
  * @param {Function} callModelFn - 模型调用函数
@@ -501,6 +629,24 @@ export async function generateLoot(context, callModelFn) {
                 name: '',
                 description: '',
             });
+        } else if (typeEntry.type === '消耗品') {
+            // Consumable drop — use generateConsumable (full dice+LLM pipeline)
+            const consumable = await generateConsumable({
+                playerLevel: enemyLevel,
+                floor: context.floor,
+                qty: rollDice(3),
+            }, callModelFn);
+            if (consumable) {
+                lootItems.push({
+                    type: '消耗品',
+                    rarity: consumable.rarity,
+                    name: consumable.name,
+                    description: consumable.description,
+                    qty: consumable.qty,
+                    consumable_id: consumable.consumable_id,
+                    effects: consumable.effects,
+                });
+            }
         } else {
             lootItems.push({
                 type: typeEntry.type,
@@ -512,37 +658,40 @@ export async function generateLoot(context, callModelFn) {
         }
     }
 
-    // === LLM for naming/description only (256 tokens) ===
-    const namePrompt = `为SAO掉落物生成名称和描述，返回JSON:
+    // === LLM for naming/description only (256 tokens) — skip items already named ===
+    const unnamedItems = lootItems.filter(item => !item.name);
+    if (unnamedItems.length > 0) {
+        const namePrompt = `为SAO掉落物生成名称和描述，返回JSON:
 {"items":[{"name":string,"description":string}]}
 掉落物信息:
-${lootItems.map((item, i) => `${i+1}. 类型:${item.type} 稀有度:${item.rarity}${item.qty ? ' 数量:'+item.qty : ''}`).join('\n')}
+${unnamedItems.map((item, i) => `${i+1}. 类型:${item.type} 稀有度:${item.rarity}${item.qty ? ' 数量:'+item.qty : ''}`).join('\n')}
 敌人等级: ${enemyLevel}
 要求: 名称要有SAO风格，描述简短（20-50字）`;
 
-    try {
-        const result = await callModelFn('combat', [
-            { role: 'system', content: '你是SAO物品命名器。只输出JSON。' },
-            { role: 'user', content: namePrompt },
-        ], 256, { jsonSchema: true });
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const nameDesc = JSON.parse(jsonMatch[0]);
-            if (nameDesc.items) {
-                nameDesc.items.forEach((nd, i) => {
-                    if (lootItems[i]) {
-                        lootItems[i].name = nd.name || lootItems[i].type;
-                        lootItems[i].description = nd.description || '';
-                    }
-                });
+        try {
+            const result = await callModelFn('combat', [
+                { role: 'system', content: '你是SAO物品命名器。只输出JSON。' },
+                { role: 'user', content: namePrompt },
+            ], 256, { jsonSchema: true });
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const nameDesc = JSON.parse(jsonMatch[0]);
+                if (nameDesc.items) {
+                    nameDesc.items.forEach((nd, i) => {
+                        if (unnamedItems[i]) {
+                            unnamedItems[i].name = nd.name || unnamedItems[i].type;
+                            unnamedItems[i].description = nd.description || '';
+                        }
+                    });
+                }
             }
+        } catch (e) {
+            log('物品命名失败，使用默认名称: ' + e.message, 'warn');
+            // Fallback: use type as name
+            unnamedItems.forEach(item => {
+                if (!item.name) item.name = item.type + '·' + item.rarity;
+            });
         }
-    } catch (e) {
-        log('物品命名失败，使用默认名称: ' + e.message, 'warn');
-        // Fallback: use type as name
-        lootItems.forEach(item => {
-            if (!item.name) item.name = item.type + '·' + item.rarity;
-        });
     }
 
     log(`战利品生成完成: ${lootItems.length} 个物品, ${baseCor} 珂尔, ${baseExp} 经验`);

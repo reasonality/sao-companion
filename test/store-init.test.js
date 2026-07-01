@@ -44,6 +44,8 @@ function makeEmptyStore() {
         inventoryStore: null,
         calendarStore: { currentDate: null, events: {}, appointments: [] },
         questStore: { byId: {}, activeIds: [], completedIds: [] },
+        consumableStore: { byId: {}, nameToId: {} },
+        actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
         runtime: {},
         panels: {},
         calendarPanels: {},

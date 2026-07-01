@@ -13,6 +13,8 @@ import { buildCleanCalendarDays } from './sao-calendar.js';
 import { equipItem, unequipItem } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { createQuest, completeQuest } from './sao-store-quest.js';
+import { useConsumable } from './sao-store-consumable.js';
+import { appendActionLog } from './sao-store-core.js';
 
 // 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
 const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
@@ -910,10 +912,21 @@ function _attachStatusPanelListeners(shadow) {
             e.stopPropagation();
             const slot = btn.dataset.saoSlot;
             try {
-                await unequipItem(slot);
+                const removedId = await unequipItem(slot);
+                if (removedId) {
+                    const eq = getEquipmentById(removedId);
+                    appendActionLog({
+                        action: 'unequip',
+                        itemType: 'equipment',
+                        itemName: eq?.name || removedId,
+                        slot: slot,
+                        result: 'success'
+                    });
+                }
                 _refreshStatusPanelContent(shadow);
             } catch (err) {
                 log(`卸下装备失败: ${err.message}`, 'warn');
+                alert('卸下装备失败：' + err.message);
             }
         });
     });
@@ -928,10 +941,39 @@ function _attachStatusPanelListeners(shadow) {
                 const equip = getEquipmentById(equipId);
                 if (equip) {
                     await equipItem(equip.slot, equipId);
+                    appendActionLog({
+                        action: 'equip',
+                        itemType: 'equipment',
+                        itemName: equip.name,
+                        slot: equip.slot,
+                        result: 'success'
+                    });
                     _refreshStatusPanelContent(shadow);
                 }
             } catch (err) {
                 log(`穿戴装备失败: ${err.message}`, 'warn');
+                alert('装备失败：' + err.message);
+            }
+        });
+    });
+
+    // 使用消耗品
+    shadow.querySelectorAll('[data-sao-action="use-consumable"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const itemId = btn.dataset.itemId;
+            try {
+                const results = await useConsumable(itemId);
+                if (results.length === 0) {
+                    alert('使用失败：物品不存在或非消耗品');
+                    return;
+                }
+                _refreshStatusPanelContent(shadow);
+                if (results && results.length > 0) alert('使用成功：' + results.join(', '));
+            } catch (err) {
+                log(`使用消耗品失败: ${err.message}`, 'warn');
+                alert('使用失败：' + err.message);
             }
         });
     });

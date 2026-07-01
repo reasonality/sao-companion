@@ -4,7 +4,7 @@
 // 纯函数，无副作用，不写 store。
 
 import { getStore } from './sao-store-core.js';
-import { getPlayerStore } from './sao-store-player.js';
+import { getPlayerStore, CURSOR_LABELS } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
 import { getInventoryStore, getCurrency } from './sao-store-inventory.js';
@@ -625,6 +625,7 @@ export function renderPlayerStatusPanel() {
     return {
         name: player.identity?.name || '',
         title: player.identity?.title || '',
+        cursor_type: player.cursor_type || 'green',
     };
 }
 
@@ -711,6 +712,7 @@ export function renderInventoryPanel() {
         name: item.name || item.item_id || '?',
         qty: item.qty || 1,
         type: item.type || 'unknown',
+        ...(item.item_id ? { item_id: item.item_id } : {}),
         ...(item.description ? { description: item.description } : {}),
     }));
     return { cor, items };
@@ -760,6 +762,9 @@ export function projectStatusPanelHtml() {
     const infoParts = [];
     if (playerPanel.name)  infoParts.push(`姓名: ${esc(playerPanel.name)}`);
     if (playerPanel.title) infoParts.push(`称号: ${esc(playerPanel.title)}`);
+    // 光标类型
+    const cursorText = CURSOR_LABELS[playerPanel.cursor_type] || CURSOR_LABELS.green;
+    infoParts.push(`光标: ${cursorText}`);
     if (infoParts.length) {
         sections.push(
             `<details open><summary>基本信息</summary><div>${infoParts.join(' | ')}</div></details>`
@@ -890,7 +895,12 @@ export function projectStatusPanelHtml() {
             const cap = 20;
             const shown = invData.items.slice(0, cap).map(item => {
                 const itemName = esc(item.name);
-                return item.qty > 1 ? `${itemName} x${item.qty}` : itemName;
+                const qtyText = item.qty > 1 ? ` x${item.qty}` : '';
+                if (item.type === 'consumable' && item.item_id) {
+                    const useBtn = ` <button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">使用</button>`;
+                    return `${itemName}${qtyText}${useBtn}`;
+                }
+                return `${itemName}${qtyText}`;
             });
             if (invData.items.length > cap) {
                 shown.push(`<span style="color:#8b7d6b;">还有${invData.items.length - cap}个...</span>`);

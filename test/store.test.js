@@ -13,6 +13,23 @@ vi.mock('../sao-core.js', () => ({
 vi.mock('../sao-store-core.js', () => ({
     getStore: vi.fn(() => mockStore),
     saveStore: vi.fn().mockResolvedValue(undefined),
+    appendActionLog: vi.fn((entry) => {
+        if (!mockStore) return;
+        if (!mockStore.actionLog) mockStore.actionLog = { entries: [], lastInjectedTurn: 0, currentTurn: 0 };
+        const enriched = { ...entry, turn: mockStore.actionLog.currentTurn || 0, timestamp: Date.now() };
+        mockStore.actionLog.entries.push(enriched);
+        while (mockStore.actionLog.entries.length > 20) mockStore.actionLog.entries.shift();
+    }),
+    projectActionLogHint: vi.fn(() => {
+        if (!mockStore || !mockStore.actionLog || !Array.isArray(mockStore.actionLog.entries)) return '';
+        const minTurn = mockStore.actionLog.lastInjectedTurn || 0;
+        const recent = mockStore.actionLog.entries.filter(e => e.turn > minTurn);
+        if (recent.length === 0) return '';
+        return recent.map(e => {
+            const detail = e.resultDetail ? ` (${e.resultDetail})` : '';
+            return `${e.action}: ${e.itemName || ''}${detail}`;
+        }).join('\n');
+    }),
 }));
 
 // Import AFTER mocks — real store modules will call the mocked getStore
@@ -40,6 +57,7 @@ import {
 import {
     getInventoryStore,
     addConsumable,
+    addConsumableItem,
     addMaterial,
     addEquipmentItem,
     removeEquipmentItem,
@@ -48,6 +66,14 @@ import {
 } from '../sao-store-inventory.js';
 import { equipItem } from '../sao-store-player.js';
 import { projectCompactState } from '../sao-state-projection.js';
+import {
+    getConsumableStore,
+    getConsumableById,
+    findOrCreateConsumable,
+    validateConsumableEntry,
+    useConsumable,
+} from '../sao-store-consumable.js';
+import { appendActionLog, projectActionLogHint } from '../sao-store-core.js';
 import {
     createQuest,
     updateQuest,
@@ -71,6 +97,8 @@ function makeEmptyStore() {
         floorStore: { byId: {}, numberToId: {} },
         calendarStore: { currentDate: null, events: {}, appointments: [] },
         questStore: { byId: {}, activeIds: [], completedIds: [] },
+        consumableStore: { byId: {}, nameToId: {} },
+        actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
         runtime: {},
         panels: {},
         calendarPanels: {},
@@ -400,19 +428,25 @@ describe('Inventory Store', () => {
         expect(inv.items).toEqual([]);
     });
 
-    it('addConsumable adds new item with correct fields', async () => {
+    it('addConsumable adds new item with correct fields (deprecated wrapper)', async () => {
         const itemId = await addConsumable('回复药水', 3, '恢复HP');
         expect(itemId).toBeTruthy();
 
         const inv = getInventoryStore();
         expect(inv.items).toHaveLength(1);
-        expect(inv.items[0].name).toBe('回复药水');
+        // 新结构：item 用 consumable_id 引用定义库
+        expect(inv.items[0].consumable_id).toBeTruthy();
         expect(inv.items[0].qty).toBe(3);
         expect(inv.items[0].type).toBe('consumable');
-        expect(inv.items[0].description).toBe('恢复HP');
+
+        // 验证定义库中有对应条目
+        const def = getConsumableById(inv.items[0].consumable_id);
+        expect(def).toBeTruthy();
+        expect(def.name).toBe('回复药水');
+        expect(def.description).toBe('恢复HP');
     });
 
-    it('addConsumable merges by name — increments qty', async () => {
+    it('addConsumable merges by consumable_id — increments qty', async () => {
         await addConsumable('回复药水', 3);
         await addConsumable('回复药水', 2);
         const inv = getInventoryStore();
@@ -420,10 +454,11 @@ describe('Inventory Store', () => {
         expect(inv.items[0].qty).toBe(5);
     });
 
-    it('addConsumable without description omits field', async () => {
+    it('addConsumable without description creates definition with empty description', async () => {
         await addConsumable('解毒草', 1);
         const inv = getInventoryStore();
-        expect(inv.items[0].description).toBeUndefined();
+        const def = getConsumableById(inv.items[0].consumable_id);
+        expect(def.description).toBe('');
     });
 
     it('addMaterial adds new material item', async () => {
@@ -779,5 +814,268 @@ describe('Projection Caps', () => {
 
         // Inventory: cap 15, 16 total → "还有1个..."
         expect(output).toContain('还有1个...');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Consumable Store
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Consumable Store', () => {
+    it('findOrCreateConsumable creates new consumable and returns ID', () => {
+        const id = findOrCreateConsumable({
+            name: '治疗药水',
+            category: 'hp_restore',
+            rarity: 'common',
+            effects: [{ type: 'restore', stat: 'hp', value: 50, duration: 0 }],
+            description: '恢复50点HP',
+        });
+        expect(id).toMatch(/^consumable_\d{3}$/);
+
+        const def = getConsumableById(id);
+        expect(def).toBeTruthy();
+        expect(def.name).toBe('治疗药水');
+        expect(def.category).toBe('hp_restore');
+        expect(def.effects[0].value).toBe(50);
+    });
+
+    it('findOrCreateConsumable is idempotent — same name returns same ID', () => {
+        const id1 = findOrCreateConsumable({ name: '治疗药水' });
+        const id2 = findOrCreateConsumable({ name: '治疗药水' });
+        expect(id1).toBe(id2);
+    });
+
+    it('findOrCreateConsumable returns null for missing name', () => {
+        const id = findOrCreateConsumable({ category: 'hp_restore' });
+        expect(id).toBeNull();
+    });
+
+    it('getConsumableById returns null for nonexistent ID', () => {
+        expect(getConsumableById('consumable_999')).toBeNull();
+    });
+
+    it('getConsumableStore returns byId and nameToId', () => {
+        findOrCreateConsumable({ name: '测试药水' });
+        const store = getConsumableStore();
+        expect(store.byId).toBeTruthy();
+        expect(store.nameToId).toBeTruthy();
+        expect(store.nameToId['测试药水']).toBeTruthy();
+    });
+
+    it('generateConsumableId produces sequential IDs', () => {
+        const id1 = findOrCreateConsumable({ name: '药水A' });
+        const id2 = findOrCreateConsumable({ name: '药水B' });
+        expect(id1).toBe('consumable_001');
+        expect(id2).toBe('consumable_002');
+    });
+
+    it('validateConsumableEntry accepts valid data', () => {
+        const result = validateConsumableEntry({
+            consumable_id: 'consumable_001',
+            name: '治疗药水',
+            category: 'hp_restore',
+            rarity: 'common',
+            effects: [{ type: 'restore', stat: 'hp', value: 50 }],
+        });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+    });
+
+    it('validateConsumableEntry rejects missing consumable_id', () => {
+        const result = validateConsumableEntry({ name: 'test' });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('consumable_id'))).toBe(true);
+    });
+
+    it('validateConsumableEntry rejects invalid category', () => {
+        const result = validateConsumableEntry({
+            consumable_id: 'c1',
+            name: 'test',
+            category: 'invalid',
+        });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('category'))).toBe(true);
+    });
+
+    it('validateConsumableEntry rejects invalid effect type', () => {
+        const result = validateConsumableEntry({
+            consumable_id: 'c1',
+            name: 'test',
+            effects: [{ type: 'invalid', stat: 'hp', value: 50 }],
+        });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('type'))).toBe(true);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// addConsumableItem (new main function)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('addConsumableItem', () => {
+    it('adds consumable item with consumable_id', async () => {
+        const cid = findOrCreateConsumable({ name: '治疗药水', maxStack: 99 });
+        const itemId = await addConsumableItem(cid, 5);
+        expect(itemId).toBeTruthy();
+
+        const inv = getInventoryStore();
+        expect(inv.items).toHaveLength(1);
+        expect(inv.items[0].type).toBe('consumable');
+        expect(inv.items[0].consumable_id).toBe(cid);
+        expect(inv.items[0].qty).toBe(5);
+    });
+
+    it('merges by consumable_id — increments qty', async () => {
+        const cid = findOrCreateConsumable({ name: '治疗药水', maxStack: 99 });
+        await addConsumableItem(cid, 3);
+        await addConsumableItem(cid, 2);
+        const inv = getInventoryStore();
+        expect(inv.items).toHaveLength(1);
+        expect(inv.items[0].qty).toBe(5);
+    });
+
+    it('respects maxStack', async () => {
+        const cid = findOrCreateConsumable({ name: '小药水', maxStack: 10 });
+        await addConsumableItem(cid, 8);
+        await addConsumableItem(cid, 5); // would be 13, capped to 10
+        const inv = getInventoryStore();
+        expect(inv.items[0].qty).toBe(10);
+    });
+
+    it('returns null for qty < 1 when no existing item', async () => {
+        const cid = findOrCreateConsumable({ name: '空药水' });
+        const result = await addConsumableItem(cid, 0);
+        expect(result).toBeNull();
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// actionLog
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('actionLog', () => {
+    it('appendActionLog adds entry with turn and timestamp', () => {
+        appendActionLog({ action: 'use_consumable', itemType: 'consumable', itemName: '治疗药水', result: 'success' });
+        expect(mockStore.actionLog.entries).toHaveLength(1);
+        expect(mockStore.actionLog.entries[0].action).toBe('use_consumable');
+        expect(mockStore.actionLog.entries[0].turn).toBe(0);
+        expect(mockStore.actionLog.entries[0].timestamp).toBeTruthy();
+    });
+
+    it('appendActionLog FIFO cap 20', () => {
+        for (let i = 0; i < 25; i++) {
+            appendActionLog({ action: 'test', itemType: 'test', itemName: `item${i}`, result: 'ok' });
+        }
+        expect(mockStore.actionLog.entries).toHaveLength(20);
+        // 最早的条目被丢弃
+        expect(mockStore.actionLog.entries[0].itemName).toBe('item5');
+    });
+
+    it('projectActionLogHint returns filtered entries', () => {
+        mockStore.actionLog.currentTurn = 1;
+        appendActionLog({ action: 'drop_item', itemType: 'equipment', itemName: '铁剑', result: 'success' });
+        mockStore.actionLog.lastInjectedTurn = 0;
+
+        const hint = projectActionLogHint();
+        expect(hint).toContain('drop_item');
+        expect(hint).toContain('铁剑');
+    });
+
+    it('projectActionLogHint returns empty when no new entries', () => {
+        mockStore.actionLog.lastInjectedTurn = 999;
+        appendActionLog({ action: 'test', itemType: 'test', itemName: 'x', result: 'ok' });
+        // entry turn=0, lastInjectedTurn=999 → filtered out
+        const hint = projectActionLogHint();
+        expect(hint).toBe('');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// useConsumable
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('useConsumable', () => {
+    it('restores HP and decrements qty', async () => {
+        // Setup: player with 50/100 HP
+        const player = getPlayerStore();
+        await updatePlayerVitals({ hp: 50, maxHp: 100, mp: 20, maxMp: 20 });
+
+        // Create consumable definition
+        const cid = findOrCreateConsumable({
+            name: '治疗药水',
+            effects: [{ type: 'restore', stat: 'hp', value: 30 }],
+        });
+
+        // Add to inventory
+        const itemId = await addConsumableItem(cid, 3);
+
+        // Use
+        const results = await useConsumable(itemId);
+        expect(results).toHaveLength(1);
+        expect(results[0]).toContain('HP +30');
+        expect(results[0]).toContain('50→80');
+
+        // Verify state
+        expect(player.vitals.hp).toBe(80);
+        const inv = getInventoryStore();
+        expect(inv.items[0].qty).toBe(2);
+    });
+
+    it('caps HP at maxHp', async () => {
+        await updatePlayerVitals({ hp: 90, maxHp: 100 });
+        const cid = findOrCreateConsumable({
+            name: '大治疗药水',
+            effects: [{ type: 'restore', stat: 'hp', value: 50 }],
+        });
+        const itemId = await addConsumableItem(cid, 1);
+        const results = await useConsumable(itemId);
+        expect(results[0]).toContain('90→100');
+        expect(getPlayerStore().vitals.hp).toBe(100);
+    });
+
+    it('removes item when qty reaches 0', async () => {
+        await updatePlayerVitals({ hp: 50, maxHp: 100 });
+        const cid = findOrCreateConsumable({
+            name: '唯一药水',
+            effects: [{ type: 'restore', stat: 'hp', value: 10 }],
+        });
+        const itemId = await addConsumableItem(cid, 1);
+        await useConsumable(itemId);
+        const inv = getInventoryStore();
+        expect(inv.items.find(i => i.item_id === itemId)).toBeUndefined();
+    });
+
+    it('returns empty array for nonexistent item', async () => {
+        const results = await useConsumable('inv_999');
+        expect(results).toEqual([]);
+    });
+
+    it('appends actionLog on use', async () => {
+        await updatePlayerVitals({ hp: 50, maxHp: 100 });
+        const cid = findOrCreateConsumable({
+            name: '日志药水',
+            effects: [{ type: 'restore', stat: 'hp', value: 10 }],
+        });
+        const itemId = await addConsumableItem(cid, 1);
+        const beforeLen = mockStore.actionLog.entries.length;
+        await useConsumable(itemId);
+        expect(mockStore.actionLog.entries.length).toBe(beforeLen + 1);
+        expect(mockStore.actionLog.entries[mockStore.actionLog.entries.length - 1].action).toBe('use_consumable');
+    });
+
+    it('handles buff effects with duration', async () => {
+        const player = getPlayerStore();
+        player.attributes.str = 10;
+        const cid = findOrCreateConsumable({
+            name: '力量药水',
+            effects: [{ type: 'buff', stat: 'str', value: 5, duration: 3 }],
+        });
+        const itemId = await addConsumableItem(cid, 1);
+        const results = await useConsumable(itemId);
+        expect(results[0]).toContain('STR +5');
+        expect(player.attributes.str).toBe(15);
+        expect(player.buffs).toHaveLength(1);
+        expect(player.buffs[0].stat).toBe('str');
+        expect(player.buffs[0].remaining).toBe(3);
     });
 });

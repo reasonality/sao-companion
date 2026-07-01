@@ -12,11 +12,12 @@ import {
     log, updateLogDisplay,
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
-import { getStore, saveStore } from './sao-store-core.js';
-import { getPlayerStore } from './sao-store-player.js';
+import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
+import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
 import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
+import { useConsumable as useConsumableStore, getConsumableById } from './sao-store-consumable.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
     generateEquipment, generateSkill, generateLoot,
@@ -40,14 +41,15 @@ import {
     initToolSystem,
 } from './sao-tools.js';
 import { initNpcFromWorldBook } from './sao-store-npc.js';
-import { initFloorFromWorldBook } from './sao-store-floor.js';
+import { initFloorFromWorldBook, getFloorStore } from './sao-store-floor.js';
+import { getWorldStore } from './sao-store-world.js';
 import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
-import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel } from './sao-models.js';
-import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels } from './sao-specialists.js';
+import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
+import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
 
 // ============================================================
@@ -770,6 +772,10 @@ function bindEvents() {
                     } catch (e) { log('专家面板重渲染失败: ' + e.message, 'warn'); }
                 });
             }
+
+            // R3: 世界状态专家（fire-and-forget，不阻塞主链）
+            callWorldSpecialist(messageId, rawText)
+                .catch(e => log('worldStatus 专家失败: ' + e.message, 'warn'));
         });
 
         // 状态提取完成后刷新面板（如果已打开）
@@ -994,7 +1000,6 @@ function renderEquipmentDetail(item) {
     if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(item.type)}</span></div>`)
     if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
     if (item.item_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">物品等级</span><span class="sao-detail-value">${esc(item.item_level)}</span></div>`)
-    if (item.durability) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">耐久</span><span class="sao-detail-value">${esc(item.durability)}</span></div>`)
     if (item.stats) {
         const statLabels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT' };
         for (const [k, v] of Object.entries(item.stats)) {
@@ -1076,8 +1081,11 @@ function renderInventoryDetail(item) {
         const eq = getEquipmentById(item.equipment_id);
         if (eq) {
             const detailHtml = renderEquipmentDetail(eq);
-            // B4: 丢弃按钮（通过 onclick 调用全局 handler）
-            return detailHtml + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn sao-btn-secondary" data-action="discardEquipment" data-equipment-id="${esc(item.equipment_id)}">丢弃此装备</button></div>`;
+            // R5: 装备按钮 + 丢弃按钮
+            return detailHtml + `<div style="margin-top:12px;text-align:center;display:flex;gap:10px;justify-content:center;">` +
+                `<button class="sao-btn" data-action="equipFromInventory" data-equipment-id="${esc(item.equipment_id)}">装备</button>` +
+                `<button class="sao-btn sao-btn-secondary" data-action="discardEquipment" data-equipment-id="${esc(item.equipment_id)}">丢弃</button>` +
+                `</div>`;
         }
     }
     const TYPE_LABELS_CN = { equipment: '装备', consumable: '消耗品', material: '材料', quest_item: '任务物品' };
@@ -1086,8 +1094,10 @@ function renderInventoryDetail(item) {
     if (item.item_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">物品等级</span><span class="sao-detail-value">⭐${esc(item.item_level)}</span></div>`)
     if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(TYPE_LABELS_CN[item.type] || item.type)}</span></div>`)
     if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
-    if (item.durability) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">耐久</span><span class="sao-detail-value">${esc(item.durability)}</span></div>`)
     if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
+    if (item.type === 'consumable') {
+        return rows.join('') + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button></div>`;
+    }
     return rows.join('')
 }
 
@@ -1942,15 +1952,14 @@ function initPanelLogic() {
             testEl.textContent = '正在生成...';
             saveModelsToSettings();
             try {
-                // 检查 combat 模型是否配置
-                const settings = getSettings();
-                const cfg = settings.models.combat;
-                if (!cfg.url || !cfg.model) {
+                // 检查 combat 模型是否配置（含子角色→主档回退，与 callModel 解析一致）
+                if (!isModelConfigured('combat')) {
                     testEl.className = 'sao-test-result show error';
-                    testEl.textContent = '✗ 请先在"模型配置"标签中配置"数值与生成模型"的 API 地址和模型，并点击"获取"选择模型';
+                    testEl.textContent = '✗ 请先在"模型配置"标签中配置"装备/技能模型"（或其下"战斗/生成"子角色）的 API 地址和模型，并点击"获取"选择模型';
                     return;
                 }
                 let result;
+                // R6 收敛：单按钮默认测试 equipment 生成。combat 已迁移至确定性引擎，skill/loot 可从模型配置 tab 的"测试"按钮单独验证。
                 if (type === 'equipment') {
                     result = await generateEquipment({ playerLevel: 5, floor: 1, type: '武器', rarity: '蓝色' }, callModel);
                 } else if (type === 'skill') {
@@ -1980,6 +1989,9 @@ function initPanelLogic() {
             if (!equipmentId) return;
             if (!confirm('确定丢弃此装备？此操作不可撤销。')) return;
             try {
+                // 0. 在销毁前读取装备名（H1: removeEquipmentById 会删 byId 条目，之后 getEquipmentById 返回 null）
+                const eqEntryBefore = getEquipmentById(equipmentId);
+                const eqName = eqEntryBefore?.name || equipmentId;
                 // 1. 先从 equipmentStore 销毁（含跨引用校验：已穿戴拒绝），skipSave 试探
                 const destroyed = await removeEquipmentById(equipmentId, true);
                 if (!destroyed) {
@@ -1988,7 +2000,13 @@ function initPanelLogic() {
                 }
                 // 2. 销毁成功，再从 inventoryStore 移除
                 await removeEquipmentItem(equipmentId, true);
-                // 3. 统一保存
+                // 3. 记录 actionLog + 统一保存（H2: 合并为单次 saveStore，避免双重保存竞争）
+                appendActionLog({
+                    action: 'drop_item',
+                    itemType: 'equipment',
+                    itemName: eqName,
+                    result: 'success'
+                });
                 await saveStore();
                 log('装备已丢弃: ' + equipmentId);
                 closeDetailModal();
@@ -1996,6 +2014,73 @@ function initPanelLogic() {
             } catch (e) {
                 log('丢弃装备失败: ' + e.message, 'error');
                 alert('丢弃失败: ' + e.message);
+            }
+        },
+
+        // R5: 使用消耗品
+        async useConsumable(itemId) {
+            if (!itemId) return;
+            try {
+                const results = await useConsumableStore(itemId);
+                if (results.length === 0) {
+                    alert('使用失败：物品不存在或非消耗品');
+                    return;
+                }
+                closeDetailModal();
+                refreshStatus();
+                log('使用消耗品: ' + itemId + ' → ' + results.join(', '));
+                alert('使用成功：' + results.join(', '));
+            } catch (e) {
+                log('使用消耗品失败: ' + e.message, 'error');
+                alert('使用失败：' + e.message);
+            }
+        },
+
+        // R5: 从背包装备装备
+        async equipFromInventory(equipmentId) {
+            if (!equipmentId) return;
+            try {
+                const eq = getEquipmentById(equipmentId);
+                if (!eq) { alert('装备不存在'); return; }
+                const slot = eq.slot;
+                if (!slot) { alert('装备无 slot 信息'); return; }
+                await equipItem(slot, equipmentId, false);
+                appendActionLog({
+                    action: 'equip',
+                    itemType: 'equipment',
+                    itemName: eq.name,
+                    slot: slot,
+                    result: 'success'
+                });
+                closeDetailModal();
+                refreshStatus();
+                log('装备穿戴: ' + equipmentId + ' → ' + slot);
+            } catch (e) {
+                log('装备穿戴失败: ' + e.message, 'error');
+                alert('装备失败：' + e.message);
+            }
+        },
+
+        // R5: 卸下装备
+        async unequip(slot) {
+            if (!slot) return;
+            try {
+                const removedId = await unequipItem(slot, false);
+                if (!removedId) { alert('该槽位无装备'); return; }
+                const eq = getEquipmentById(removedId);
+                appendActionLog({
+                    action: 'unequip',
+                    itemType: 'equipment',
+                    itemName: eq?.name || removedId,
+                    slot: slot,
+                    result: 'success'
+                });
+                closeDetailModal();
+                refreshStatus();
+                log('装备卸下: ' + removedId + ' (slot: ' + slot + ')');
+            } catch (e) {
+                log('卸下装备失败: ' + e.message, 'error');
+                alert('卸下失败：' + e.message);
             }
         },
 
@@ -2045,6 +2130,32 @@ function initPanelLogic() {
                     if (eqId) window.SaoPanel.discardEquipment(eqId);
                     break;
                 }
+                case 'switchInvTab': {
+                    const section = target.closest('.sao-section');
+                    if (section) {
+                        const tabName = target.getAttribute('data-tab');
+                        section.querySelectorAll('.sao-inv-tab').forEach(t => t.classList.toggle('active', t === target));
+                        section.querySelectorAll('.sao-inv-tab-content').forEach(c => {
+                            c.classList.toggle('active', c.dataset.content === tabName);
+                        });
+                    }
+                    break;
+                }
+                case 'useConsumable': {
+                    const itemId = target.getAttribute('data-item-id');
+                    if (itemId) window.SaoPanel.useConsumable(itemId);
+                    break;
+                }
+                case 'equipFromInventory': {
+                    const eqId2 = target.getAttribute('data-equipment-id');
+                    if (eqId2) window.SaoPanel.equipFromInventory(eqId2);
+                    break;
+                }
+                case 'unequip': {
+                    const slot = target.getAttribute('data-slot');
+                    if (slot) window.SaoPanel.unequip(slot);
+                    break;
+                }
             }
         });
     }
@@ -2067,6 +2178,8 @@ function initPanelLogic() {
                     const item = entry.item || {};
                     title = `${SLOT_LABELS[entry.slot] || entry.slot}: ${item.name || '未知'}`;
                     html = renderEquipmentDetail(item);
+                    // R5: 卸下按钮
+                    html += `<div style="margin-top:12px;text-align:center;"><button class="sao-btn sao-btn-secondary" data-action="unequip" data-slot="${esc(entry.slot)}">卸下</button></div>`;
                 }
                 break;
             }
@@ -2093,7 +2206,9 @@ function initPanelLogic() {
         }
     }
     document.getElementById('sao_equipment_list')?.addEventListener('click', handleDetailClick);
-    document.getElementById('sao_inventory_list')?.addEventListener('click', handleDetailClick);
+    document.getElementById('sao_consumable_list')?.addEventListener('click', handleDetailClick);
+    document.getElementById('sao_questitem_list')?.addEventListener('click', handleDetailClick);
+    document.getElementById('sao_material_list')?.addEventListener('click', handleDetailClick);
     document.getElementById('sao_skills_list')?.addEventListener('click', handleDetailClick);
 }
 
@@ -2166,14 +2281,22 @@ function refreshStatus() {
         setText('sao_stat_int', '-');
         setText('sao_stat_vit', '-');
         setText('sao_level_text', '-');
-        setText('sao_cor_text', '-');
         setText('sao_floor_text', '-');
+        setText('sao_cursor_text', '-');
         setText('sao_player_location', '-');
+        setText('sao_world_location', '-');
+        setText('sao_world_weather', '-');
+        setText('sao_world_area', '-');
+        setText('sao_world_clearing', '-');
+        setText('sao_world_events', '-');
         setBar('sao_hp_bar', 0);
         setBar('sao_mp_bar', 0);
         const eqEl = document.getElementById('sao_equipment_list'); if (eqEl) eqEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
-        const invEl = document.getElementById('sao_inventory_list'); if (invEl) invEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        const csEl = document.getElementById('sao_consumable_list'); if (csEl) csEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        const qiEl = document.getElementById('sao_questitem_list'); if (qiEl) qiEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        const mtEl = document.getElementById('sao_material_list'); if (mtEl) mtEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
         const skEl = document.getElementById('sao_skills_list'); if (skEl) skEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        const testEl = document.getElementById('sao_generate_test'); if (testEl) { testEl.className = 'sao-test-result'; testEl.textContent = ''; }
         return;
     }
     const inventory = getInventoryStore();
@@ -2203,10 +2326,31 @@ function refreshStatus() {
     setText('sao_stat_int', player.attributes?.int ?? '?');
     setText('sao_stat_vit', player.attributes?.vit ?? '?');
     setText('sao_level_text', player.progression?.level ?? '?');
-    setText('sao_cor_text', inventory?.currency?.cor ?? '?');
     setText('sao_floor_text', floorNum || '?');
 
-    // 装备列表 - read from playerStore.equipment (IDs) + equipmentStore
+    // 光标类型（侧边栏填充，元素由 designer 后续添加）
+    setText('sao_cursor_text', CURSOR_LABEL[player.cursor_type] || '🟢 普通');
+
+    // 世界状态
+    const worldStore = getWorldStore();
+    setText('sao_world_location', worldStore.areaStatus?.location || player.position?.location || '-');
+    setText('sao_world_weather', worldStore.currentWeather?.condition || '-');
+    const area = worldStore.areaStatus;
+    const DANGER_LABEL = { safe:'安全', low:'低危', medium:'中危', high:'高危', extreme:'极危' };
+    setText('sao_world_area', area ? `${DANGER_LABEL[area.danger_level]||area.danger_level} - ${area.description||''}` : '-');
+    // 攻略情况：遍历 floorStore 显示已攻略楼层
+    const floorStore = getFloorStore();
+    let clearingText = '-';
+    if (floorStore?.byId) {
+        const floors = Object.values(floorStore.byId).sort((a,b)=>(a.floor_number||0)-(b.floor_number||0));
+        clearingText = floors.map(f => `${f.floor_number}F${f.state?.cleared?'✓':'✗'}`).join(' ') || '-';
+    }
+    setText('sao_world_clearing', clearingText);
+    // 事件：最近1条
+    const events = worldStore.worldEvents || [];
+    setText('sao_world_events', events.length > 0 ? events[events.length-1].event : '-');
+
+    // 装备列表 - read from playerStore.equipment (IDs) + equipmentStore + 背包装备
     const equipEl = document.getElementById('sao_equipment_list');
     if (equipEl) {
         const slots = ['weapon', 'off_hand', 'head', 'chest', 'hands', 'legs', 'accessory'];
@@ -2219,42 +2363,89 @@ function refreshStatus() {
                 equipArr.push({ slot, name: equip.name, item: equip });
             }
         }
+        // 背包装备（type==='equipment'，未穿戴）
+        const invEquipItems = (inventory?.items || []).filter(i => i.type === 'equipment' && i.equipment_id && i.qty > 0);
+
+        let html = '';
+        // 已穿戴装备
         if (equipArr.length > 0) {
-            equipEl.innerHTML = equipArr.map((entry, i) =>
+            html += '<div style="font-size:0.78em;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.4px;">已穿戴</div>';
+            html += equipArr.map((entry, i) =>
                 `<div class="sao-tag sao-tag-equip" data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(SLOT_LABELS[entry.slot] || entry.slot)}: ${esc(entry.name)}</div>`
             ).join('');
-            _saoCurrentData = _saoCurrentData || {};
-            _saoCurrentData.equipment = equipArr;
         } else {
-            equipEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无装备数据</span>';
-            if (_saoCurrentData) _saoCurrentData.equipment = [];
+            html += '<span style="opacity:0.5;font-size:0.85em;">暂无穿戴装备</span>';
+        }
+        // 背包装备
+        if (invEquipItems.length > 0) {
+            html += '<div style="font-size:0.78em;color:var(--text-secondary);margin:8px 0 6px;text-transform:uppercase;letter-spacing:0.4px;">背包装备</div>';
+            html += invEquipItems.map((item) => {
+                const eq = getEquipmentById(item.equipment_id);
+                const name = eq?.name || item.name || item.equipment_id;
+                const itemLevel = eq?.item_level;
+                return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
+                    `<span data-detail-type="inv" data-detail-index="${(inventory.items || []).indexOf(item)}" style="cursor:pointer;">${esc(name)}${itemLevel ? ' ⭐' + itemLevel : ''}</span>` +
+                    `<button class="sao-btn sao-btn-sm" data-action="equipFromInventory" data-equipment-id="${esc(item.equipment_id)}" style="padding:3px 8px;font-size:0.75em;">装备</button>` +
+                    `</div>`;
+            }).join('');
+        }
+        equipEl.innerHTML = html;
+        _saoCurrentData = _saoCurrentData || {};
+        _saoCurrentData.equipment = equipArr;
+    }
+
+    // 消耗品列表
+    const consEl = document.getElementById('sao_consumable_list');
+    if (consEl) {
+        const consItems = (inventory?.items || []).filter(i => i.type === 'consumable' && i.qty > 0);
+        if (consItems.length > 0) {
+            consEl.innerHTML = consItems.map((item) => {
+                const def = item.consumable_id ? getConsumableById(item.consumable_id) : null;
+                const name = def?.name || item.name || '消耗品';
+                const idx = (inventory.items || []).indexOf(item);
+                return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
+                    `<span data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</span>` +
+                    `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" style="padding:3px 8px;font-size:0.75em;">使用</button>` +
+                    `</div>`;
+            }).join('');
+        } else {
+            consEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
         }
     }
 
-    // 背包列表 - read from inventoryStore
-    const invEl = document.getElementById('sao_inventory_list');
-    if (invEl) {
-        if (inventory?.items && inventory.items.length > 0) {
-            const invFiltered = inventory.items.filter(i => i.qty > 0);
-            invEl.innerHTML = invFiltered.map((item, i) => {
-                let displayName = item.name || '';
-                // If equipment item, look up name from equipmentStore
-                if (item.type === 'equipment' && item.equipment_id) {
-                    const eq = getEquipmentById(item.equipment_id);
-                    if (eq) displayName = eq.name;
-                }
-                const itemLevel = item.type === 'equipment' && item.equipment_id 
-                    ? getEquipmentById(item.equipment_id)?.item_level 
-                    : null;
-                return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${i}" style="cursor:pointer;">${esc(displayName)} x${esc(item.qty)}${itemLevel ? ' ⭐' + itemLevel : ''}</div>`;
+    // 任务物品列表
+    const qiEl = document.getElementById('sao_questitem_list');
+    if (qiEl) {
+        const qiItems = (inventory?.items || []).filter(i => i.type === 'quest_item' && i.qty > 0);
+        if (qiItems.length > 0) {
+            qiEl.innerHTML = qiItems.map((item) => {
+                const name = item.name || '任务物品';
+                const idx = (inventory.items || []).indexOf(item);
+                return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</div>`;
             }).join('');
-            _saoCurrentData = _saoCurrentData || {};
-            _saoCurrentData.inventory = invFiltered;
         } else {
-            invEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-            if (_saoCurrentData) _saoCurrentData.inventory = [];
+            qiEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
         }
     }
+
+    // 材料列表
+    const mtEl = document.getElementById('sao_material_list');
+    if (mtEl) {
+        const mtItems = (inventory?.items || []).filter(i => i.type === 'material' && i.qty > 0);
+        if (mtItems.length > 0) {
+            mtEl.innerHTML = mtItems.map((item) => {
+                const name = item.name || '材料';
+                const idx = (inventory.items || []).indexOf(item);
+                return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</div>`;
+            }).join('');
+        } else {
+            mtEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
+        }
+    }
+
+    // 更新 _saoCurrentData.inventory（详情弹窗索引用原始 inventory.items 下标）
+    _saoCurrentData = _saoCurrentData || {};
+    _saoCurrentData.inventory = inventory?.items || [];
 
     // 技能列表 - read from playerStore.skills + skillStore
     const skillEl = document.getElementById('sao_skills_list');

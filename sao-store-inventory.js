@@ -104,43 +104,78 @@ export async function removeEquipmentItem(equipmentId, skipSave) {
 }
 
 /**
- * 添加消耗品。同名已存在则累加数量，否则创建新条目。
+ * 添加消耗品（DEPRECATED — 旧签名兼容 wrapper）。
+ * 内部转调 addConsumableItem。保留旧签名 addConsumable(name, qty, description, skipSave)。
+ * @deprecated Use addConsumableItem(consumableId, qty, skipSave) instead.
  * @param {string} name
  * @param {number} qty
  * @param {string} [description]
  * @returns {string} item_id
  */
 export async function addConsumable(name, qty, description, skipSave) {
+    // 动态导入避免循环依赖
+    const { findOrCreateConsumable } = await import('./sao-store-consumable.js');
+    // 用 name+description 创建/查找空壳定义（source:'manual'）
+    const consumableId = findOrCreateConsumable({
+        name,
+        description: description || '',
+        source: 'manual'
+    });
+    if (!consumableId) {
+        log(`addConsumable: 无法创建消耗品定义 "${name}"`, 'warn');
+        return null;
+    }
+    return addConsumableItem(consumableId, qty, skipSave);
+}
+
+/**
+ * 添加消耗品物品到背包（主函数）。
+ * 按 consumable_id 匹配已有条目，qty 累加；无则新建。
+ * @param {string} consumableId - consumable_id
+ * @param {number} qty
+ * @param {boolean} [skipSave]
+ * @returns {string} item_id
+ */
+export async function addConsumableItem(consumableId, qty, skipSave) {
     const store = ensureInventoryStore();
-    // L5: schema 要求 qty 为正整数；强制取整 + 非负，防 LLM/调用方传负数或浮点写入违反 schema。
     const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
 
-    // 按 name + type 查找已有
+    // M4: 统一 import，避免 existing/new 两分支各自 await import
+    const { getConsumableById } = await import('./sao-store-consumable.js');
+
+    // 按 consumable_id 查找已有
     const existing = store.items.find(
-        item => item.type === 'consumable' && item.name === name
+        item => item.type === 'consumable' && item.consumable_id === consumableId
     );
     if (existing) {
-        existing.qty = Math.max(0, (existing.qty || 0) + safeQty);
+        // stackable 检查
+        const def = getConsumableById(consumableId);
+        const maxStack = def?.maxStack || 99;
+        existing.qty = Math.min(maxStack, Math.max(0, (existing.qty || 0) + safeQty));
         if (skipSave !== true) await saveStore();
-        log(`消耗品累加: ${name} +${safeQty} → ${existing.qty}`);
+        log(`消耗品累加: ${consumableId} +${safeQty} → ${existing.qty}`);
         return existing.item_id;
     }
 
     if (safeQty < 1) {
-        log(`addConsumable: qty=${qty} 无效(需≥1)，跳过创建 "${name}"`, 'warn');
+        log(`addConsumableItem: qty=${qty} 无效(需≥1)，跳过创建 "${consumableId}"`, 'warn');
         return null;
     }
+
+    // stackable 检查
+    const def = getConsumableById(consumableId);
+    const maxStack = def?.maxStack || 99;
+    const finalQty = Math.min(maxStack, safeQty);
+
     const itemId = generateItemId();
-    const entry = {
+    store.items.push({
         item_id: itemId,
         type: 'consumable',
-        name: name,
-        qty: safeQty
-    };
-    if (description) entry.description = description;
-    store.items.push(entry);
+        consumable_id: consumableId,
+        qty: finalQty
+    });
     if (skipSave !== true) await saveStore();
-    log(`消耗品添加: ${name} x${safeQty}`);
+    log(`消耗品添加: ${consumableId} x${finalQty}`);
     return itemId;
 }
 
@@ -276,13 +311,12 @@ export function validateInventoryEntry(data) {
                         errors.push(`items[${i}].qty 必须是 >= 1 的数字`);
                     }
                 } else if (type === 'consumable') {
-                    if (typeof item.name !== 'string' || item.name.length === 0) {
-                        errors.push(`items[${i}].name 必须是非空字符串`);
+                    if (typeof item.consumable_id !== 'string' || item.consumable_id.length === 0) {
+                        errors.push(`items[${i}].consumable_id 必须是非空字符串`);
                     }
                     if (item.qty != null && (typeof item.qty !== 'number' || item.qty < 1)) {
                         errors.push(`items[${i}].qty 必须是 >= 1 的数字`);
                     }
-                    // description is optional
                 } else if (type === 'quest_item') {
                     if (typeof item.name !== 'string' || item.name.length === 0) {
                         errors.push(`items[${i}].name 必须是非空字符串`);

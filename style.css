@@ -27,3 +27,140 @@
     width: 100%;
     box-sizing: border-box;
 }
+
+/* ============================================
+   Status tab refactor styles
+   ============================================ */
+
+/* Responsive two-column status layout */
+.sao-status-layout.sao-grid-2 {
+    align-items: start !important;
+}
+
+@media (max-width: 768px) {
+    .sao-status-layout.sao-grid-2 {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* Cursor indicator row inside player card */
+.sao-cursor-row {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    margin-bottom: 12px !important;
+    padding: 6px 10px !important;
+    background: rgba(8, 12, 20, 0.55) !important;
+    border-radius: 6px !important;
+    border-left: 3px solid var(--primary) !important;
+    font-size: 0.85em !important;
+    font-family: "Rajdhani", "Noto Sans SC", sans-serif !important;
+}
+
+.sao-cursor-label {
+    color: var(--text-secondary) !important;
+    font-size: 0.78em !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.4px !important;
+}
+
+.sao-cursor-value {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+/* World state rows */
+.sao-world-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 7px 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    font-size: 0.88em !important;
+}
+
+.sao-world-row:last-child {
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+}
+
+.sao-world-label {
+    color: var(--text-secondary) !important;
+    font-family: "Rajdhani", "Noto Sans SC", sans-serif !important;
+    font-size: 0.82em !important;
+    letter-spacing: 0.4px !important;
+    flex-shrink: 0 !important;
+}
+
+.sao-world-value {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    text-align: right !important;
+    word-break: break-word !important;
+}
+
+/* Inventory sub-tabs (equipment/consumable/quest_item/material) */
+.sao-inv-tabs {
+    display: flex !important;
+    gap: 2px !important;
+    margin-bottom: 10px !important;
+    flex-wrap: wrap !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+.sao-inv-tab {
+    padding: 7px 14px !important;
+    cursor: pointer !important;
+    border-bottom: 2px solid transparent !important;
+    margin-bottom: -1px !important;
+    font-family: "Rajdhani", "Noto Sans SC", sans-serif !important;
+    font-size: 0.82em !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.3px !important;
+    transition: all 0.2s ease !important;
+    opacity: 0.6 !important;
+    white-space: nowrap !important;
+    border-radius: 0 !important;
+    color: var(--text-secondary) !important;
+    text-transform: uppercase !important;
+    background: transparent !important;
+}
+
+.sao-inv-tab:hover {
+    opacity: 0.95 !important;
+    color: var(--primary-bright) !important;
+    background: rgba(0, 210, 255, 0.06) !important;
+}
+
+.sao-inv-tab.active {
+    opacity: 1 !important;
+    color: var(--primary) !important;
+    border-bottom-color: var(--primary) !important;
+    text-shadow: 0 0 10px rgba(0, 210, 255, 0.4) !important;
+    background: rgba(0, 210, 255, 0.08) !important;
+}
+
+.sao-inv-tab-content {
+    display: none !important;
+    padding: 8px !important;
+    background: rgba(22, 30, 46, 0.65) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 10px !important;
+    min-height: 40px !important;
+}
+
+.sao-inv-tab-content.active {
+    display: block !important;
+    animation: sao-fade-in 0.25s ease-out !important;
+}
+
+/* Bottom action row */
+.sao-status-actions {
+    display: flex !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    margin-top: 10px !important;
+}

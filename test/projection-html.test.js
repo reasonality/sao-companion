@@ -26,6 +26,7 @@ vi.mock('../sao-store-core.js', () => ({
 
 vi.mock('../sao-store-player.js', () => ({
     getPlayerStore: vi.fn(() => mockStore?.playerStore || null),
+    CURSOR_LABELS: { green: '🟢 普通', orange: '🟠 敌对', red: '🔴 红名' },
 }));
 
 vi.mock('../sao-store-equipment.js', () => ({

@@ -13,6 +13,9 @@ import { getSkillById } from './sao-store-skill.js';
 // 常量
 // ============================================================
 
+/** 光标类型 → 显示文本映射（权威定义） */
+export const CURSOR_LABELS = { green: '🟢 普通', orange: '🟠 敌对', red: '🔴 红名' };
+
 const DEFAULT_PLAYER = Object.freeze({
     player_id: 'player',
     identity: { name: '桐人', title: null },
@@ -30,7 +33,8 @@ const DEFAULT_PLAYER = Object.freeze({
         accessory: null
     },
     skills: [],
-    customSkills: []
+    customSkills: [],
+    cursor_type: 'green'
 });
 
 // ============================================================
@@ -387,6 +391,14 @@ export function validatePlayerEntry(data) {
                     errors.push(`skills[${i}].proficiency 必须是数字`);
                 }
             }
+        }
+    }
+
+    // cursor_type: 枚举校验
+    const CURSOR_TYPE_ENUM = ['green', 'orange', 'red'];
+    if (data.cursor_type != null) {
+        if (!CURSOR_TYPE_ENUM.includes(data.cursor_type)) {
+            errors.push(`cursor_type 必须是 ${CURSOR_TYPE_ENUM.join('|')} 之一`);
         }
     }
 

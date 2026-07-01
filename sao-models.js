@@ -12,7 +12,7 @@ export const ROLE_LABELS = {
 };
 
 // 子角色覆盖（高级，可选；空则回退到所属主档）
-export const SUB_ROLES = ['extract', 'status', 'combat', 'swordskill', 'calendar', 'quest', 'map'];
+export const SUB_ROLES = ['extract', 'status', 'combat', 'swordskill', 'calendar', 'quest', 'map', 'worldStatus'];
 export const SUB_ROLE_LABELS = {
     extract: '📊 状态提取',
     status: '📋 状态面板专家',
@@ -21,13 +21,14 @@ export const SUB_ROLE_LABELS = {
     calendar: '📅 日历',
     quest: '📜 任务',
     map: '🗺️ 地图面板专家',
+    worldStatus: '🌍 世界状态专家',
 };
 
 // 子角色 → 所属主档映射
 const ROLE_PARENT = {
     extract: 'state', status: 'state',
     combat: 'equipment', swordskill: 'equipment',
-    calendar: 'world', quest: 'world', map: 'world',
+    calendar: 'world', quest: 'world', map: 'world', worldStatus: 'world',
 };
 
 // 所有 model keys（主档 + 子角色），供 saveModelsToSettings/loadSettingsToPanel 遍历
@@ -151,6 +152,17 @@ export async function callModel(role, messages, maxTokens = 512, opts = {}) {
     if (resolved) return _fetchOpenAICompat(resolved.label, resolved.cfg, messages, maxTokens, opts);
     log(`${ROLE_LABELS[role] || SUB_ROLE_LABELS[role] || role} 未配置，回退到主模型`, 'warn');
     return await callViaMainModel(messages, maxTokens);
+}
+
+/**
+ * 判断某角色（含子角色→主档回退）是否已配置可直接调用。
+ * 与 callModel / callSpecialist 使用相同的 _resolveModelConfig 解析，
+ * 避免预检查与实际调用逻辑不一致（曾导致 testGenerate 误报"未配置"）。
+ * @param {string} role - 主档 key 或子角色 key
+ * @returns {boolean}
+ */
+export function isModelConfigured(role) {
+    return _resolveModelConfig(role) !== null;
 }
 
 /**

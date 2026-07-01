@@ -3,9 +3,10 @@
 // fireSpecialistPanels 返回 Promise[] 供调用方 allSettled 重渲染
 
 import { getSaoData, log, safeJsonParse, getSettings } from './sao-core.js';
-import { saveStore } from './sao-store-core.js';
+import { getStore, saveStore, projectActionLogHint } from './sao-store-core.js';
 import { callSpecialist } from './sao-models.js';
 import { projectStateHint, projectEquipmentSummary, projectSkillSummary, projectNpcHint } from './sao-state-projection.js';
+import { applyWorldUpdates, projectWorldHint } from './sao-store-world.js';
 
 // ============================================================
 // P2: 装饰面板专家调用（map/equipment/swordskill）
@@ -169,6 +170,11 @@ export function _validateStatus(parsed) {
             }
         }
     }
+    // cursor_type: 可选字符串，枚举
+    if (parsed.state.cursor_type != null) {
+        if (typeof parsed.state.cursor_type !== 'string') return false;
+        if (!['green', 'orange', 'red'].includes(parsed.state.cursor_type)) return false;
+    }
     return true;
 }
 
@@ -200,9 +206,10 @@ export async function callStatusSpecialist(messageId, narrativeText) {
     "hp": 0, "max_hp": 0, "mp": 0, "max_mp": 0,
     "str": 0, "agi": 0, "int": 0, "vit": 0,
     "location": "string", "floor": 0,
-    "equipment": { "weapon": {"name":"...","item_level":0,"durability":"100/100","stats":{"max_hp":0,"str":0,"agi":0,"int":0,"vit":0}} },
+    "equipment": { "weapon": {"name":"...","item_level":0,"stats":{"max_hp":0,"str":0,"agi":0,"int":0,"vit":0}} },
     "inventory": [ {"name":"...","qty":1} ],
-    "skills": [ {"name":"...","proficiency":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ]
+    "skills": [ {"name":"...","proficiency":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ],
+    "cursor_type": "green|orange|red"
   },
   "zdText": "[PR:玩家名][GR:等级][HP:当前/最大][MP:当前/最大][STR:值][AGI:值][INT:值][VIT:值][WE:技能名][ATK:值][Hit%:值][Crit%:值][APT:值][TPA:值][MPCost:值][CD:值][WN:代码][EN:代码参数][FRN:队友名][FRHP:当前/最大][FRMP:当前/最大][ENN:敌人名][ENHP:当前/最大][ENS:敌人技能名]",
   "userStatusHtml": "<内联 HTML：角色状态卡（装备/背包/技能/属性/位置），注入 Shadow DOM 内容区>",
@@ -216,6 +223,7 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 - 不确定时保持当前值不变（保守更新）
 - 装备槽位：weapon/off_hand/head/chest/hands/legs/accessory
 - 技能字段：base_damage=ATK, hit_rate=Hit%, crit_rate=Crit%, mp_cost=MPCost, cooldown=CD, hits=APT, targets=TPA, core_code=WN, affix_codes=EN（数组）
+- cursor_type：光标类型，根据玩家行为状态判断。green=普通玩家/友方，orange=可攻击/敌对，red=红名PK者。若无法确定则不输出（保持当前值）
 
 3. 输出 npcUpdates：识别叙事中出现的 NPC，更新其状态
 
@@ -237,17 +245,25 @@ ${stateHint || '(无)'}
 ${equipHint ? '装备: ' + equipHint : ''}
 ${skillHint ? '技能: ' + skillHint : ''}`;
 
+    // R5: 注入 actionLog 提示
+    const actionLogHint = projectActionLogHint();
+    const actionLogSection = actionLogHint
+        ? `\n\n## 玩家本地操作（UI 按钮触发，非叙事）\n${actionLogHint}\n这些操作已直接修改了玩家状态，请勿覆盖这些变更。\n`
+        : '';
+
     const npcHint = projectNpcHint();
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +
         (npcHint ? `\n## 已知 NPC\n${npcHint}\n` : '') +
         `\n请输出 JSON。`;
 
+    const messages = [
+        { role: 'system', content: systemPrompt + actionLogSection },
+        { role: 'user', content: userPrompt },
+    ];
+
     let content;
     try {
-        content = await callSpecialist('status', [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-        ], 1536, { temperature: 0.4, jsonSchema: true, timeoutMs: 30000 });
+        content = await callSpecialist('status', messages, 1536, { temperature: 0.4, jsonSchema: true, timeoutMs: 30000 });
     } catch (e) {
         log('status 专家调用失败: ' + e.message, 'warn');
         return null;
@@ -268,11 +284,133 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
                 userStatusHtml: parsed.userStatusHtml || '',
                 npcUpdates: parsed.npcUpdates || [],
             });
+
+            // R5: 更新 actionLog 状态
+            const store = getStore();
+            if (store && store.actionLog) {
+                const maxTurn = store.actionLog.entries.reduce((max, e) => Math.max(max, e.turn || 0), 0);
+                store.actionLog.lastInjectedTurn = maxTurn;
+                store.actionLog.currentTurn = (store.actionLog.currentTurn || 0) + 1;
+            }
+
             await saveStore();
         }
         return { state: parsed.state, zdText: parsed.zdText || '', userStatusHtml: parsed.userStatusHtml || '', npcUpdates: parsed.npcUpdates || [] };
     } catch (e) {
         log('status 专家 JSON 解析失败: ' + e.message, 'warn');
         return null;
+    }
+}
+
+// ============================================================
+// R3: 世界状态专家（worldStatus）
+// ============================================================
+
+/** areaStatus.danger_level 枚举 */
+const DANGER_LEVEL_ENUM = ['safe', 'low', 'medium', 'high', 'extreme'];
+
+/** areaStatus.zone_type 枚举 */
+const ZONE_TYPE_ENUM = ['town', 'field', 'dungeon', 'labyrinth', 'boss_area', 'event_area'];
+
+/**
+ * 校验世界专家输出的 { areaStatus, worldEvents }。
+ * @param {object} parsed
+ * @returns {boolean} true=合法
+ */
+export function _validateWorldOutput(parsed) {
+    if (!parsed || typeof parsed !== 'object') return false;
+
+    // areaStatus: null 或对象
+    if (parsed.areaStatus != null) {
+        if (typeof parsed.areaStatus !== 'object') return false;
+        if (typeof parsed.areaStatus.location !== 'string' || parsed.areaStatus.location.length === 0) return false;
+        if (!DANGER_LEVEL_ENUM.includes(parsed.areaStatus.danger_level)) return false;
+        if (!ZONE_TYPE_ENUM.includes(parsed.areaStatus.zone_type)) return false;
+        if (typeof parsed.areaStatus.description !== 'string') return false;
+    }
+
+    // worldEvents: 数组
+    if (!Array.isArray(parsed.worldEvents)) return false;
+    for (const evt of parsed.worldEvents) {
+        if (!evt || typeof evt !== 'object') return false;
+        if (typeof evt.event !== 'string' || evt.event.length === 0) return false;
+        if (evt.floor_id != null && typeof evt.floor_id !== 'string') return false;
+    }
+
+    return true;
+}
+
+/**
+ * 世界状态专家——输出区域状态和世界事件。
+ * fire-and-forget 调用，不阻塞主链。
+ *
+ * @param {number|string} messageId
+ * @param {string} narrativeText
+ * @returns {Promise<void>}
+ */
+export async function callWorldSpecialist(messageId, narrativeText) {
+    const stateHint = projectStateHint();
+    const worldHint = projectWorldHint();
+
+    const systemPrompt = `你是 SAO 游戏世界状态管理器。根据叙事正文，更新世界状态信息。
+
+## 你的职责
+1. 输出 areaStatus：当前区域状态（位置、危险等级、区域类型、描述）
+2. 输出 worldEvents：本回合发生的世界级事件
+
+## 输出格式（严格 JSON，不要输出其他内容）
+{
+  "areaStatus": {
+    "location": "当前区域名称",
+    "danger_level": "safe|low|medium|high|extreme",
+    "zone_type": "town|field|dungeon|labyrinth|boss_area|event_area",
+    "description": "区域简短描述"
+  },
+  "worldEvents": [
+    { "event": "事件描述", "floor_id": "floor_XXX 或 null" }
+  ]
+}
+
+## 规则
+- areaStatus 反映玩家当前所在区域的状态
+- danger_level: safe=安全(城镇), low=低危(安全区域), medium=中危(野外), high=高危(迷宫/危险区域), extreme=极危(Boss区/特殊事件)
+- zone_type: town=城镇, field=野外, dungeon=地下城, labyrinth=迷宫, boss_area=Boss区域, event_area=事件区域
+- worldEvents 只记录有世界影响的事件（BOSS出现/讨伐、重大灾难、区域封锁、重要NPC事件等），日常战斗不算
+- 如果本回合无世界级事件，worldEvents 输出空数组 []
+- areaStatus 若无变化可输出 null（系统保持原值）
+- floor_id 尽量提供（如有明确楼层信息），无法确定则为 null
+
+## 当前状态摘要
+${stateHint || '(无)'}
+${worldHint ? `世界: ${worldHint}` : ''}`;
+
+    const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`;
+
+    let content;
+    try {
+        content = await callSpecialist('worldStatus', [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ], 768, { temperature: 0.4, jsonSchema: true, timeoutMs: 25000 });
+    } catch (e) {
+        log('worldStatus 专家调用失败: ' + e.message, 'warn');
+        return;
+    }
+    if (!content) return;
+
+    try {
+        const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        const parsed = safeJsonParse(cleaned);
+        if (!_validateWorldOutput(parsed)) {
+            log('worldStatus 专家输出校验失败', 'warn');
+            return;
+        }
+        await applyWorldUpdates({
+            areaStatus: parsed.areaStatus,
+            worldEvents: parsed.worldEvents,
+        });
+        log('worldStatus 专家更新完成');
+    } catch (e) {
+        log('worldStatus 专家 JSON 解析失败: ' + e.message, 'warn');
     }
 }

@@ -46,11 +46,17 @@
 <div class="sao-tab" data-action="switchTab" data-tab="about">关于</div>
 </div>
 <div class="sao-tab-content active" data-content="status">
+<div class="sao-grid-2 sao-status-layout">
+<div class="sao-status-left">
 <div class="sao-section"><div class="sao-section-title">玩家状态</div>
 <div id="sao_player_card" class="sao-card">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 <span style="font-size:1.15em;font-weight:bold;" id="sao_player_name">冒险者</span>
 <span style="font-size:0.85em;color:var(--text-secondary);" id="sao_player_location">-</span>
+</div>
+<div class="sao-cursor-row">
+<span class="sao-cursor-label">光标</span>
+<span class="sao-cursor-value" id="sao_cursor_text">-</span>
 </div>
 <div class="sao-bar-row">
 <div class="sao-bar-labels"><span>HP</span><span id="sao_hp_text">-/-</span></div>
@@ -66,27 +72,44 @@
 <div class="sao-stat-item"><div class="sao-stat-value" id="sao_stat_int">-</div><div class="sao-stat-label">INT</div></div>
 <div class="sao-stat-item"><div class="sao-stat-value" id="sao_stat_vit">-</div><div class="sao-stat-label">VIT</div></div>
 </div>
-<div class="sao-grid-3" style="margin-top:10px;">
+<div class="sao-grid-2" style="margin-top:10px;">
 <div class="sao-metric-box"><div class="sao-metric-label">等级</div><div class="sao-metric-value" id="sao_level_text">-</div></div>
-<div class="sao-metric-box"><div class="sao-metric-label">珂尔</div><div class="sao-metric-value" id="sao_cor_text">-</div></div>
 <div class="sao-metric-box"><div class="sao-metric-label">楼层</div><div class="sao-metric-value" id="sao_floor_text">-</div></div>
 </div>
 </div>
 </div>
-<div class="sao-section"><div class="sao-section-title">装备</div><div id="sao_equipment_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">暂无装备数据</span></div></div>
-<div class="sao-grid-2">
-<div class="sao-section"><div class="sao-section-title">背包</div><div id="sao_inventory_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">空</span></div></div>
+<div class="sao-section"><div class="sao-section-title">世界状态</div>
+<div class="sao-card">
+<div class="sao-world-row"><span class="sao-world-label">📍 位置</span><span class="sao-world-value" id="sao_world_location">-</span></div>
+<div class="sao-world-row"><span class="sao-world-label">🌤 天气</span><span class="sao-world-value" id="sao_world_weather">-</span></div>
+<div class="sao-world-row"><span class="sao-world-label">⚠ 区域</span><span class="sao-world-value" id="sao_world_area">-</span></div>
+<div class="sao-world-row"><span class="sao-world-label">🏰 攻略</span><span class="sao-world-value" id="sao_world_clearing">-</span></div>
+<div class="sao-world-row"><span class="sao-world-label">📢 事件</span><span class="sao-world-value" id="sao_world_events">-</span></div>
+</div>
+</div>
+</div>
+<div class="sao-status-right">
+<div class="sao-section">
+<div class="sao-section-title">装备/物品</div>
+<div class="sao-inv-tabs">
+<div class="sao-inv-tab active" data-action="switchInvTab" data-tab="equipment">装备</div>
+<div class="sao-inv-tab" data-action="switchInvTab" data-tab="consumable">消耗品</div>
+<div class="sao-inv-tab" data-action="switchInvTab" data-tab="quest_item">任务物品</div>
+<div class="sao-inv-tab" data-action="switchInvTab" data-tab="material">材料</div>
+</div>
+<div class="sao-inv-tab-content active" data-content="equipment" id="sao_equipment_list" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">暂无装备数据</span></div>
+<div class="sao-inv-tab-content" data-content="consumable" id="sao_consumable_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
+<div class="sao-inv-tab-content" data-content="quest_item" id="sao_questitem_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
+<div class="sao-inv-tab-content" data-content="material" id="sao_material_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
+</div>
 <div class="sao-section"><div class="sao-section-title">技能</div><div id="sao_skills_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">空</span></div></div>
 </div>
-<div class="sao-section"><div class="sao-section-title">生成测试</div><div class="sao-grid-2">
-<button class="sao-btn" data-action="testGenerate" data-type="equipment">装备</button>
-<button class="sao-btn" data-action="testGenerate" data-type="skill">剑技</button>
-<button class="sao-btn" data-action="testGenerate" data-type="loot">战利品</button>
-<button class="sao-btn" data-action="testGenerate" data-type="combat">战斗</button>
+</div>
+<div class="sao-status-actions">
+<button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="refreshStatus">刷新</button>
+<button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testGenerate" data-type="equipment">测试生成</button>
 </div>
 <div class="sao-test-result" id="sao_generate_test"></div>
-</div>
-<div style="margin-top:10px;"><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="refreshStatus">刷新</button></div>
 </div>
 <div class="sao-tab-content" data-content="chapter">
 <div class="sao-section"><div class="sao-section-title">章节切换</div>

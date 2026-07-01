@@ -17,6 +17,9 @@ const SIZE_CRITICAL_THRESHOLD = 500 * 1024;
 /** 面板缓存最大条目数（panels / calendarPanels 各自独立限制） */
 const MAX_PANEL_ENTRIES = 50;
 
+/** actionLog 最大条目数（FIFO cap） */
+const ACTION_LOG_CAP = 20;
+
 // ============================================================
 // 默认 Store 结构
 // ============================================================
@@ -36,6 +39,9 @@ const DEFAULT_STORE = {
     floorStore: { byId: {}, numberToId: {} },
     calendarStore: { currentDate: null, events: {}, appointments: [] },
     questStore: { byId: {}, activeIds: [], completedIds: [] },
+    worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null },
+    consumableStore: { byId: {}, nameToId: {} },
+    actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
     runtime: {},
     panels: {},
     calendarPanels: {},
@@ -128,6 +134,67 @@ export function getStore() {
     }
     if (!d.panels)         d.panels = {};
     if (!d.calendarPanels) d.calendarPanels = {};
+    if (!d.worldStore)     d.worldStore = { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null };
+    else {
+        if (!Array.isArray(d.worldStore.worldEvents)) d.worldStore.worldEvents = [];
+    }
+    if (!d.consumableStore) d.consumableStore = { byId: {}, nameToId: {} };
+    else {
+        if (!d.consumableStore.byId)     d.consumableStore.byId = {};
+        if (!d.consumableStore.nameToId) d.consumableStore.nameToId = {};
+    }
+    if (typeof d.consumableMigrationV1 !== 'boolean') d.consumableMigrationV1 = false;
+    if (!d.actionLog) d.actionLog = { entries: [], lastInjectedTurn: 0, currentTurn: 0 };
+    else {
+        if (!Array.isArray(d.actionLog.entries)) d.actionLog.entries = [];
+        if (typeof d.actionLog.lastInjectedTurn !== 'number') d.actionLog.lastInjectedTurn = 0;
+        if (typeof d.actionLog.currentTurn !== 'number') d.actionLog.currentTurn = 0;
+    }
+
+    // ---- consumable 迁移守卫（只跑一次） ----
+    // M3: 加标记避免每次 getStore() 都 O(n) 遍历 items
+    if (!d.consumableMigrationV1) {
+        // 若已有 inventoryStore.items 含 consumable 且无 consumable_id，为每个 name 创建空壳定义
+        if (d.inventoryStore && Array.isArray(d.inventoryStore.items)) {
+            for (const item of d.inventoryStore.items) {
+                if (item.type === 'consumable' && !item.consumable_id && item.name) {
+                    // 检查 consumableStore 是否已有同名定义
+                    let consumableId = d.consumableStore.nameToId[item.name];
+                    if (!consumableId || !d.consumableStore.byId[consumableId]) {
+                        // 创建空壳定义
+                        let maxNum = 0;
+                        for (const id of Object.keys(d.consumableStore.byId)) {
+                            const match = id.match(/^consumable_(\d+)$/);
+                            if (match) {
+                                const num = parseInt(match[1], 10);
+                                if (num > maxNum) maxNum = num;
+                            }
+                        }
+                        consumableId = 'consumable_' + String(maxNum + 1).padStart(3, '0');
+                        d.consumableStore.byId[consumableId] = {
+                            consumable_id: consumableId,
+                            name: item.name,
+                            category: 'hp_restore',
+                            rarity: 'common',
+                            item_level: 1,
+                            effects: [],
+                            stackable: true,
+                            maxStack: 99,
+                            description: item.description || '',
+                            source: 'migrated'
+                        };
+                        d.consumableStore.nameToId[item.name] = consumableId;
+                        log(`[store-core] 迁移守卫: 消耗品 "${item.name}" → ${consumableId}`);
+                    }
+                    // 给 item 加 consumable_id，删 item.name 和 item.description
+                    item.consumable_id = consumableId;
+                    delete item.name;
+                    delete item.description;
+                }
+            }
+        }
+        d.consumableMigrationV1 = true;
+    }
 
     // calendarStore 过渡同步：仅 currentDate（calendarStore 其余字段为 deferred 迁移保留，独立 PR 处理）
     if (d.calendar?.currentDate && !d.calendarStore.currentDate) {
@@ -232,4 +299,53 @@ function trimPanelMap(map, label) {
     }
 
     log(`[store-core] 裁剪 ${label}：${keys.length} → ${MAX_PANEL_ENTRIES} 条`);
+}
+
+// ============================================================
+// actionLog 机制
+// ============================================================
+
+/**
+ * 追加操作日志条目。
+ * entry 形如 { action, itemType, itemName, detail?, result, resultDetail? }。
+ * 函数补全 turn 和 timestamp，FIFO cap 20。
+ * 不 saveStore（由调用方 save）。
+ * @param {object} entry
+ */
+export function appendActionLog(entry) {
+    const store = getStore();
+    if (!store) return;
+    if (!store.actionLog) store.actionLog = { entries: [], lastInjectedTurn: 0, currentTurn: 0 };
+
+    const enriched = {
+        ...entry,
+        turn: store.actionLog.currentTurn || 0,
+        timestamp: Date.now()
+    };
+
+    store.actionLog.entries.push(enriched);
+
+    // FIFO cap
+    while (store.actionLog.entries.length > ACTION_LOG_CAP) {
+        store.actionLog.entries.shift();
+    }
+}
+
+/**
+ * 投影 actionLog 提示字符串（供 status 专家 systemPrompt 注入）。
+ * 过滤 entries 中 turn > lastInjectedTurn 的条目。
+ * @returns {string} 格式化字符串，无则返回 ''
+ */
+export function projectActionLogHint() {
+    const store = getStore();
+    if (!store || !store.actionLog || !Array.isArray(store.actionLog.entries)) return '';
+
+    const minTurn = store.actionLog.lastInjectedTurn || 0;
+    const recent = store.actionLog.entries.filter(e => e.turn > minTurn);
+    if (recent.length === 0) return '';
+
+    return recent.map(e => {
+        const detail = e.resultDetail ? ` (${e.resultDetail})` : '';
+        return `${e.action}: ${e.itemName || ''}${detail}`;
+    }).join('\n');
 }

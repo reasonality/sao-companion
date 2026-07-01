@@ -192,6 +192,7 @@ export function initFloorFromWorldBook(entries) {
                 canon: _buildCanon(content),
                 state: {
                     unlocked: true,
+                    cleared: false,
                     discovered_locations: [],
                     notes: [],
                 },
@@ -269,6 +270,11 @@ export function validateFloorEntry(data) {
     // state: 若存在必须是 object
     if (data.state != null && typeof data.state !== 'object') {
         errors.push('state 必须是对象');
+    }
+
+    // state.cleared: 若存在必须是 boolean
+    if (data.state?.cleared != null && typeof data.state.cleared !== 'boolean') {
+        errors.push('state.cleared 必须是布尔值');
     }
 
     // source: 枚举校验
