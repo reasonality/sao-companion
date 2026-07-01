@@ -5,7 +5,7 @@
 import { getSaoData, log, safeJsonParse, getSettings } from './sao-core.js';
 import { saveStore } from './sao-store-core.js';
 import { callSpecialist } from './sao-models.js';
-import { projectStateHint, projectEquipmentSummary, projectSkillSummary } from './sao-state-projection.js';
+import { projectStateHint, projectEquipmentSummary, projectSkillSummary, projectNpcHint } from './sao-state-projection.js';
 
 // ============================================================
 // P2: 装饰面板专家调用（map/equipment/swordskill）
@@ -159,6 +159,16 @@ export function _validateStatus(parsed) {
     if (typeof parsed.zdText === 'string' && parsed.zdText.length > 10000) return false;
     // userStatusHtml 长度限制
     if (typeof parsed.userStatusHtml === 'string' && parsed.userStatusHtml.length > 50000) return false;
+    // npcUpdates 校验
+    if (parsed.npcUpdates != null) {
+        if (!Array.isArray(parsed.npcUpdates)) return false;
+        for (let i = 0; i < parsed.npcUpdates.length; i++) {
+            const u = parsed.npcUpdates[i];
+            if (!u || typeof u !== 'object' || typeof u.name !== 'string' || u.name.length === 0) {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -195,7 +205,8 @@ export async function callStatusSpecialist(messageId, narrativeText) {
     "skills": [ {"name":"...","proficiency":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ]
   },
   "zdText": "[PR:玩家名][GR:等级][HP:当前/最大][MP:当前/最大][STR:值][AGI:值][INT:值][VIT:值][WE:技能名][ATK:值][Hit%:值][Crit%:值][APT:值][TPA:值][MPCost:值][CD:值][WN:代码][EN:代码参数][FRN:队友名][FRHP:当前/最大][FRMP:当前/最大][ENN:敌人名][ENHP:当前/最大][ENS:敌人技能名]",
-  "userStatusHtml": "<内联 HTML：角色状态卡（装备/背包/技能/属性/位置），注入 Shadow DOM 内容区>"
+  "userStatusHtml": "<内联 HTML：角色状态卡（装备/背包/技能/属性/位置），注入 Shadow DOM 内容区>",
+  "npcUpdates": [ {"name":"NPC名","relationship":"关系","affinity":5,"floor_id":1,"location":"位置","status":["状态"],"last_seen_date":"日期","observation":"一句话观察"} ]
 }
 
 ## 规则
@@ -206,19 +217,37 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 - 装备槽位：weapon/off_hand/head/chest/hands/legs/accessory
 - 技能字段：base_damage=ATK, hit_rate=Hit%, crit_rate=Crit%, mp_cost=MPCost, cooldown=CD, hits=APT, targets=TPA, core_code=WN, affix_codes=EN（数组）
 
+3. 输出 npcUpdates：识别叙事中出现的 NPC，更新其状态
+
+## npcUpdates 触发条件
+- 叙事中 NPC 出现/被提及（更新 last_seen_date、floor_id、location）
+- NPC 与玩家关系变化（更新 relationship、affinity）
+- NPC 状态变化（更新 status 数组）
+- 新 NPC 首次出现（输出 name 即可，系统自动创建）
+
+## npcUpdates 规则
+- 只输出叙事中明确出现或被提及的 NPC，不要猜测
+- 未变化的字段不要输出（系统会保持原值）
+- affinity 用变化量表示（如 +5、-3），系统会累加
+- 如果本回合无 NPC 相关变化，npcUpdates 输出空数组 []
+- observation：一句话概括本回合与该 NPC 的关键互动
+
 ## 当前状态摘要（参考，勿剧变）
 ${stateHint || '(无)'}
 ${equipHint ? '装备: ' + equipHint : ''}
 ${skillHint ? '技能: ' + skillHint : ''}`;
 
-    const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`;
+    const npcHint = projectNpcHint();
+    const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +
+        (npcHint ? `\n## 已知 NPC\n${npcHint}\n` : '') +
+        `\n请输出 JSON。`;
 
     let content;
     try {
         content = await callSpecialist('status', [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
-        ], 1024, { temperature: 0.4, jsonSchema: true, timeoutMs: 30000 });
+        ], 1536, { temperature: 0.4, jsonSchema: true, timeoutMs: 30000 });
     } catch (e) {
         log('status 专家调用失败: ' + e.message, 'warn');
         return null;
@@ -237,10 +266,11 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
                 state: parsed.state,
                 zdText: parsed.zdText || '',
                 userStatusHtml: parsed.userStatusHtml || '',
+                npcUpdates: parsed.npcUpdates || [],
             });
             await saveStore();
         }
-        return { state: parsed.state, zdText: parsed.zdText || '', userStatusHtml: parsed.userStatusHtml || '' };
+        return { state: parsed.state, zdText: parsed.zdText || '', userStatusHtml: parsed.userStatusHtml || '', npcUpdates: parsed.npcUpdates || [] };
     } catch (e) {
         log('status 专家 JSON 解析失败: ' + e.message, 'warn');
         return null;

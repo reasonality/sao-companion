@@ -8,6 +8,7 @@ import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
 import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
+import { findOrCreateNpc, updateNpcState, addObservation, getNpcById } from './sao-store-npc.js';
 
 // === 纯解析函数 ===
 
@@ -534,19 +535,39 @@ export async function applyExtractedData(extracted, customSkillDefs) {
             for (const item of s.inventory) {
                 if (!item || !item.name) continue;
                 // Determine type: if item has stats/equipment-like fields, route to equipment+inventory (backpack)
-                if (item.stats || item.slot) {
-                    const equipId = findOrCreateEquipment({
+                if (item.stats || item.slot || item._equip_backpack || item.durability) {
+                    // 装备背包项：从中文槽位名映射为英文 slot
+                    const SLOT_CN_TO_EN = { '武器':'weapon', '副手':'off_hand', '防具':'armor', '头部':'head', '头盔':'helmet', '胸部':'chest', '手部':'hands', '手套':'gloves', '腿部':'legs', '靴子':'boots', '盾牌':'shield', '饰品':'accessory', '戒指':'ring', '项链':'necklace', '披风':'cape', '腰带':'belt' };
+                    const mappedSlot = item.slot || SLOT_CN_TO_EN[item.type];
+                    if (item.type && !item.slot && !SLOT_CN_TO_EN[item.type] && item._equip_backpack) {
+                        log(`applyExtractedData: 未知装备槽位名 "${item.type}"（装备: ${item.name}），尝试原样使用`, 'warn');
+                    }
+                    // durability 解析：NaN 保护（非标准格式时回退 undefined）
+                    let parsedDurability = undefined;
+                    if (item.durability) {
+                        const parts = String(item.durability).split('/');
+                        const cur = parseInt(parts[0]);
+                        const max = parts[1] != null ? parseInt(parts[1]) : NaN;
+                        if (!isNaN(cur) && !isNaN(max)) {
+                            parsedDurability = { current: cur, max: max };
+                        } else if (!isNaN(cur)) {
+                            parsedDurability = { current: cur, max: cur };
+                        }
+                    }
+                    const equipData = {
                         name: item.name,
-                        slot: item.slot,
+                        slot: mappedSlot || item.type,
                         weapon_type: item.weapon_type,
-                        statType: item.statType || item.type,
+                        statType: item.statType,
                         rarity: item.rarity || 'common',
                         item_level: item.item_level || 1,
                         stats: item.stats || {},
                         affixes: item.affixes || [],
-                        description: item.description || '',
+                        description: item.description || (item.durability ? `耐久: ${item.durability}` : ''),
+                        durability: parsedDurability,
                         source: 'specialist'
-                    });
+                    };
+                    const equipId = findOrCreateEquipment(equipData);
                     if (equipId) await addEquipmentItem(equipId, true);
                     continue;
                 }
@@ -619,6 +640,40 @@ export async function applyExtractedData(extracted, customSkillDefs) {
         }
 
         log('状态已更新（store 架构）');
+    }
+
+    // 5. NPC Updates → npcStore
+    if (Array.isArray(extracted.npcUpdates) && extracted.npcUpdates.length > 0) {
+        for (const upd of extracted.npcUpdates) {
+            if (!upd || !upd.name) continue;
+            try {
+                const npcId = findOrCreateNpc(upd.name);
+                if (!npcId) continue;
+                const stateUpdate = {};
+                if (upd.relationship != null) stateUpdate.relationship = String(upd.relationship);
+                if (upd.affinity != null) {
+                    // affinity 解读为 delta（变化量），累加到当前值
+                    const current = getNpcById(npcId);
+                    const delta = typeof upd.affinity === 'string'
+                        ? (parseInt(upd.affinity) || 0)
+                        : Number(upd.affinity) || 0;
+                    stateUpdate.affinity = (current?.state?.affinity || 0) + delta;
+                }
+                if (upd.floor_id != null) stateUpdate.floor_id = upd.floor_id;
+                if (upd.location != null) stateUpdate.location = String(upd.location);
+                if (upd.last_seen_date != null) stateUpdate.last_seen_date = String(upd.last_seen_date);
+                if (upd.status != null && Array.isArray(upd.status)) stateUpdate.status = upd.status;
+                if (Object.keys(stateUpdate).length > 0) {
+                    await updateNpcState(npcId, stateUpdate, true);
+                }
+                if (upd.observation) {
+                    await addObservation(npcId, String(upd.observation), true);
+                }
+                log(`NPC 更新: ${upd.name} → ${JSON.stringify(stateUpdate)}`);
+            } catch (e) {
+                log(`NPC 更新失败 (${upd.name}): ${e.message}`, 'warn');
+            }
+        }
     }
 
     await saveStore();

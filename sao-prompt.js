@@ -3,6 +3,7 @@
 
 import { getSaoData, getContext, getSettings, isSaoCard, log, esc } from './sao-core.js';
 import { projectCompactState, projectFullState } from './sao-state-projection.js';
+import { getStore } from './sao-store-core.js';
 
 // ============================================================
 // Phase 3: Prompt 清理 / 替代 promptOnly 正则
@@ -101,9 +102,10 @@ export function injectMemoryAndState() {
     // 当前章节
     parts.push(`[章节]${settings.currentArc}`);
 
-    // P2b: inject calendar date if available
-    if (data?.calendar?.currentDate) {
-        parts.push(`[日期]${data.calendar.currentDate}`);
+    // P2b: inject calendar date if available (from calendarStore)
+    const calStore = getStore()?.calendarStore;
+    if (calStore?.currentDate) {
+        parts.push(`[日期]${calStore.currentDate}`);
         if (toolSupported) {
             parts.push('[日历/原作时间线]不要猜测原作时间线或当前日程；需要查询某日、某月或范围事件时调用 get_calendar。');
         }

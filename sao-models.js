@@ -3,22 +3,39 @@
 
 import { getSettings, log, getContext } from './sao-core.js';
 
-// 子代理角色：narrative 不干预主对话，用于 NPC 反应生成
-// combat 兼管武器/技能/物品生成（因为涉及数值）
-// extract 单条消息状态提取；calendar 跨轮次状态机（约定提取+完成标记，v2）
-// specialist P2: 装饰面板（map/equipment/swordskill）共享档位，4 级回退
-export const ROLES = ['narrative', 'combat', 'extract', 'calendar', 'specialist'];
+// 主档（UI 3 卡片，对应文档 3 类 LLM 角色）
+export const ROLES = ['state', 'equipment', 'world'];
 export const ROLE_LABELS = {
-    narrative: '📝 叙事/NPC模型',
-    combat: '⚔️ 数值与生成模型',
-    extract: '📊 状态提取模型',
-    calendar: '📅 日历模型',
-    specialist: '🧩 专家面板模型',
+    state: '🧬 玩家/NPC状态模型',
+    equipment: '⚔️ 装备/技能模型',
+    world: '🌍 世界/日历/任务模型',
 };
+
+// 子角色覆盖（高级，可选；空则回退到所属主档）
+export const SUB_ROLES = ['extract', 'status', 'combat', 'swordskill', 'calendar', 'quest', 'map'];
+export const SUB_ROLE_LABELS = {
+    extract: '📊 状态提取',
+    status: '📋 状态面板专家',
+    combat: '⚔️ 战斗/生成',
+    swordskill: '🗡️ 剑技面板专家',
+    calendar: '📅 日历',
+    quest: '📜 任务',
+    map: '🗺️ 地图面板专家',
+};
+
+// 子角色 → 所属主档映射
+const ROLE_PARENT = {
+    extract: 'state', status: 'state',
+    combat: 'equipment', swordskill: 'equipment',
+    calendar: 'world', quest: 'world', map: 'world',
+};
+
+// 所有 model keys（主档 + 子角色），供 saveModelsToSettings/loadSettingsToPanel 遍历
+export const ALL_MODEL_KEYS = [...ROLES, ...SUB_ROLES];
 
 /**
  * 拉取模型列表
- * @param {string} role - narrative|combat|extract
+ * @param {string} role - state|equipment|world 或子角色 key
  * @returns {Promise<string[]>} 模型 ID 列表
  */
 export async function fetchModelList(role) {
@@ -108,17 +125,32 @@ async function _fetchOpenAICompat(label, cfg, messages, maxTokens, opts) {
     return content;
 }
 
-export async function callModel(role, messages, maxTokens = 512, opts = {}) {
+/**
+ * 解析模型配置：角色专属 → parent 主档 → null。
+ * @param {string} role - 主档 key 或子角色 key
+ * @returns {{cfg: object, label: string} | null}
+ */
+function _resolveModelConfig(role) {
     const settings = getSettings();
-    const cfg = settings.models[role];
-
-    // 没有配置 API → 回退到酒馆主模型
-    if (!cfg.url || !cfg.model) {
-        log(`${ROLE_LABELS[role]} 未配置，回退到主模型`, 'warn');
-        return await callViaMainModel(messages, maxTokens);
+    const tryConfig = (cfg) => cfg && cfg.url && cfg.model;
+    const label = (r) => ROLE_LABELS[r] || SUB_ROLE_LABELS[r] || r;
+    // 0. 角色专属配置（主档或子角色覆盖）
+    if (settings.models[role] && tryConfig(settings.models[role])) {
+        return { cfg: settings.models[role], label: label(role) };
     }
+    // 1. parent 主档（仅子角色）
+    const parent = ROLE_PARENT[role];
+    if (parent && settings.models[parent] && tryConfig(settings.models[parent])) {
+        return { cfg: settings.models[parent], label: label(parent) };
+    }
+    return null;
+}
 
-    return _fetchOpenAICompat(ROLE_LABELS[role], cfg, messages, maxTokens, opts);
+export async function callModel(role, messages, maxTokens = 512, opts = {}) {
+    const resolved = _resolveModelConfig(role);
+    if (resolved) return _fetchOpenAICompat(resolved.label, resolved.cfg, messages, maxTokens, opts);
+    log(`${ROLE_LABELS[role] || SUB_ROLE_LABELS[role] || role} 未配置，回退到主模型`, 'warn');
+    return await callViaMainModel(messages, maxTokens);
 }
 
 /**
@@ -134,27 +166,14 @@ export async function callViaMainModel(messages, maxTokens) {
     });
 }
 
-/** 专家面板调用——4 级回退：专家专属档 → specialist 档 → extract 档 → 主模型。
- *  specialistRole = 'map'/'equipment'/'swordskill'/'status'/'quest' 等面板类型。
- *  专家专属档为可选：仅当 settings.models[specialistRole] 被显式配置时启用，
- *  否则跳过（DEFAULT_SETTINGS.models 不含这些键，getSettings 不会回填它们）。 */
+/**
+ * 专家面板调用——3 级回退：角色专属 → parent 主档 → 主模型。
+ * specialistRole = 'status'/'map'/'equipment'/'swordskill'/'quest' 等面板类型。
+ * 'equipment' 既是主档也是 specialistRole（装备面板专家直接用 equipment 主档）。
+ */
 export async function callSpecialist(specialistRole, messages, maxTokens = 512, opts = {}) {
-    const settings = getSettings();
-    const tryConfig = (cfg) => cfg && cfg.url && cfg.model;
-    const label = (r) => ROLE_LABELS[r] || r;
-    // 0. 专家专属档（per-panel）——可选，显式配置才生效
-    if (specialistRole && settings.models[specialistRole] && tryConfig(settings.models[specialistRole])) {
-        return _fetchOpenAICompat(label(specialistRole), settings.models[specialistRole], messages, maxTokens, opts);
-    }
-    // 1. specialist 档
-    if (settings.models.specialist && tryConfig(settings.models.specialist)) {
-        return _fetchOpenAICompat(label('specialist'), settings.models.specialist, messages, maxTokens, opts);
-    }
-    // 2. extract 档
-    if (settings.models.extract && tryConfig(settings.models.extract)) {
-        return _fetchOpenAICompat(label('extract'), settings.models.extract, messages, maxTokens, opts);
-    }
-    // 3. 主模型
-    log(`专家面板 ${specialistRole} 未配置专用 API，回退主模型`, 'warn');
+    const resolved = _resolveModelConfig(specialistRole);
+    if (resolved) return _fetchOpenAICompat(resolved.label, resolved.cfg, messages, maxTokens, opts);
+    log(`专家面板 ${specialistRole} 未配置，回退主模型`, 'warn');
     return await callViaMainModel(messages, maxTokens);
 }

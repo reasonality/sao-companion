@@ -15,11 +15,18 @@ const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     // 多模型 API 配置 (直接存储 endpoint/key/model)
     models: {
-        narrative:  { url: '', key: '', model: '' },
-        combat:     { url: '', key: '', model: '' },
-        extract:    { url: '', key: '', model: '' },
-        calendar:   { url: '', key: '', model: '' },
-        specialist: { url: '', key: '', model: '' },
+        // 3 主档（对应文档 3 类 LLM 角色）
+        state:      { url: '', key: '', model: '' },  // 玩家/NPC 状态 LLM
+        equipment:  { url: '', key: '', model: '' },  // 装备/技能 LLM
+        world:      { url: '', key: '', model: '' },  // 世界/日历/任务 LLM
+        // 子角色覆盖（高级，可选；空则回退到所属主档）
+        extract:    { url: '', key: '', model: '' },  // 状态提取（→state）
+        status:     { url: '', key: '', model: '' },  // 状态面板专家（→state）
+        combat:     { url: '', key: '', model: '' },  // 战斗/生成（→equipment）
+        swordskill: { url: '', key: '', model: '' },  // 剑技面板专家（→equipment）
+        calendar:   { url: '', key: '', model: '' },  // 日历（→world）
+        quest:      { url: '', key: '', model: '' },  // 任务（→world）
+        map:        { url: '', key: '', model: '' },  // 地图面板专家（→world）
     },
     // v2 日历 LLM 模型开关（opt-in 默认关）
     saoCalendar: { llmEnabled: false },
@@ -72,6 +79,32 @@ export function unbindAllSaoEvents() {
     }
     _saoEventBindings.length = 0;
     _eventsBound = false;
+}
+
+/**
+ * v1→v2 模型配置迁移：旧 5 槽（narrative/combat/extract/calendar/specialist）→ 新 3 主档 + 子角色。
+ * 旧 extract → state 主档 + extract 子角色保留；旧 combat → equipment 主档 + combat 子角色保留；
+ * 旧 calendar → world 主档 + calendar 子角色保留；旧 narrative/specialist 丢弃（无消费者）。
+ * 幂等：已迁移（_modelConfigVersion >= 2）则跳过。
+ */
+function _migrateModelSettingsV1ToV2(s) {
+    if (!s.models) return;
+    if (s._modelConfigVersion >= 2) return;
+    const m = s.models;
+    // 旧值迁移到新主档（仅当新主档为空时填充）
+    if (!m.state && (m.extract || m.specialist)) {
+        m.state = structuredClone(m.extract || m.specialist);
+    }
+    if (!m.equipment && m.combat) {
+        m.equipment = structuredClone(m.combat);
+    }
+    if (!m.world && m.calendar) {
+        m.world = structuredClone(m.calendar);
+    }
+    // 清理废弃键
+    delete m.narrative;
+    delete m.specialist;
+    s._modelConfigVersion = 2;
 }
 
 export function isSaoEventsBound() { return _eventsBound; }
@@ -133,6 +166,8 @@ export function getSettings() {
     if (!s.models) {
         s.models = structuredClone(DEFAULT_SETTINGS.models);
     }
+    // v1→v2 模型配置迁移（5 槽 → 3 主档 + 子角色）
+    _migrateModelSettingsV1ToV2(s);
     // 兼容旧版本：补全可能缺失的各角色 model 配置（如新增 calendar）
     for (const role of Object.keys(DEFAULT_SETTINGS.models)) {
         if (!s.models[role]) {

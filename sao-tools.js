@@ -224,37 +224,34 @@ export function registerGetCalendar(ctx) {
 
                 // 2. Game calendar events (appointments, custom events)
                 let gameEvents = [];
-                if (cal && cal.appointments) {
-                    gameEvents = cal.appointments.map(apt => ({
-                        date: apt.date || '',
-                        type: '[约定]',
-                        title: apt.title || apt.description || '',
-                    }));
-                }
-
-                // 2b. calendarStore (chatMetadata.sao_companion.calendarStore)
-                // NOTE: calendarStore write-migration is deferred to a future PR;
-                // this read future-proofs the migration path.
                 const store = getStore();
                 const calStore = store?.calendarStore;
-                if (calStore) {
-                    if (Array.isArray(calStore.appointments)) {
-                        gameEvents.push(...calStore.appointments.map(apt => ({
-                            date: apt.date || '',
-                            type: '[约定]',
-                            title: apt.title || apt.description || '',
-                        })));
-                    }
-                    if (calStore.events && typeof calStore.events === 'object') {
-                        for (const [dateKey, events] of Object.entries(calStore.events)) {
-                            if (!Array.isArray(events)) continue;
-                            for (const ev of events) {
-                                gameEvents.push({
-                                    date: dateKey || ev.date || '',
-                                    type: ev.type === 'custom' ? '[自定义]' : '[事件]',
-                                    title: ev.title || ev.description || '',
-                                });
-                            }
+
+                // Merge appointments from calendarStore (priority) and data.calendar (fallback), deduplicate by id
+                const seenIds = new Set();
+                const allAppointments = [];
+                for (const apt of (calStore?.appointments || [])) {
+                    if (apt.id && !seenIds.has(apt.id)) { seenIds.add(apt.id); allAppointments.push(apt); }
+                }
+                for (const apt of (cal?.appointments || [])) {
+                    if (apt.id && !seenIds.has(apt.id)) { seenIds.add(apt.id); allAppointments.push(apt); }
+                }
+                gameEvents = allAppointments.map(apt => ({
+                    date: apt.date || '',
+                    type: '[约定]',
+                    title: apt.title || apt.description || '',
+                }));
+
+                // 2b. calendarStore events (custom events from events map)
+                if (calStore?.events && typeof calStore.events === 'object') {
+                    for (const [dateKey, events] of Object.entries(calStore.events)) {
+                        if (!Array.isArray(events)) continue;
+                        for (const ev of events) {
+                            gameEvents.push({
+                                date: dateKey || ev.date || '',
+                                type: ev.type === 'custom' ? '[自定义]' : '[事件]',
+                                title: ev.title || ev.description || '',
+                            });
                         }
                     }
                 }

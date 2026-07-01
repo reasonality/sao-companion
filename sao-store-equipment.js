@@ -175,6 +175,52 @@ export function getEquipmentById(id) {
 }
 
 /**
+ * 从 equipmentStore 销毁装备定义（byId + nameToId）。
+ * 跨引用校验：已穿戴装备不允许销毁（return false）。
+ * @param {string} equipmentId
+ * @param {boolean} skipSave
+ * @returns {Promise<boolean>} 是否销毁成功
+ */
+export async function removeEquipmentById(equipmentId, skipSave) {
+    const store = getEquipmentStore();
+    const equip = store.byId[equipmentId];
+    if (!equip) {
+        log(`removeEquipmentById: ${equipmentId} 不存在`, 'warn');
+        return false;
+    }
+    // 跨引用校验：检查是否已穿戴
+    const playerStore = getStore().playerStore;
+    if (playerStore?.equipment) {
+        for (const slot of Object.keys(playerStore.equipment)) {
+            if (playerStore.equipment[slot] === equipmentId) {
+                log(`removeEquipmentById: ${equipmentId} 已穿戴于 ${slot}，拒绝销毁`, 'warn');
+                return false;
+            }
+        }
+    }
+    // 从 byId 删除
+    delete store.byId[equipmentId];
+    // 从 nameToId 删除（值为数组，同名多件）
+    const name = equip.name;
+    if (name && store.nameToId[name]) {
+        const ids = store.nameToId[name];
+        if (Array.isArray(ids)) {
+            const filtered = ids.filter(id => id !== equipmentId);
+            if (filtered.length === 0) {
+                delete store.nameToId[name];
+            } else {
+                store.nameToId[name] = filtered;
+            }
+        } else if (ids === equipmentId) {
+            delete store.nameToId[name];
+        }
+    }
+    if (skipSave !== true) await saveStore();
+    log(`装备销毁: ${equipmentId} (${name})`);
+    return true;
+}
+
+/**
  * 校验装备条目数据。
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}

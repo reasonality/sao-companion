@@ -29,6 +29,7 @@ import {
     generateEquipmentId,
     findBestMatch,
     validateEquipmentEntry,
+    removeEquipmentById,
 } from '../sao-store-equipment.js';
 import {
     getPlayerStore,
@@ -41,6 +42,7 @@ import {
     addConsumable,
     addMaterial,
     addEquipmentItem,
+    removeEquipmentItem,
     updateCurrency,
     getCurrency,
 } from '../sao-store-inventory.js';
@@ -681,6 +683,71 @@ describe('Equipment Behavioral Invariants', () => {
 
         // equipment_id must appear exactly 0 times in inventory
         expect(inv.items.filter(i => i.equipment_id === idA)).toHaveLength(0);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// B4: removeEquipmentById
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('removeEquipmentById', () => {
+    it('removes equipment from byId and nameToId', async () => {
+        const id = findOrCreateEquipment({ name: '测试销毁剑', slot: 'weapon', stats: { atk: 10 } });
+        expect(mockStore.equipmentStore.byId[id]).toBeTruthy();
+        expect(mockStore.equipmentStore.nameToId['测试销毁剑']).toContain(id);
+
+        const result = await removeEquipmentById(id);
+        expect(result).toBe(true);
+        expect(mockStore.equipmentStore.byId[id]).toBeUndefined();
+        expect(mockStore.equipmentStore.nameToId['测试销毁剑']).toBeUndefined();
+    });
+
+    it('returns false for non-existent equipment', async () => {
+        const result = await removeEquipmentById('equip_999');
+        expect(result).toBe(false);
+    });
+
+    it('refuses to destroy equipped item (cross-reference check)', async () => {
+        const id = findOrCreateEquipment({ name: '已穿戴铠甲', slot: 'chest', stats: { vit: 20 } });
+        await addEquipmentItem(id);
+        await equipItem('chest', id);
+
+        const result = await removeEquipmentById(id);
+        expect(result).toBe(false);
+        // Should still exist
+        expect(mockStore.equipmentStore.byId[id]).toBeTruthy();
+    });
+
+    it('removes one instance from nameToId array without affecting others', async () => {
+        // Manually create two equipment entries with the same name to simulate multi-instance
+        const id1 = findOrCreateEquipment({ name: '同名剑', slot: 'weapon', item_level: 5, stats: { atk: 10 } });
+        // Force a second entry into byId + nameToId (simulating a second instance)
+        const id2 = 'equip_999';
+        mockStore.equipmentStore.byId[id2] = { equipment_id: id2, name: '同名剑', slot: 'weapon', item_level: 10, stats: { atk: 20 } };
+        mockStore.equipmentStore.nameToId['同名剑'].push(id2);
+        expect(mockStore.equipmentStore.nameToId['同名剑']).toHaveLength(2);
+
+        await removeEquipmentById(id1);
+        expect(mockStore.equipmentStore.byId[id1]).toBeUndefined();
+        expect(mockStore.equipmentStore.byId[id2]).toBeTruthy();
+        expect(mockStore.equipmentStore.nameToId['同名剑']).toContain(id2);
+        expect(mockStore.equipmentStore.nameToId['同名剑']).not.toContain(id1);
+    });
+
+    it('removeEquipmentItem removes item from inventory by equipmentId', async () => {
+        const id = findOrCreateEquipment({ name: '背包测试剑', slot: 'weapon', stats: { atk: 5 } });
+        await addEquipmentItem(id);
+        const inv = getInventoryStore();
+        expect(inv.items.some(i => i.equipment_id === id)).toBe(true);
+
+        const removed = await removeEquipmentItem(id);
+        expect(removed).toBe(true);
+        expect(inv.items.some(i => i.equipment_id === id)).toBe(false);
+    });
+
+    it('removeEquipmentItem returns false for non-existent equipment in inventory', async () => {
+        const removed = await removeEquipmentItem('equip_nonexist');
+        expect(removed).toBe(false);
     });
 });
 

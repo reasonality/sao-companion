@@ -530,6 +530,59 @@ export function projectStateHint() {
 }
 
 /**
+ * 投影已知 NPC 名单（一行摘要，注入 status specialist prompt）。
+ * 格式：亚丝娜(搭档,好感15) | 克莱因(朋友,好感5)
+ * 只列出有 state 变化的 NPC（relationship/affinity/location/status 非空）。
+ * @returns {string}
+ */
+export function projectNpcHint() {
+    try {
+        const store = getStore();
+        if (!store?.npcStore?.byId) return '';
+        const npcs = Object.values(store.npcStore.byId);
+        const active = npcs.filter(npc => {
+            const s = npc.state || {};
+            return s.relationship || s.affinity || s.location || (s.status && s.status.length);
+        });
+        if (active.length === 0) return '';
+        return active.map(npc => {
+            const s = npc.state || {};
+            const parts = [];
+            if (s.relationship) parts.push(s.relationship);
+            if (s.affinity) parts.push(`好感${s.affinity}`);
+            return parts.length > 0 ? `${npc.name}(${parts.join(',')})` : npc.name;
+        }).join(' | ');
+    } catch (e) { return ''; }
+}
+
+/**
+ * 投影 NPC 面板数据（结构化数组，供状态面板渲染）。
+ * 只返回有 state 变化的 NPC。
+ * @returns {Array|null}
+ */
+export function renderNpcPanel() {
+    try {
+        const store = getStore();
+        if (!store?.npcStore?.byId) return null;
+        const npcs = Object.values(store.npcStore.byId);
+        const active = npcs.filter(npc => {
+            const s = npc.state || {};
+            return s.relationship || s.affinity || s.location || (s.status && s.status.length);
+        });
+        if (active.length === 0) return null;
+        return active.map(npc => ({
+            name: npc.name,
+            relationship: npc.state?.relationship || '',
+            affinity: npc.state?.affinity || 0,
+            floor_id: npc.state?.floor_id || null,
+            location: npc.state?.location || '',
+            status: npc.state?.status || [],
+            last_seen_date: npc.state?.last_seen_date || null,
+        }));
+    } catch (e) { return null; }
+}
+
+/**
  * 投影任务摘要（用于状态面板任务区）。
  * 从 questStore.activeIds 读取活跃任务，格式化为 HTML 字符串。
  * @returns {string} HTML 字符串，无活跃任务时返回空字符串
@@ -850,6 +903,19 @@ export function projectStatusPanelHtml() {
                 `<details open><summary>背包 / 货币</summary><div>${invParts.join('<br>')}</div></details>`
             );
         }
+    }
+
+    // ---- 7. NPC 关系 ----
+    const npcData = renderNpcPanel();
+    if (npcData && npcData.length > 0) {
+        const npcLines = npcData.map(npc => {
+            const rel = npc.relationship ? `(${npc.relationship})` : '';
+            const affinity = npc.affinity ? ` 好感${npc.affinity}` : '';
+            const loc = npc.location ? ` @${npc.location}` : '';
+            const status = (npc.status && npc.status.length) ? ` [${npc.status.join(',')}]` : '';
+            return `${esc(npc.name)}${rel}${affinity}${loc}${status}`;
+        });
+        sections.push(`<details><summary>NPC</summary><div>${npcLines.join('<br>')}</div></details>`);
     }
 
     // ---- 组装 ----

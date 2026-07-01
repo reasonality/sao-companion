@@ -14,9 +14,9 @@ import {
 } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getPlayerStore } from './sao-store-player.js';
-import { getEquipmentById } from './sao-store-equipment.js';
+import { getEquipmentById, removeEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
-import { getInventoryStore } from './sao-store-inventory.js';
+import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
     generateEquipment, generateSkill, generateLoot,
@@ -46,7 +46,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
-import { ROLES, fetchModelList, callModel } from './sao-models.js';
+import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
 
@@ -539,17 +539,31 @@ function bindEvents() {
             injectMemoryAndState();
             initCalendarIfNeeded();
 
-            // B3: Initialize stores from world book
+            // B3: Initialize stores from world book (预分类一次，避免各 store init 重复扫描全部 entries)
             const char = getCurrentCharacter();
             if (char?.data?.character_book?.entries) {
                 const entries = char.data.character_book.entries;
                 const entryCount = entries.length;
-                const npcCount = initNpcFromWorldBook(entries);
-                const floorCount = initFloorFromWorldBook(entries);
+                // B3: 预分类 entries，initNpcFromWorldBook / initFloorFromWorldBook 各自只需遍历子集
+                const npcEntries = [];
+                const floorEntries = [];
+                for (const entry of entries) {
+                    const content = entry.content || '';
+                    const comment = (entry.comment || entry.name || '').trim();
+                    const keys = (entry.keys || []).map(k => k.toLowerCase());
+                    const allText = (comment + ' ' + keys.join(' ')).toLowerCase();
+                    if (content.includes('characterProfile')) {
+                        npcEntries.push(entry);
+                    } else if (/层|floor|f\b/.test(allText)) {
+                        floorEntries.push(entry);
+                    }
+                }
+                const npcCount = initNpcFromWorldBook(npcEntries);
+                const floorCount = initFloorFromWorldBook(floorEntries);
                 if (npcCount > 0 || floorCount > 0) {
                     saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
                 }
-                log(`Phase B 初始化: ${npcCount} NPC, ${floorCount} 楼层 (索引 ${entryCount} 条目)`);
+                log(`Phase B 初始化: ${npcCount} NPC, ${floorCount} 楼层 (索引 ${entryCount} 条目，预分类 NPC=${npcEntries.length} 楼层=${floorEntries.length})`);
             }
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
@@ -1028,43 +1042,49 @@ function describeEnCode(raw) {
 function renderSkillDetail(sk) {
     const rows = []
     if (sk.weapon_type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">武器类型</span><span class="sao-detail-value">${esc(sk.weapon_type)}</span></div>`)
-    if (sk.skill_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">技能等级</span><span class="sao-detail-value">Lv${esc(sk.skill_level)}</span></div>`)
+    if (sk.proficiency != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">技能等级</span><span class="sao-detail-value">Lv${esc(sk.proficiency)}</span></div>`)
     if (sk.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(sk.rarity)}">${esc(sk.rarity)}</span></div>`)
-    if (sk.base_damage != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">基础伤害</span><span class="sao-detail-value">${esc(sk.base_damage)}</span></div>`)
-    if (sk.hit_rate != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">命中率</span><span class="sao-detail-value">${esc(sk.hit_rate)}%</span></div>`)
-    if (sk.crit_rate != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">暴击率</span><span class="sao-detail-value">${esc(sk.crit_rate)}%</span></div>`)
-    if (sk.mp_cost != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">MP消耗</span><span class="sao-detail-value">${esc(sk.mp_cost)}</span></div>`)
-    if (sk.cooldown != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">冷却</span><span class="sao-detail-value">${esc(sk.cooldown)}回合</span></div>`)
-    if (sk.hits != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">连击数</span><span class="sao-detail-value">${esc(sk.hits)}</span></div>`)
-    if (sk.targets != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">目标数</span><span class="sao-detail-value">${esc(sk.targets)}</span></div>`)
-    if (sk.core_code) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">核心功能</span><span class="sao-detail-value">${esc(coreCodeLabel(sk.core_code))}</span></div>`)
-    if (sk.affix_codes && sk.affix_codes.length > 0) {
-        const affixHtml = sk.affix_codes.map(raw => {
+    if (sk.combat?.atk != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">基础伤害</span><span class="sao-detail-value">${esc(sk.combat.atk)}</span></div>`)
+    if (sk.combat?.hit != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">命中率</span><span class="sao-detail-value">${esc(sk.combat.hit)}%</span></div>`)
+    if (sk.combat?.crit != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">暴击率</span><span class="sao-detail-value">${esc(sk.combat.crit)}%</span></div>`)
+    if (sk.combat?.mpCost != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">MP消耗</span><span class="sao-detail-value">${esc(sk.combat.mpCost)}</span></div>`)
+    if (sk.combat?.cd != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">冷却</span><span class="sao-detail-value">${esc(sk.combat.cd)}回合</span></div>`)
+    if (sk.combat?.apt != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">连击数</span><span class="sao-detail-value">${esc(sk.combat.apt)}</span></div>`)
+    if (sk.combat?.tpa != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">目标数</span><span class="sao-detail-value">${esc(sk.combat.tpa)}</span></div>`)
+    if (sk.effects?.wn) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">核心功能</span><span class="sao-detail-value">${esc(coreCodeLabel(sk.effects.wn))}</span></div>`)
+    if (sk.effects?.en && sk.effects.en.length > 0) {
+        const affixHtml = sk.effects.en.map(raw => {
             const d = describeEnCode(raw);
             return d ? `<span class="sao-tag sao-tag-affix" title="${esc(d.code)}">${esc(d.label)}</span>` : `<span class="sao-tag sao-tag-affix">${esc(raw)}</span>`;
         }).join(' ');
         rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">词条</span><span class="sao-detail-value">${affixHtml}</span></div>`)
     }
-    if (sk.affix_codes && sk.affix_codes.length > 0) {
-        const descHtml = sk.affix_codes.map(raw => {
+    if (sk.effects?.en && sk.effects.en.length > 0) {
+        const descHtml = sk.effects.en.map(raw => {
             const d = describeEnCode(raw);
             return d ? `<div style="margin:2px 0;">• <strong>${esc(d.label)}</strong>：${esc(d.desc)}</div>` : '';
         }).join('');
         if (descHtml) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果说明</span><span class="sao-detail-value" style="text-align:left;max-width:320px;">${descHtml}</span></div>`)
-    }
-    if (sk.effects && sk.effects.length > 0) {
-        const effHtml = sk.effects.map(e => `<span class="sao-tag sao-tag-effect">${esc(e)}</span>`).join(' ')
-        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果</span><span class="sao-detail-value">${effHtml}</span></div>`)
     }
     if (sk.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(sk.description)}</span></div>`)
     return rows.join('')
 }
 
 function renderInventoryDetail(item) {
+    // Equipment type: delegate to renderEquipmentDetail with full equipment data
+    if (item.type === 'equipment' && item.equipment_id) {
+        const eq = getEquipmentById(item.equipment_id);
+        if (eq) {
+            const detailHtml = renderEquipmentDetail(eq);
+            // B4: 丢弃按钮（通过 onclick 调用全局 handler）
+            return detailHtml + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn sao-btn-secondary" data-action="discardEquipment" data-equipment-id="${esc(item.equipment_id)}">丢弃此装备</button></div>`;
+        }
+    }
+    const TYPE_LABELS_CN = { equipment: '装备', consumable: '消耗品', material: '材料', quest_item: '任务物品' };
     const rows = []
     if (item.qty != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">数量</span><span class="sao-detail-value">${esc(item.qty)}</span></div>`)
     if (item.item_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">物品等级</span><span class="sao-detail-value">⭐${esc(item.item_level)}</span></div>`)
-    if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(item.type)}</span></div>`)
+    if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(TYPE_LABELS_CN[item.type] || item.type)}</span></div>`)
     if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
     if (item.durability) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">耐久</span><span class="sao-detail-value">${esc(item.durability)}</span></div>`)
     if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
@@ -1209,7 +1229,49 @@ function initPanelLogic() {
     let _calSelectedDate = null;
 
     function getCalendar() {
-        return getSaoData()?.calendar;
+        const dataCal = getSaoData()?.calendar;
+        if (!dataCal) return dataCal;
+        // P0-2: 合并 calendarStore 数据，确保 LLM 新增约定在 UI 可见
+        const calStore = getStore()?.calendarStore;
+        if (!calStore) return dataCal;
+        // 用 calendarStore 的 currentDate 覆盖（更权威）
+        if (calStore.currentDate) dataCal.currentDate = calStore.currentDate;
+        // 合并 calendarStore.appointments 到 dataCal.appointments（按 id 去重）
+        if (Array.isArray(calStore.appointments) && calStore.appointments.length > 0) {
+            const existingIds = new Set((dataCal.appointments || []).map(a => a.id));
+            for (const apt of calStore.appointments) {
+                if (apt.id && !existingIds.has(apt.id)) {
+                    if (!dataCal.appointments) dataCal.appointments = [];
+                    dataCal.appointments.push(apt);
+                    existingIds.add(apt.id);
+                }
+            }
+        }
+        // 合并 calendarStore.events 到 dataCal.days（兼容 UI 渲染层 days 结构）
+        if (calStore.events && typeof calStore.events === 'object') {
+            if (!dataCal.days) dataCal.days = {};
+            for (const [dateStr, events] of Object.entries(calStore.events)) {
+                if (!Array.isArray(events) || events.length === 0) continue;
+                if (!dataCal.days[dateStr]) dataCal.days[dateStr] = { events: [] };
+                const existingTitles = new Set(
+                    (dataCal.days[dateStr].events || []).map(e => e.title || e.description || '')
+                );
+                for (const ev of events) {
+                    const key = ev.title || ev.description || '';
+                    if (key && !existingTitles.has(key)) {
+                        dataCal.days[dateStr].events.push({
+                            type: ev.type || 'custom',
+                            title: ev.title || '',
+                            description: ev.description || '',
+                            time: ev.time || null,
+                            source: ev.source || '',
+                        });
+                        existingTitles.add(key);
+                    }
+                }
+            }
+        }
+        return dataCal;
     }
 
     function initCalendarTabState() {
@@ -1817,12 +1879,12 @@ function initPanelLogic() {
             saveModelsToSettings();
             // 刷新所有状态标签
             const settings = getSettings();
-            ROLES.forEach(role => {
+            ALL_MODEL_KEYS.forEach(role => {
                 const cfg = settings.models[role] || {};
                 updateModelStatus(role, !!cfg.url && !!cfg.model);
             });
             // 显示保存成功提示
-            const testEl = document.getElementById('sao_narrative_test');
+            const testEl = document.getElementById('sao_state_test') || document.getElementById('sao_narrative_test');
             if (testEl) {
                 testEl.className = 'sao-test-result show success';
                 testEl.textContent = '✓ 配置已保存';
@@ -1914,6 +1976,28 @@ function initPanelLogic() {
                 testEl.textContent = '✗ ' + e.message;
             }
         },
+        async discardEquipment(equipmentId) {
+            if (!equipmentId) return;
+            if (!confirm('确定丢弃此装备？此操作不可撤销。')) return;
+            try {
+                // 1. 先从 equipmentStore 销毁（含跨引用校验：已穿戴拒绝），skipSave 试探
+                const destroyed = await removeEquipmentById(equipmentId, true);
+                if (!destroyed) {
+                    alert('无法丢弃：装备可能已穿戴或不存在。');
+                    return;
+                }
+                // 2. 销毁成功，再从 inventoryStore 移除
+                await removeEquipmentItem(equipmentId, true);
+                // 3. 统一保存
+                await saveStore();
+                log('装备已丢弃: ' + equipmentId);
+                closeDetailModal();
+                refreshStatus();
+            } catch (e) {
+                log('丢弃装备失败: ' + e.message, 'error');
+                alert('丢弃失败: ' + e.message);
+            }
+        },
 
     };
 
@@ -1956,6 +2040,11 @@ function initPanelLogic() {
                 case 'calSaveAppointment': handleCalSaveAppointment(); break;
                 case 'calCancelEdit': hideCalEditForm(); break;
                 case 'calInit': handleCalInit(); break;
+                case 'discardEquipment': {
+                    const eqId = target.getAttribute('data-equipment-id');
+                    if (eqId) window.SaoPanel.discardEquipment(eqId);
+                    break;
+                }
             }
         });
     }
@@ -1992,8 +2081,9 @@ function initPanelLogic() {
             case 'skill': {
                 const sk = cached.skills?.[index];
                 if (sk) {
-                    title = `${sk.name || '技能'}${(sk.skill_level ?? sk.level) != null ? ' Lv' + (sk.skill_level ?? sk.level) : ''}`;
-                    html = renderSkillDetail(sk);
+                    const def = sk.def || {};
+                    title = `${sk.name || '技能'}${sk.proficiency != null ? ' Lv' + sk.proficiency : ''}`;
+                    html = renderSkillDetail({ ...def, proficiency: sk.proficiency, name: sk.name });
                 }
                 break;
             }
@@ -2009,7 +2099,7 @@ function initPanelLogic() {
 
 function saveModelsToSettings() {
     const settings = getSettings();
-    ROLES.forEach(role => {
+    ALL_MODEL_KEYS.forEach(role => {
         const url = document.getElementById(`sao_${role}_url`)?.value || '';
         const key = document.getElementById(`sao_${role}_key`)?.value || '';
         const model = document.getElementById(`sao_${role}_model`)?.value || '';
@@ -2020,7 +2110,7 @@ function saveModelsToSettings() {
 
 function loadSettingsToPanel() {
     const settings = getSettings();
-    ROLES.forEach(role => {
+    ALL_MODEL_KEYS.forEach(role => {
         const cfg = settings.models[role] || {};
         const urlEl = document.getElementById(`sao_${role}_url`);
         const keyEl = document.getElementById(`sao_${role}_key`);

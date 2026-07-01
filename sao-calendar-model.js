@@ -3,6 +3,7 @@
 
 import { getSettings, getSaoData, log, getContext } from './sao-core.js';
 import { callModel } from './sao-models.js';
+import { getStore } from './sao-store-core.js';
 import {
     persistCalendar,
     persistCalendarPanel,
@@ -49,8 +50,9 @@ function shouldTriggerCalendarModel(rawText, saoData, { arcChangedThisTurn } = {
     if (detectTimeSkip(rawText)) return true;
 
     // #2 <time> 标签日期与 currentDate 不一致
-    const cal = saoData.calendar;
-    if (cal.currentDate) {
+    // 优先读 calendarStore（LLM 约定写入位置），fallback saoData.calendar
+    const cal = getStore()?.calendarStore || saoData.calendar;
+    if (cal?.currentDate) {
         const timeDate = parseTimeTagDate(rawText);
         if (timeDate) {
             const timeStr = formatDate(timeDate);
@@ -192,16 +194,20 @@ async function calendarModelUpdate(rawText) {
     _calendarModelRunning = true;
     try {
         const data = getSaoData();
-        if (!data?.calendar) return;
-        const calendar = data.calendar;
+        if (!data) return;
+        const store = getStore();
+        const calStore = store?.calendarStore;
+        if (!calStore) return;
+        // 运行态：calendarVersion 在 data.calendar
+        const runtimeCal = data.calendar || {};
         const ctx = getContext();
         const chat = ctx.chat || [];
         const snapshotMsgId = chat.findLastIndex(m => m && !m.is_user);
 
-        const snapshotVersion = calendar.calendarVersion || 0;
-        const pendingSnapshot = (calendar.appointments || []).filter(a => a.status === 'pending').slice(0, 20);
+        const snapshotVersion = runtimeCal.calendarVersion || 0;
+        const pendingSnapshot = (calStore.appointments || []).filter(a => a.status === 'pending').slice(0, 20);
 
-        const messages = buildCalendarPrompt(calendar, rawText);
+        const messages = buildCalendarPrompt(calStore, rawText);
 
         let content;
         try {
@@ -223,7 +229,7 @@ async function calendarModelUpdate(rawText) {
         }
 
         // §5.4 步骤 0-3 同步区，严禁 await
-        if ((calendar.calendarVersion || 0) !== snapshotVersion) {
+        if ((runtimeCal.calendarVersion || 0) !== snapshotVersion) {
             log('日历模型结果丢弃：日历已被后续消息更新（版本不匹配）', 'warn');
             return;
         }
@@ -232,12 +238,12 @@ async function calendarModelUpdate(rawText) {
             return;
         }
 
-        const currentDate = calendar.currentDate;
+        const currentDate = calStore.currentDate;
         const detected = Array.isArray(parsed.appointments_detected) ? parsed.appointments_detected.slice(0, 5) : [];
         let addedCount = 0;
         for (const apt of detected) {
             if (!_validateAppointment(apt, currentDate)) { log('日历模型约定校验失败跳过: ' + JSON.stringify(apt), 'warn'); continue; }
-            if (addAppointmentToCalendar(calendar, { date: apt.date, time: apt.time || '', description: apt.description || '', source: 'llm', status: 'pending' })) addedCount++;
+            if (addAppointmentToCalendar(calStore, { date: apt.date, time: apt.time || '', description: apt.description || '', source: 'llm', status: 'pending' })) addedCount++;
         }
 
         const indices = Array.isArray(parsed.completed_appointment_indices) ? parsed.completed_appointment_indices : [];
@@ -247,7 +253,7 @@ async function calendarModelUpdate(rawText) {
                 log('日历模型完成标记下标越界跳过: ' + idx, 'warn'); continue;
             }
             const candidateId = pendingSnapshot[idx].id;
-            const live = (calendar.appointments || []).find(a => a.id === candidateId && a.status === 'pending');
+            const live = (calStore.appointments || []).find(a => a.id === candidateId && a.status === 'pending');
             if (live) {
                 live.status = 'completed';
                 completedCount++;
@@ -271,7 +277,7 @@ async function calendarModelUpdate(rawText) {
         }
 
         log(`日历模型应用完成: 新增约定=${addedCount}, 完成标记=${completedCount}, grid=${gridApplied ? '是' : '否'}`);
-        await persistCalendar(calendar);
+        await persistCalendar();
     } catch (e) {
         log('日历模型异步更新失败: ' + e.message, 'warn');
     } finally {

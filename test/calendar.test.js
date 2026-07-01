@@ -28,6 +28,9 @@ import {
     parseTimeTagDate,
     parseDate,
     formatDate,
+    formatCalendarForLLM,
+    toCalendarStoreEvent,
+    generateEventId,
 } from '../sao-calendar.js';
 import { saveSaoDataNow, getCurrentCharacter, getSaoData } from '../sao-core.js';
 import { saveStore } from '../sao-store-core.js';
@@ -41,6 +44,18 @@ function makeCalendar(overrides = {}) {
         days: {},
         currentDate: '2024-12-16',
         calendarVersion: 0,
+        ...overrides,
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: fresh calendarStore object (events-based flat format)
+// ─────────────────────────────────────────────────────────────────────────────
+function makeCalendarStore(overrides = {}) {
+    return {
+        currentDate: '2024-12-16',
+        events: {},
+        appointments: [],
         ...overrides,
     };
 }
@@ -687,5 +702,229 @@ describe('buildTransientGridFromCalendar', () => {
         const grid = buildTransientGridFromCalendar(cal);
         const d16 = grid.days.find(d => d.day === 16);
         expect(d16.events).toHaveLength(10);
+    });
+
+    // ── calendarStore format tests ──
+    it('derives grid from calendarStore format (events = flat arrays)', () => {
+        const cal = makeCalendarStore({
+            events: {
+                '2024-12-16': [{ title: '与Asuna会面' }, { title: '训练' }],
+                '2024-12-20': [{ title: '远征' }],
+            },
+        });
+        const grid = buildTransientGridFromCalendar(cal);
+        expect(grid.year).toBe(2024);
+        expect(grid.month).toBe(12);
+        expect(grid.current_day).toBe(16);
+        const d16 = grid.days.find(d => d.day === 16);
+        expect(d16).toBeDefined();
+        expect(d16.events).toContain('与Asuna会面');
+        expect(d16.events).toContain('训练');
+        const d20 = grid.days.find(d => d.day === 20);
+        expect(d20).toBeDefined();
+        expect(d20.events).toContain('远征');
+    });
+
+    it('calendarStore: excludes cross-month events', () => {
+        const cal = makeCalendarStore({
+            events: {
+                '2024-12-16': [{ title: '本月事件' }],
+                '2025-01-05': [{ title: '跨月事件' }],
+            },
+        });
+        const grid = buildTransientGridFromCalendar(cal);
+        expect(grid.days.find(d => d.day === 16)).toBeDefined();
+        expect(grid.days.find(d => d.day === 5)).toBeUndefined();
+    });
+
+    it('calendarStore: prefers events over days when both present', () => {
+        // When calendar has .events, buildTransientGridFromCalendar uses it (first branch)
+        const cal = makeCalendarStore({
+            events: {
+                '2024-12-16': [{ title: '来自events' }],
+            },
+        });
+        const grid = buildTransientGridFromCalendar(cal);
+        const d16 = grid.days.find(d => d.day === 16);
+        expect(d16).toBeDefined();
+        expect(d16.events).toContain('来自events');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// addAppointmentToCalendar — calendarStore format
+// ─────────────────────────────────────────────────────────────────────────────
+describe('addAppointmentToCalendar — calendarStore format', () => {
+    it('adds appointment to calendarStore: writes to appointments + events[date]', () => {
+        const cal = makeCalendarStore();
+        const result = addAppointmentToCalendar(cal, {
+            date: '2024-12-20',
+            time: '15:00',
+            description: '约定训练',
+            source: 'auto',
+            status: 'pending',
+        });
+        expect(result).toBe(true);
+        expect(cal.appointments).toHaveLength(1);
+        expect(cal.appointments[0].date).toBe('2024-12-20');
+        expect(cal.appointments[0].description).toBe('约定训练');
+        // calendarStore events[date] should contain the event
+        expect(cal.events['2024-12-20']).toBeDefined();
+        expect(cal.events['2024-12-20']).toHaveLength(1);
+        expect(cal.events['2024-12-20'][0].type).toBe('appointment');
+    });
+
+    it('calendarStore: multiple appointments same day — events array grows', () => {
+        const cal = makeCalendarStore();
+        addAppointmentToCalendar(cal, { date: '2024-12-20', time: '10:00', description: '上午约定' });
+        addAppointmentToCalendar(cal, { date: '2024-12-20', time: '14:00', description: '下午约定' });
+        expect(cal.appointments).toHaveLength(2);
+        expect(cal.events['2024-12-20']).toHaveLength(2);
+    });
+
+    it('calendarStore: appointment with time field — events retain time', () => {
+        const cal = makeCalendarStore();
+        addAppointmentToCalendar(cal, { date: '2024-12-20', time: '18:30', description: '晚餐' });
+        expect(cal.events['2024-12-20'][0].time).toBe('18:30');
+    });
+
+    it('calendarStore: deduplication works', () => {
+        const cal = makeCalendarStore();
+        const apt = { date: '2024-12-20', time: '15:00', description: '训练' };
+        expect(addAppointmentToCalendar(cal, apt)).toBe(true);
+        expect(addAppointmentToCalendar(cal, apt)).toBe(false);
+        expect(cal.appointments).toHaveLength(1);
+        expect(cal.events['2024-12-20']).toHaveLength(1);
+    });
+
+    it('calendarStore: initializes events[date] when missing', () => {
+        const cal = makeCalendarStore();
+        addAppointmentToCalendar(cal, { date: '2024-12-25', description: '圣诞聚会' });
+        expect(cal.events['2024-12-25']).toBeDefined();
+        expect(cal.events['2024-12-25']).toHaveLength(1);
+    });
+
+    it('calendarStore: does not create days[date] (no legacy key)', () => {
+        const cal = makeCalendarStore();
+        addAppointmentToCalendar(cal, { date: '2024-12-20', description: '测试' });
+        // calendarStore shape: no .days property
+        expect(cal.days).toBeUndefined();
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// formatCalendarForLLM — calendarStore format
+// ─────────────────────────────────────────────────────────────────────────────
+describe('formatCalendarForLLM — calendarStore format', () => {
+    it('formats calendarStore events with time in LLM text', () => {
+        const cal = makeCalendarStore({
+            events: {
+                '2024-12-16': [
+                    { type: 'canon', title: '攻略会议', description: '攻略会议', time: null, source: 'timeline' },
+                ],
+                '2024-12-20': [
+                    { type: 'appointment', title: '训练', description: '训练', time: '15:00', source: 'auto' },
+                ],
+            },
+        });
+        const text = formatCalendarForLLM(cal, '2024-12-16', 5);
+        expect(text).toContain('2024-12-16');
+        expect(text).toContain('[原作事件]');
+        expect(text).toContain('攻略会议');
+        expect(text).toContain('2024-12-20');
+        expect(text).toContain('[约定]');
+        expect(text).toContain('15:00');
+        expect(text).toContain('训练');
+    });
+
+    it('formats empty calendarStore — returns "无事件" for each day', () => {
+        const cal = makeCalendarStore();
+        const text = formatCalendarForLLM(cal, '2024-12-16', 3);
+        expect(text).toContain('2024-12-16');
+        expect(text).toContain('(无事件)');
+        expect(text).toContain('2024-12-17');
+        expect(text).toContain('2024-12-18');
+    });
+
+    it('formats calendarStore with custom type events', () => {
+        const cal = makeCalendarStore({
+            events: {
+                '2024-12-16': [
+                    { type: 'custom', title: '新剧情', description: '新剧情', time: '20:00', source: 'llm' },
+                ],
+            },
+        });
+        const text = formatCalendarForLLM(cal, '2024-12-16', 1);
+        expect(text).toContain('[变化剧情]');
+        expect(text).toContain('20:00');
+        expect(text).toContain('新剧情');
+    });
+
+    it('returns default message when calendar has no events and no days', () => {
+        const text = formatCalendarForLLM({}, '2024-12-16', 3);
+        expect(text).toBe('日历数据尚未初始化');
+    });
+
+    it('returns message when currentDate is missing', () => {
+        const cal = makeCalendarStore({ currentDate: null });
+        const text = formatCalendarForLLM(cal, null, 3);
+        expect(text).toBe('当前日期未知');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// toCalendarStoreEvent / generateEventId — direct tests
+// ─────────────────────────────────────────────────────────────────────────────
+describe('toCalendarStoreEvent', () => {
+    it('maps legacy event to calendarStore format with event_id', () => {
+        const result = toCalendarStoreEvent({
+            type: 'appointment',
+            title: '训练',
+            description: '训练描述',
+            time: '15:00',
+            source: 'auto',
+        }, '2024-12-20', 0);
+        expect(result.event_id).toBe('evt_20241220_0');
+        expect(result.type).toBe('appointment');
+        expect(result.title).toBe('训练');
+        expect(result.description).toBe('训练描述');
+        expect(result.time).toBe('15:00');
+        expect(result.source).toBe('auto');
+        expect(result.related_npc_ids).toEqual([]);
+        expect(result.related_quest_ids).toEqual([]);
+    });
+
+    it('defaults missing fields to empty/null', () => {
+        const result = toCalendarStoreEvent({}, '2024-12-20', 1);
+        expect(result.event_id).toBe('evt_20241220_1');
+        expect(result.type).toBe('custom');
+        expect(result.title).toBe('');
+        expect(result.description).toBe('');
+        expect(result.time).toBeNull();
+        expect(result.source).toBe('');
+    });
+
+    it('generates unique event_id for different index', () => {
+        const r0 = toCalendarStoreEvent({ title: 'A' }, '2024-12-20', 0);
+        const r1 = toCalendarStoreEvent({ title: 'B' }, '2024-12-20', 1);
+        expect(r0.event_id).not.toBe(r1.event_id);
+        expect(r0.event_id).toBe('evt_20241220_0');
+        expect(r1.event_id).toBe('evt_20241220_1');
+    });
+});
+
+describe('generateEventId', () => {
+    it('generates id from date and index', () => {
+        expect(generateEventId('2024-12-20', 0)).toBe('evt_20241220_0');
+        expect(generateEventId('2024-12-20', 5)).toBe('evt_20241220_5');
+    });
+
+    it('handles date with single-digit month/day', () => {
+        expect(generateEventId('2024-1-5', 0)).toBe('evt_202415_0');
+    });
+
+    it('handles empty date', () => {
+        expect(generateEventId('', 0)).toBe('evt__0');
+        expect(generateEventId(null, 0)).toBe('evt__0');
     });
 });

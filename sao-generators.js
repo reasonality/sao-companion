@@ -2,6 +2,9 @@
 // 骰子表 + 纯工具函数 + 词缀参数 + 异步生成函数
 
 import { getSettings, log } from './sao-core.js';
+import { findOrCreateEquipment } from './sao-store-equipment.js';
+import { findOrCreateSkill } from './sao-store-skill.js';
+import { addEquipmentItem } from './sao-store-inventory.js';
 
 // ============================================================
 // 骰子表
@@ -298,6 +301,17 @@ export async function generateEquipment(context, callModelFn) {
             affixes: affixNames,
             description: nameDesc.description || '',
         };
+        // B2: 直写 equipmentStore + 默认入背包（不自动穿戴）
+        try {
+            const equipId = findOrCreateEquipment({ ...equip, source: 'specialist' });
+            if (equipId) {
+                await addEquipmentItem(equipId, true);  // skipSave，调用方负责 save
+                equip.equipment_id = equipId;
+                log('装备入Store: ' + equip.name + ' → ' + equipId);
+            }
+        } catch (e) {
+            log('装备直写Store失败(非致命): ' + e.message, 'warn');
+        }
         log('装备生成完成: ' + equip.name);
         return equip;
     } catch (e) { log('装备生成失败: ' + e.message, 'error'); return null; }
@@ -407,6 +421,37 @@ ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
             effects_description: nameDesc.effects_description || '',
             description: nameDesc.description || '',
         };
+        // B2: \u5B57\u6BB5\u6620\u5C04 + \u76F4\u5199 skillStore
+        try {
+            const skillId = findOrCreateSkill({
+                name: skill.name,
+                rarity: skill.rarity,
+                category: 'sword_skill',
+                weapon_type: skill.weapon_type,
+                combat: {
+                    atk: skill.base_damage,
+                    hit: skill.hit_rate,
+                    crit: skill.crit_rate,
+                    apt: skill.hits,
+                    tpa: skill.targets,
+                    mpCost: skill.mp_cost,
+                    cd: skill.cooldown,
+                },
+                effects: {
+                    wn: skill.core_code || '',
+                    en: Array.isArray(skill.affix_codes) ? skill.affix_codes : [],
+                    mn: [],
+                },
+                description: skill.description,
+                source: 'specialist',
+            });
+            if (skillId) {
+                skill.skill_id = skillId;
+                log('\u6280\u80FD\u5165Store: ' + skill.name + ' \u2192 ' + skillId);
+            }
+        } catch (e) {
+            log('\u6280\u80FD\u76F4\u5199Store\u5931\u8D25(\u975E\u81F4\u547D): ' + e.message, 'warn');
+        }
         log('\u5251\u6280\u751F\u6210\u5B8C\u6210: ' + skill.name);
         return skill;
     } catch (e) { log('\u5251\u6280\u751F\u6210\u5931\u8D25: ' + e.message, 'error'); return null; }

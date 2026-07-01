@@ -2,7 +2,42 @@
 // 日期工具 + 时间线解析 + 日历初始化 + 增量更新 + 约定提取 + LLM 格式化
 
 import { getSaoData, getContext, getCurrentCharacter, log } from './sao-core.js';
-import { saveStore } from './sao-store-core.js';
+import { getStore, saveStore } from './sao-store-core.js';
+
+// === calendarStore 访问辅助 ===
+
+/** 获取 calendarStore 引用（惰性初始化） */
+function getCalendarStore() {
+    const store = getStore();
+    if (!store) return null;
+    if (!store.calendarStore) {
+        store.calendarStore = { currentDate: null, events: {}, appointments: [] };
+    }
+    if (!store.calendarStore.events) store.calendarStore.events = {};
+    if (!Array.isArray(store.calendarStore.appointments)) store.calendarStore.appointments = [];
+    return store.calendarStore;
+}
+
+/** 生成 event_id（基于 date + index） */
+export function generateEventId(date, index) {
+    const cleanDate = String(date || '').replace(/-/g, '');
+    return `evt_${cleanDate}_${index}`;
+}
+
+/** 将 legacy day event 转为 calendarStore event 格式 */
+export function toCalendarStoreEvent(legacyEvent, date, index) {
+    return {
+        event_id: generateEventId(date, index),
+        type: legacyEvent.type || 'custom',
+        title: legacyEvent.title || '',
+        description: legacyEvent.description || '',
+        time: legacyEvent.time || null,
+        source: legacyEvent.source || '',
+        related_npc_ids: legacyEvent.related_npc_ids || [],
+        related_quest_ids: legacyEvent.related_quest_ids || [],
+    };
+}
+
 
 // === 日期工具 ===
 
@@ -101,11 +136,15 @@ function _dedupKey(str) {
  * v2 乐观并发控制依赖：每次 calendar 变更后调用此函数，确保 LLM fire-and-forget
  * 的版本号快照能检测到 v1 的后续变更（见 CALENDAR_MODEL_V2_DESIGN.md §5.3）。
  * 所有修改 calendar 数据后的保存点必须用本函数，不得直接调用 saveSaoDataNow。
- * @param {object} calendar - 日历对象（会被原地修改：calendarVersion++）
+ * @param {object} [calendar] - 可选：遗留调用方传入的日历对象（向后兼容）
  * @returns {Promise<void>}
  */
 export async function persistCalendar(calendar) {
-    if (calendar) calendar.calendarVersion = (calendar.calendarVersion || 0) + 1;
+    // 权威版本号在 data.calendar（运行态）
+    const data = getSaoData();
+    if (data?.calendar) data.calendar.calendarVersion = (data.calendar.calendarVersion || 0) + 1;
+    // 向后兼容：若传入独立 calendar 对象（非 data.calendar），也递增其版本号
+    if (calendar && calendar !== data?.calendar) calendar.calendarVersion = (calendar.calendarVersion || 0) + 1;
     return saveStore();
 }
 
@@ -164,12 +203,16 @@ export function buildTransientGridFromCalendar(calendar) {
     const year = parseInt(m[1]), month = parseInt(m[2]), currentDay = parseInt(m[3]);
     const curPrefix = m[1] + '-' + m[2];
     const days = [];
-    for (const [dateStr, dayData] of Object.entries(calendar.days || {})) {
+    // Support both calendarStore shape (.events = flat arrays) and legacy shape (.days = { events: [] })
+    const eventsSource = calendar.events || calendar.days || {};
+    for (const [dateStr, dayData] of Object.entries(eventsSource)) {
         if (!dateStr.startsWith(curPrefix)) continue;
         const dm = dateStr.match(/^\d{4}-\d{2}-(\d{2})$/);
         if (!dm) continue;
         const dayNum = parseInt(dm[1]);
-        const events = (dayData?.events || []).map(ev => ev.title || ev.description || '').filter(Boolean).slice(0, 10);
+        // calendarStore: dayData is an array; legacy: dayData is { events: [...] }
+        const evArr = Array.isArray(dayData) ? dayData : (dayData?.events || []);
+        const events = evArr.map(ev => ev.title || ev.description || '').filter(Boolean).slice(0, 10);
         if (dayNum >= 1 && dayNum <= 31) days.push({ day: dayNum, events });
     }
     return { year, month, current_day: currentDay, days };
@@ -432,18 +475,26 @@ export function parseFirstMesCalendarTag(rawText) {
     return { year, month, currentDay, days };
 }
 
-/** 一次性清理 cal.days 中历史遗留的重复 canon 事件（归一化前缀比较） */
-function _dedupExistingDays(cal) {
-    if (!cal || !cal.days) return;
-    for (const dayData of Object.values(cal.days)) {
-        if (!dayData.events || dayData.events.length < 2) continue;
+/** 一次性清理 events 中历史遗留的重复 canon 事件（归一化前缀比较）。
+ *  支持 calendarStore.events（flat 数组）和 legacy cal.days（嵌套 { events: [] }）。 */
+function _dedupExistingDays(eventsObj) {
+    if (!eventsObj) return;
+    for (const [dateKey, dayData] of Object.entries(eventsObj)) {
+        // calendarStore shape: dayData is array; legacy shape: dayData is { events: [] }
+        const evArr = Array.isArray(dayData) ? dayData : dayData?.events;
+        if (!evArr || evArr.length < 2) continue;
         const seen = new Set();
-        dayData.events = dayData.events.filter(ev => {
+        const filtered = evArr.filter(ev => {
             const k = (ev.title || ev.description || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
             if (seen.has(k)) return false;
             seen.add(k);
             return true;
         });
+        if (Array.isArray(dayData)) {
+            eventsObj[dateKey] = filtered;
+        } else {
+            dayData.events = filtered;
+        }
     }
 }
 
@@ -456,20 +507,33 @@ export function initCalendarIfNeeded() {
         const data = getSaoData();
         if (!data) return;
 
-        // 已初始化（days 非空）— 检查 canon 数据版本，必要时清除旧 canon 数据重新提取
+        const calStore = getCalendarStore();
+        if (!calStore) return;
+
+        // 确保 data.calendar 运行态容器存在
+        if (!data.calendar) {
+            data.calendar = {
+                lastCalUpdateDate: null,
+                lastCalUpdateMsgId: null,
+                calendarVersion: 0,
+                canonDataVersion: 0,
+            };
+        }
+
+        // 已初始化（events 非空）— 检查 canon 数据版本，必要时清除旧 canon 数据重新提取
         // 注意：calendarVersion 用于乐观并发控制（persistCalendar 每次递增），不能用于此检查
-        const calVer = data.calendar?.canonDataVersion || 0;
-        if (data.calendar && data.calendar.days && Object.keys(data.calendar.days).length > 0) {
-            _dedupExistingDays(data.calendar);
+        const calVer = data.calendar.canonDataVersion || 0;
+        if (Object.keys(calStore.events).length > 0) {
+            _dedupExistingDays(calStore.events);
             // Clean stale auto-generated appointments from disabled regex extractor
-            if (data.calendar.appointments) {
-                const before = data.calendar.appointments.length;
-                data.calendar.appointments = data.calendar.appointments.filter(a => a.source !== 'auto');
-                for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
-                    dayData.events = (dayData.events || []).filter(ev => !(ev.type === 'appointment' && ev.source === 'auto'));
+            if (calStore.appointments.length > 0) {
+                const before = calStore.appointments.length;
+                calStore.appointments = calStore.appointments.filter(a => a.source !== 'auto');
+                for (const [dateStr, evArr] of Object.entries(calStore.events)) {
+                    calStore.events[dateStr] = (evArr || []).filter(ev => !(ev.type === 'appointment' && ev.source === 'auto'));
                 }
-                if (before !== data.calendar.appointments.length) {
-                    log('\u6e05\u7406 ' + (before - data.calendar.appointments.length) + ' \u4e2a\u65e7\u6b63\u5219\u63d0\u53d6\u7684\u7ea6\u5b9a');
+                if (before !== calStore.appointments.length) {
+                    log('\u6e05\u7406 ' + (before - calStore.appointments.length) + ' \u4e2a\u65e7\u6b63\u5219\u63d0\u53d6\u7684\u7ea6\u5b9a');
                 }
             }
             // canon 数据版本升级：清除旧 canon 事件（可能跨月污染/截断），保留 appointment/custom，重新提取
@@ -477,13 +541,17 @@ export function initCalendarIfNeeded() {
                 console.log('[SAO Calendar] canon 版本升级: ' + calVer + ' → ' + CANON_DATA_VERSION + '，清除旧 canon 事件');
                 log('\u65e5\u5386 canon \u6570\u636e\u7248\u672c\u5347\u7ea7: ' + calVer + ' \u2192 ' + CANON_DATA_VERSION + '\uff0c\u6e05\u9664\u65e7 canon \u4e8b\u4ef6\u91cd\u65b0\u63d0\u53d6');
                 let removedCount = 0;
-                for (const [dateStr, dayData] of Object.entries(data.calendar.days || {})) {
-                    const beforeLen = (dayData.events || []).length;
-                    dayData.events = (dayData.events || []).filter(ev => ev.type !== 'canon');
-                    removedCount += beforeLen - dayData.events.length;
-                    if (dayData.events.length === 0) delete data.calendar.days[dateStr];
+                for (const [dateStr, evArr] of Object.entries(calStore.events)) {
+                    const beforeLen = (evArr || []).length;
+                    const filtered = (evArr || []).filter(ev => ev.type !== 'canon');
+                    removedCount += beforeLen - filtered.length;
+                    if (filtered.length === 0) {
+                        delete calStore.events[dateStr];
+                    } else {
+                        calStore.events[dateStr] = filtered;
+                    }
                 }
-                console.log('[SAO Calendar] 清除 ' + removedCount + ' 个旧 canon 事件，剩余 ' + Object.keys(data.calendar.days).length + ' 天');
+                console.log('[SAO Calendar] 清除 ' + removedCount + ' 个旧 canon 事件，剩余 ' + Object.keys(calStore.events).length + ' 天');
                 data.calendar.canonDataVersion = CANON_DATA_VERSION;
                 // 不 return — 继续走重新提取流程
             } else {
@@ -491,20 +559,6 @@ export function initCalendarIfNeeded() {
                 return;
             }
         }
-
-        // 创建空日历结构
-        if (!data.calendar) {
-            data.calendar = {
-                currentDate: null,
-                days: {},
-                appointments: [],
-                lastCalUpdateDate: null,
-                lastCalUpdateMsgId: null,
-                calendarVersion: 0,
-                canonDataVersion: 0,
-            };
-        }
-        const cal = data.calendar;
 
         // A4: 从最新 AI 消息的 <time> 标签解析当前日期（必须在时间线提取之前，以便过滤 ±1 月）
         const ctx = getContext();
@@ -514,7 +568,7 @@ export function initCalendarIfNeeded() {
                 if (msg && !msg.is_user && msg.mes) {
                     const parsedDate = parseTimeTagDate(msg.mes);
                     if (parsedDate) {
-                        cal.currentDate = formatDate(parsedDate);
+                        calStore.currentDate = formatDate(parsedDate);
                     }
                     break;
                 }
@@ -530,22 +584,19 @@ export function initCalendarIfNeeded() {
             if (parsed && parsed.days && Object.keys(parsed.days).length > 0) {
                 let fmCount = 0;
                 for (const [dateStr, evs] of Object.entries(parsed.days)) {
-                    if (!cal.days[dateStr]) cal.days[dateStr] = { events: [], isUpdated: false };
+                    if (!calStore.events[dateStr]) calStore.events[dateStr] = [];
                     for (const ev of evs) {
-                        cal.days[dateStr].events.push({
+                        calStore.events[dateStr].push(toCalendarStoreEvent({
                             type: 'canon',
-                            time: null,
                             title: ev.title,
                             description: ev.title,
-                            source: 'first_mes',
-                            date: dateStr, // 精确日期标记
-                        });
+                        }, dateStr, calStore.events[dateStr].length));
                         fmCount++;
                     }
                 }
                 // 若 currentDate 仍为空，用 first_mes 的 current_day 补齐
-                if (!cal.currentDate && parsed.currentDay) {
-                    cal.currentDate = parsed.year + '-' + String(parsed.month).padStart(2, '0') + '-' + String(parsed.currentDay).padStart(2, '0');
+                if (!calStore.currentDate && parsed.currentDay) {
+                    calStore.currentDate = parsed.year + '-' + String(parsed.month).padStart(2, '0') + '-' + String(parsed.currentDay).padStart(2, '0');
                 }
                 log('日历初始化：从 first_mes <calendar> 预填 ' + fmCount + ' 个原作事件');
             }
@@ -553,37 +604,34 @@ export function initCalendarIfNeeded() {
         }
 
         // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
-        const events = _filterTimelineEntries(cal.currentDate, { monthWindow: 12 });
+        const events = _filterTimelineEntries(calStore.currentDate, { monthWindow: 12 });
         if (!events.length) {
             log('日历初始化：未找到世界书条目');
-            cal.lastCalUpdateDate = cal.currentDate;
-            log('日历首次初始化完成（无世界书条目），currentDate=' + cal.currentDate);
+            data.calendar.lastCalUpdateDate = calStore.currentDate;
+            log('日历首次初始化完成（无世界书条目），currentDate=' + calStore.currentDate);
             return;
         }
 
         let extractedCount = 0;
         for (const ev of events) {
-            if (!cal.days[ev.date]) {
-                cal.days[ev.date] = { events: [], isUpdated: false };
+            if (!calStore.events[ev.date]) {
+                calStore.events[ev.date] = [];
             }
             // 去重：归一化前缀比较（first_mes title 可能带 [标签] 前缀，worldbook title 经 markdown 清洗）
             const _normKey = (s) => (s || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
             const evKey = _normKey(ev.title);
-            const dup = cal.days[ev.date].events.some(e => _normKey(e.title) === evKey);
+            const dup = calStore.events[ev.date].some(e => _normKey(e.title) === evKey);
             if (dup) continue;
-            cal.days[ev.date].events.push({
+            calStore.events[ev.date].push(toCalendarStoreEvent({
                 type: 'canon',
-                time: null,
                 title: ev.title,
                 description: ev.title,
-                source: 'timeline',
-                date: ev.date, // 精确日期标记，供渲染层校验防跨月污染
-            });
+            }, ev.date, calStore.events[ev.date].length));
             extractedCount++;
         }
 
-        cal.lastCalUpdateDate = cal.currentDate;
-        cal.canonDataVersion = CANON_DATA_VERSION;
+        data.calendar.lastCalUpdateDate = calStore.currentDate;
+        data.calendar.canonDataVersion = CANON_DATA_VERSION;
         log('日历初始化完成 v' + CANON_DATA_VERSION + '，提取了 ' + extractedCount + ' 个时间线条目（header-month-fix）');
         console.log('[SAO Calendar] ✓ 重新提取完成 v' + CANON_DATA_VERSION + '，' + extractedCount + ' 个事件，开始保存...');
         // M3: 用 persistCalendar 而非 saveStore，确保 calendarVersion 自增，
@@ -592,7 +640,7 @@ export function initCalendarIfNeeded() {
         // 关键：保存修改到持久化存储，否则重启后数据回滚
         try {
             // 外层 try 仅捕获 persistCalendar 同步阶段抛错(如 calendarVersion 自增)；异步拒绝由 .catch 处理
-            persistCalendar(cal).then(() => {
+            persistCalendar().then(() => {
                 console.log('[SAO Calendar] ✓ 保存完成');
             }).catch(saveErr => {
                 console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);
@@ -773,18 +821,23 @@ function extractAppointments(text, calendar) {
 }
 
 /**
- * 共享 helper：向日历添加一条约定（含去重 + appointments/days 双写）。
+ * 共享 helper：向日历添加一条约定（含去重 + appointments/events 双写）。
  * v1 extractAppointments 与 v2 calendarModelUpdate 均调用此 helper。
  * dedup key = date|time|_dedupKey(description)，existingKeys 与新 key 均经 _dedupKey 归一化，
  * 修正 v1 既有 dedup bug（见 CALENDAR_MODEL_V2_DESIGN.md §5.4/§10.2）。
- * @param {object} calendar - 日历对象（原地修改）
+ * 支持 calendarStore 形状（.events = flat 数组）和 legacy 形状（.days = { events: [] }）。
+ * @param {object} calendar - 日历/calendarStore 对象（原地修改）
  * @param {object} apt - {date, time, description, source, status}
  * @returns {boolean} true=新增成功，false=重复跳过
  */
 export function addAppointmentToCalendar(calendar, { date, time, description, source, status } = {}) {
     if (!calendar || !date) return false;
     if (!calendar.appointments) calendar.appointments = [];
-    if (!calendar.days) calendar.days = {};
+
+    // 支持 calendarStore（.events）和 legacy（.days）两种形状
+    const isCalendarStore = calendar.events !== undefined && !calendar.days;
+    const eventsContainer = isCalendarStore ? calendar.events : (calendar.days || {});
+    if (!isCalendarStore && !calendar.days) calendar.days = {};
 
     const descKey = _dedupKey(description);
     // 去重：检查已有约定（existingKeys 与新 key 均经 _dedupKey 归一化）
@@ -808,16 +861,29 @@ export function addAppointmentToCalendar(calendar, { date, time, description, so
     };
     calendar.appointments.push(newApt);
 
-    if (!calendar.days[date]) {
-        calendar.days[date] = { events: [], isUpdated: false };
+    if (isCalendarStore) {
+        // calendarStore 形状：events[date] 直接是数组
+        if (!calendar.events[date]) calendar.events[date] = [];
+        calendar.events[date].push(toCalendarStoreEvent({
+            type: 'appointment',
+            title: description || '',
+            description: description || '',
+            time: time || '',
+            source: source || 'auto',
+        }, date, calendar.events[date].length));
+    } else {
+        // legacy 形状：days[date] = { events: [] }
+        if (!calendar.days[date]) {
+            calendar.days[date] = { events: [], isUpdated: false };
+        }
+        calendar.days[date].events.push({
+            type: 'appointment',
+            time: time || '',
+            title: description || '',
+            description: description || '',
+            source: source || 'auto',
+        });
     }
-    calendar.days[date].events.push({
-        type: 'appointment',
-        time: time || '',
-        title: description || '',
-        description: description || '',
-        source: source || 'auto',
-    });
     return true;
 }
 
@@ -825,32 +891,33 @@ export function addAppointmentToCalendar(calendar, { date, time, description, so
 
 /**
  * 推进日历日期并执行 GC（<time> 路径与时间跳跃 fallback 共享）
- * 仅处理 daysPassed>0 的推进场景：GC currentDate-30 之前的 days、标记跳过天、GC 过期约定。
+ * 仅处理 daysPassed>0 的推进场景：GC currentDate-30 之前的 events、标记跳过天、GC 过期约定。
  * 调用前已确认 daysPassed>0。
- * @param {object} calendar - 日历对象
+ * @param {object} calStore - calendarStore 对象
+ * @param {object} runtimeCal - data.calendar 运行态对象
  * @param {string} oldDateStr - 推进前的日期 YYYY-MM-DD
  * @param {string} newDateStr - 推进后的日期 YYYY-MM-DD
  */
-function applyDateAdvanceGC(calendar, oldDateStr, newDateStr) {
+function applyDateAdvanceGC(calStore, runtimeCal, oldDateStr, newDateStr) {
     const newDateObj = parseDate(newDateStr);
     const daysPassed = daysBetween(oldDateStr, newDateStr);
-    calendar.currentDate = newDateStr;
-    calendar.lastCalUpdateDate = newDateStr;
-    // GC：删除 currentDate-30 天之前的 days
+    calStore.currentDate = newDateStr;
+    if (runtimeCal) runtimeCal.lastCalUpdateDate = newDateStr;
+    // GC：删除 currentDate-30 天之前的 events
     const gcCutoff = formatDate(addDays(newDateObj, -30));
-    for (const dateKey of Object.keys(calendar.days)) {
-        if (dateKey < gcCutoff) delete calendar.days[dateKey];
+    for (const dateKey of Object.keys(calStore.events)) {
+        if (dateKey < gcCutoff) delete calStore.events[dateKey];
     }
     // 标记跳过的天数（介于 oldDateStr 和 newDateStr 之间的无事件天）
     if (daysPassed > 1) {
         const skippedStart = addDays(parseDate(oldDateStr), 1);
         for (let i = 0; i < daysPassed - 1; i++) {
             const skipDate = formatDate(addDays(skippedStart, i));
-            if (!calendar.days[skipDate]) calendar.days[skipDate] = { events: [], isUpdated: true };
+            if (!calStore.events[skipDate]) calStore.events[skipDate] = [];
         }
     }
     // GC 约定：移除已过期（超过 30 天）且非 pending 的
-    calendar.appointments = (calendar.appointments || []).filter(apt =>
+    calStore.appointments = (calStore.appointments || []).filter(apt =>
         apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
     );
 }
@@ -865,11 +932,11 @@ function applyDateAdvanceGC(calendar, oldDateStr, newDateStr) {
  * @param {number|string} [messageId] - 消息 ID，用于索引 calendarPanels
  */
 export async function updateCalendarIncremental(messageText, messageId) {
-    let calendar = null; // 提到 try 块外，供 _writeTransient 闭包访问
+    let calStore = null; // 提到 try 块外，供 _writeTransient 闭包访问
     /** 在 persistCalendar 前写瞬时 grid（若 messageId 可用） */
     const _writeTransient = () => {
-        if (messageId == null || !calendar) return;
-        const tg = buildTransientGridFromCalendar(calendar);
+        if (messageId == null || !calStore) return;
+        const tg = buildTransientGridFromCalendar(calStore);
         if (tg) persistCalendarPanel(messageId, tg);
     };
     try {
@@ -878,8 +945,9 @@ export async function updateCalendarIncremental(messageText, messageId) {
 
         // 确保日历已初始化
         initCalendarIfNeeded();
-        calendar = data.calendar;
-        if (!calendar) return;
+        calStore = getCalendarStore();
+        if (!calStore) return;
+        const runtimeCal = data.calendar;
 
         // 从 <time> 标签解析当前游戏日期
         const newDate = parseTimeTagDate(messageText);
@@ -904,41 +972,41 @@ export async function updateCalendarIncremental(messageText, messageId) {
         if (!newDate) {
             if (timeSkipOffset > 0) {
                 // 时间跳跃 fallback：推进日期并执行 GC
-                const baseDate = parseDate(calendar.currentDate);
-                if (!baseDate) { _writeTransient(); await persistCalendar(calendar); return; }
+                const baseDate = parseDate(calStore.currentDate);
+                if (!baseDate) { _writeTransient(); await persistCalendar(); return; }
                 const advancedDateStr = formatDate(addDays(baseDate, timeSkipOffset));
-                const oldDateStr = calendar.currentDate;
-                if (daysBetween(oldDateStr, advancedDateStr) <= 0) { _writeTransient(); await persistCalendar(calendar); return; }
-                applyDateAdvanceGC(calendar, oldDateStr, advancedDateStr);
+                const oldDateStr = calStore.currentDate;
+                if (daysBetween(oldDateStr, advancedDateStr) <= 0) { _writeTransient(); await persistCalendar(); return; }
+                applyDateAdvanceGC(calStore, runtimeCal, oldDateStr, advancedDateStr);
                 log('日历时间跳跃(正则fallback): ' + oldDateStr + ' → ' + advancedDateStr + ' (+' + timeSkipOffset + '天，匹配: "' + timeSkipMatch + '")，新增约定: ' + newAptCount);
                 _writeTransient();
-                await persistCalendar(calendar);
+                await persistCalendar();
                 return;
             }
             // 无 <time> 标签且无时间跳跃 → 仅约定提取
             _writeTransient();
-            await persistCalendar(calendar);
+            await persistCalendar();
             return;
         }
 
         const newDateStr = formatDate(newDate);
-        const lastDate = calendar.currentDate || newDateStr;
+        const lastDate = calStore.currentDate || newDateStr;
         const daysPassed = daysBetween(lastDate, newDateStr);
 
         if (daysPassed > 30) {
-            // 长时间未游玩：清空 days 并重新初始化
+            // 长时间未游玩：清空 events 并重新初始化
             log('日历：超过 30 天未游玩 (' + daysPassed + ' 天)，重新初始化');
-            calendar.days = {};
-            calendar.currentDate = newDateStr;
-            calendar.lastCalUpdateDate = newDateStr;
+            calStore.events = {};
+            calStore.currentDate = newDateStr;
+            if (runtimeCal) runtimeCal.lastCalUpdateDate = newDateStr;
             // 重新初始化会从世界书提取时间线
             initCalendarIfNeeded();
             // GC 约定：移除已过期且非 pending 的
-            calendar.appointments = (calendar.appointments || []).filter(apt =>
+            calStore.appointments = (calStore.appointments || []).filter(apt =>
                 apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
             );
             _writeTransient();
-            await persistCalendar(calendar);
+            await persistCalendar();
             log('日历重新初始化完成，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
             return;
         }
@@ -946,38 +1014,37 @@ export async function updateCalendarIncremental(messageText, messageId) {
         if (daysPassed < 0) {
             // 日期回退：仅警告，不执行 GC
             log('日历：日期回退 (' + lastDate + ' → ' + newDateStr + ')，跳过 GC', 'warn');
-            calendar.currentDate = newDateStr;
-            calendar.lastCalUpdateDate = newDateStr;
+            calStore.currentDate = newDateStr;
+            if (runtimeCal) runtimeCal.lastCalUpdateDate = newDateStr;
             _writeTransient();
-            await persistCalendar(calendar);
+            await persistCalendar();
             return;
         }
 
         if (daysPassed <= 0) {
             // 同一天：只做约定提取，跳过日推进
-            calendar.currentDate = newDateStr;
-            calendar.lastCalUpdateDate = newDateStr;
+            calStore.currentDate = newDateStr;
+            if (runtimeCal) runtimeCal.lastCalUpdateDate = newDateStr;
             // GC 约定：移除已过期（超过 30 天）且非 pending 的
-            calendar.appointments = (calendar.appointments || []).filter(apt =>
+            calStore.appointments = (calStore.appointments || []).filter(apt =>
                 apt.status === 'pending' || daysBetween(newDateStr, apt.date) >= -30
             );
             _writeTransient();
-            await persistCalendar(calendar);
+            await persistCalendar();
             log('日历同日更新，日期: ' + newDateStr + '，新增约定: ' + newAptCount);
             return;
         }
 
-        // daysPassed > 0：推进日期，GC 过期 days
-        applyDateAdvanceGC(calendar, lastDate, newDateStr);
+        // daysPassed > 0：推进日期，GC 过期 events
+        applyDateAdvanceGC(calStore, runtimeCal, lastDate, newDateStr);
         _writeTransient();
-        await persistCalendar(calendar);
+        await persistCalendar();
         log('日历更新: ' + lastDate + ' → ' + newDateStr + ' (+' + daysPassed + '天)，新增约定: ' + newAptCount);
     } catch (e) {
         log('日历增量更新失败: ' + e.message, 'warn');
         // 确保版本号与可能的部分变异一致（见 CALENDAR_MODEL_V2_DESIGN.md §5.3 catch 路径）
         try {
-            const cal = getSaoData()?.calendar;
-            if (cal) await persistCalendar(cal);
+            await persistCalendar();
         } catch (_) { /* 忽略持久化失败 */ }
     }
 }
@@ -985,10 +1052,12 @@ export async function updateCalendarIncremental(messageText, messageId) {
 // === LLM 格式化 ===
 
 /**
- * 格式化日历数据供 LLM 消费（P2a: 从 calendar.days 提取事件）
+ * 格式化日历数据供 LLM 消费
+ * 支持 calendarStore（.events = flat 数组）和 legacy（.days = { events: [] }）两种形状。
  */
 export function formatCalendarForLLM(cal, startDate, rangeDays) {
-    if (!cal || !cal.days) return '日历数据尚未初始化';
+    const eventsSource = cal?.events || cal?.days;
+    if (!cal || !eventsSource) return '日历数据尚未初始化';
     try {
         const start = startDate || cal.currentDate;
         if (!start) return '当前日期未知';
@@ -1000,11 +1069,13 @@ export function formatCalendarForLLM(cal, startDate, rangeDays) {
         for (let i = 0; i < range; i++) {
             const dateObj = addDays(startDateObj, i);
             const dateStr = formatDate(dateObj);
-            const day = cal.days[dateStr];
+            const dayData = eventsSource[dateStr];
             const isToday = (dateStr === cal.currentDate);
             lines.push(dateStr + (isToday ? ' (今天)' : '') + ':');
-            if (day && day.events && day.events.length) {
-                for (const ev of day.events) {
+            // calendarStore: dayData is array; legacy: dayData is { events: [...] }
+            const evArr = Array.isArray(dayData) ? dayData : (dayData?.events || []);
+            if (evArr.length > 0) {
+                for (const ev of evArr) {
                     const typeLabel = ev.type === 'canon' ? '[原作事件]' :
                                       ev.type === 'appointment' ? '[约定]' : '[变化剧情]';
                     const timeStr = ev.time ? ' ' + ev.time : '';
