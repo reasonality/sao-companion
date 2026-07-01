@@ -192,6 +192,12 @@ export function validateConsumableEntry(data) {
  * @returns {Promise<string[]>} results 数组（如 ['HP +50 (100→150)']）
  */
 export async function useConsumable(itemId) {
+    // Bug4b: 防御 —— itemId 为空/null 直接返回
+    if (!itemId) {
+        log(`useConsumable: itemId 为空`, 'warn');
+        return [];
+    }
+
     // 1. 从 inventoryStore 找 item
     const invStore = getInventoryStore();
     const item = invStore.items.find(i => i.item_id === itemId && i.type === 'consumable');
@@ -254,8 +260,10 @@ export async function useConsumable(itemId) {
         }
     }
 
-    // 4. 减少数量
+    // 4. 减少数量（Bug4b: 防御 qty 为 undefined/NaN）
+    if (item.qty == null) item.qty = 1;
     item.qty -= 1;
+    if (isNaN(item.qty)) item.qty = 0;
     if (item.qty <= 0) {
         const idx = invStore.items.indexOf(item);
         if (idx >= 0) invStore.items.splice(idx, 1);

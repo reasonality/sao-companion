@@ -2330,7 +2330,8 @@ function refreshStatus() {
         setText('sao_stat_int', '-');
         setText('sao_stat_vit', '-');
         setText('sao_level_text', '-');
-        setText('sao_cursor_text', '-');
+        const _cursorEmpty = document.getElementById('sao_cursor_text');
+        if (_cursorEmpty) _cursorEmpty.innerHTML = '<span class="sao-cursor-badge sao-cursor-green" style="opacity:0.4;filter:saturate(0.2);"><span class="sao-cursor-text">—</span></span>';
         setText('sao_player_location', '-');
         setText('sao_world_location', '-');
         setText('sao_world_weather', '-');
@@ -2409,6 +2410,7 @@ function refreshStatus() {
     setText('sao_world_events', events.length > 0 ? events[events.length-1].event : '-');
 
     // 已穿戴装备 - 渲染到 sao_equipped_list（右列装备section）
+    // Bug3: 空槽位不渲染（!equipId 跳过），只有已装备的才显示卸下按钮
     const slots = ['weapon', 'off_hand', 'head', 'chest', 'hands', 'legs', 'accessory'];
     const equipArr = [];
     for (const slot of slots) {
@@ -2463,9 +2465,10 @@ function refreshStatus() {
                 const def = item.consumable_id ? getConsumableById(item.consumable_id) : null;
                 const name = def?.name || item.name || '消耗品';
                 const idx = (inventory.items || []).indexOf(item);
+                // Bug4c: item_id 为空时不渲染使用按钮（useConsumable 需要 item_id）
                 return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
                     `<span data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</span>` +
-                    `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" style="padding:3px 8px;font-size:0.75em;">使用</button>` +
+                    `${item.item_id ? `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" style="padding:3px 8px;font-size:0.75em;">使用</button>` : ''}` +
                     `</div>`;
             }).join('');
         } else {

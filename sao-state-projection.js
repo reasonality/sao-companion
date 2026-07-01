@@ -557,7 +557,7 @@ export function projectNpcHint() {
 
 /**
  * 投影 NPC 面板数据（结构化数组，供状态面板渲染）。
- * 只返回有 state 变化的 NPC。
+ * Bug8: 放宽过滤条件 —— 显示所有有 name 的 NPC（state 为空也显示）。
  * @returns {Array|null}
  */
 export function renderNpcPanel() {
@@ -565,10 +565,8 @@ export function renderNpcPanel() {
         const store = getStore();
         if (!store?.npcStore?.byId) return null;
         const npcs = Object.values(store.npcStore.byId);
-        const active = npcs.filter(npc => {
-            const s = npc.state || {};
-            return s.relationship || s.affinity || s.location || (s.status && s.status.length);
-        });
+        // Bug8: 不再以 state 字段过滤；只要有 name 就显示
+        const active = npcs.filter(npc => npc && npc.name);
         if (active.length === 0) return null;
         return active.map(npc => ({
             name: npc.name,
@@ -578,6 +576,7 @@ export function renderNpcPanel() {
             location: npc.state?.location || '',
             status: npc.state?.status || [],
             last_seen_date: npc.state?.last_seen_date || null,
+            observations: npc.observations || [],
         }));
     } catch (e) { return null; }
 }
@@ -832,6 +831,7 @@ export function projectStatusPanelHtml() {
     const equipData = renderEquipmentPanel();
     if (equipData) {
         const equippedSlots = equipData.map(e => {
+            // Bug3: 空槽位只显示"无"，无卸下按钮；有 equipId 才渲染卸下按钮
             if (!e.name) {
                 return `<div class="sao-equip-slot"><div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div><div class="sao-equip-item sao-equip-empty">无</div></div>`;
             }

@@ -43,36 +43,17 @@
     }
 }
 
-/* Cursor indicator row inside player card */
-.sao-cursor-row {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 10px !important;
-    margin-bottom: 12px !important;
-    padding: 6px 10px !important;
-    background: rgba(8, 12, 20, 0.55) !important;
-    border-radius: 6px !important;
-    border-left: 3px solid var(--primary) !important;
-    font-size: 0.85em !important;
-    font-family: "Rajdhani", "Noto Sans SC", sans-serif !important;
+/* Cursor placeholder when no badge content (no-player / fallback) */
+.sao-cursor-text-placeholder {
+    color: var(--text-tertiary);
+    font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+    letter-spacing: 0.4px;
 }
 
-.sao-cursor-label {
-    color: var(--text-secondary) !important;
-    font-size: 0.78em !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.4px !important;
-}
-
-.sao-cursor-value {
-    color: var(--text-primary);
-    font-weight: 600;
-}
-
-/* 光标值内嵌 badge 时，badge 自身颜色生效 */
-.sao-cursor-value .sao-cursor-badge {
-    font-weight: 600;
+/* 光标值 inline 在容器里时，无外框、无背景——只显示 hex+text（避免和 player name 视觉冲突） */
+.sao-cursor-inline .sao-cursor-badge {
+    background: transparent;
+    border: 1px solid rgba(0, 210, 255, 0.22);
 }
 
 /* World state rows */
@@ -309,16 +290,12 @@ body.sao-card-active .mes_text a {
 }
 body.sao-card-active .mes_text a:hover { color: #ffffff !important; border-bottom-color: rgba(255, 255, 255, 0.8); }
 
-/* 4. 角色名 + 时间戳 */
+/* 4. 角色名 + 时间戳 — Bug9: 去掉 ▸ 伪元素装饰，避免干扰 ST 原生标题 */
 body.sao-card-active .mes_title, body.sao-card-active .name {
   font-family: var(--sao-font-body) !important; font-weight: 700 !important;
   font-size: 0.95em; letter-spacing: 0.6px; color: var(--primary, #00d2ff) !important;
   text-transform: none; display: inline-flex; align-items: baseline; gap: 6px;
   text-shadow: 0 0 8px rgba(0, 210, 255, 0.30); transition: color 0.2s ease, text-shadow 0.2s ease;
-}
-body.sao-card-active .mes_title::before, body.sao-card-active .name::before {
-  content: "▸" !important; color: var(--primary, #00d2ff); font-size: 0.9em; opacity: 0.85;
-  margin-right: 2px; text-shadow: 0 0 6px rgba(0, 210, 255, 0.45);
 }
 body.sao-card-active .timestamp, body.sao-card-active .mes .timestamp {
   font-family: var(--sao-font-ui) !important; font-weight: 400; font-size: 0.74em !important;
@@ -329,20 +306,22 @@ body.sao-card-active .timestamp, body.sao-card-active .mes .timestamp {
 body.sao-card-active .mes.is_user .mes_title, body.sao-card-active .mes.is_user .name {
   color: var(--sao-accent-purple) !important; text-shadow: 0 0 8px rgba(168, 85, 247, 0.30);
 }
-body.sao-card-active .mes.is_user .mes_title::before, body.sao-card-active .mes.is_user .name::before {
-  color: var(--sao-accent-purple); text-shadow: 0 0 6px rgba(168, 85, 247, 0.45);
-}
 
-/* 5. 用户vs AI区分 */
+/* 5. 用户vs AI区分 — Bug5: 降低用户消息视觉干扰 */
 body.sao-card-active .mes.is_user {
   --ls-edge: var(--sao-accent-purple) !important;
   background: linear-gradient(180deg, rgba(35, 20, 55, 0.62) 0%, rgba(20, 12, 32, 0.78) 100%) !important;
-  border-color: rgba(168, 85, 247, 0.22) !important; border-left-color: var(--sao-accent-purple) !important;
-  box-shadow: 0 0 18px rgba(168, 85, 247, 0.08), inset 0 1px 0 rgba(168, 85, 247, 0.40), inset 0 -1px 0 rgba(168, 85, 247, 0.08) !important;
+  border-color: rgba(168, 85, 247, 0.12) !important; border-left: 1px solid var(--sao-accent-purple) !important;
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.04), inset 0 1px 0 rgba(168, 85, 247, 0.40), inset 0 -1px 0 rgba(168, 85, 247, 0.08) !important;
 }
 body.sao-card-active .mes.is_user:hover {
-  box-shadow: 0 0 24px rgba(168, 85, 247, 0.20), inset 0 1px 0 rgba(168, 85, 247, 0.55), inset 0 -1px 0 rgba(168, 85, 247, 0.12) !important;
-  border-color: rgba(168, 85, 247, 0.45) !important;
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.12), inset 0 1px 0 rgba(168, 85, 247, 0.55), inset 0 -1px 0 rgba(168, 85, 247, 0.12) !important;
+  border-color: rgba(168, 85, 247, 0.30) !important;
+}
+/* Bug5: 用户消息角标降低透明度 */
+body.sao-card-active .mes.is_user::before,
+body.sao-card-active .mes.is_user::after {
+  opacity: 0.20 !important;
 }
 
 /* 6. 输入框 */
@@ -379,83 +358,138 @@ body.sao-card-active #send_but::before {
 body.sao-card-active #send_but:hover::before { left: 100%; }
 
 /* ============================================================
-   光标六边形徽章（侧边面板 + Shadow DOM 通用）
+   光标六边形徽章 + 3D 竖轴旋转动画（侧边面板 + Shadow DOM 通用）
+   不要 任何"光标"文字标签 — 直接 inline 在角色名旁边
    ============================================================ */
 .sao-cursor-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 2px 10px;
+    padding: 2px 9px 2px 7px;
     border-radius: 12px;
-    font-size: 0.82em;
-    font-weight: 600;
     font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+    font-size: 0.78em;
+    font-weight: 700;
     letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    vertical-align: middle;
+    line-height: 1;
 }
 
 .sao-cursor-hex {
     display: inline-block;
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
     background: currentColor;
     clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-    box-shadow: 0 0 6px currentColor;
+    transform-style: preserve-3d;
+    animation: sao-cursor-spin 3.2s linear infinite;
+    filter: drop-shadow(0 0 4px currentColor);
+    flex-shrink: 0;
 }
 
+/* 六边形旋转：中心竖轴（Y 轴）rotateY 360°，轻微透视增强 3D 感 */
+@keyframes sao-cursor-spin {
+    from { transform: perspective(80px) rotateY(0deg); }
+    to   { transform: perspective(80px) rotateY(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sao-cursor-hex {
+        animation: none;
+        transform: perspective(80px) rotateY(0deg);
+    }
+}
+
+/* 绿色 = 普通（Player） */
 .sao-cursor-green {
     color: #00d68a;
-    background: rgba(0, 214, 138, 0.1);
-    border: 1px solid rgba(0, 214, 138, 0.3);
+    background: rgba(0, 214, 138, 0.10);
+    border: 1px solid rgba(0, 214, 138, 0.30);
 }
 
+/* 橙色 = 敌对（criminal / orange enemy） — 与 warning 金 `#ffb800` 区分 */
 .sao-cursor-orange {
     color: #ff8a3d;
-    background: rgba(255, 138, 61, 0.1);
-    border: 1px solid rgba(255, 138, 61, 0.3);
+    background: rgba(255, 138, 61, 0.10);
+    border: 1px solid rgba(255, 138, 61, 0.32);
 }
 
+/* 红色 = 红名（PK 红名 / 红名玩家） */
 .sao-cursor-red {
     color: #ff2e4a;
-    background: rgba(255, 46, 74, 0.1);
-    border: 1px solid rgba(255, 46, 74, 0.3);
+    background: rgba(255, 46, 74, 0.12);
+    border: 1px solid rgba(255, 46, 74, 0.36);
 }
 
 /* ============================================================
-   侧边面板操作按钮 SAO 风格美化
+   侧边面板 SAO HUD 操作按钮（卸下 / 装备 / 使用）
+   与 Shadow DOM 内 .sao-equip-btn 统一设计语言：
+   pixel-edge (2px radius) + 细描边 + ▸ prefix + hover 扫描线渐变 + cyan 发光
    ============================================================ */
 .sao-btn-sm[data-action="useConsumable"],
 .sao-btn-sm[data-action="unequip"],
 .sao-btn-sm[data-action="equipFromInventory"] {
-    display: inline-block;
-    padding: 2px 8px;
-    margin-left: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px 3px 9px !important;
+    font-family: "Rajdhani", "Noto Sans SC", sans-serif !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.6px !important;
+    text-transform: uppercase !important;
     color: var(--primary-bright, #66e8ff) !important;
-    background: rgba(0, 210, 255, 0.08) !important;
-    border: 1px solid rgba(0, 210, 255, 0.3) !important;
-    border-radius: 3px !important;
-    cursor: pointer;
-    transition: all 0.2s ease !important;
-    text-shadow: none !important;
-    vertical-align: middle;
+    background: transparent !important;
+    border: 1px solid rgba(0, 210, 255, 0.40) !important;
+    border-radius: 2px !important;
+    cursor: pointer !important;
+    vertical-align: middle !important;
+    position: relative !important;
+    overflow: hidden !important;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease,
+                box-shadow 0.2s ease, transform 0.2s ease;
+    text-shadow: 0 0 6px rgba(0, 210, 255, 0.35) !important;
+}
+
+.sao-btn-sm[data-action="useConsumable"]::before,
+.sao-btn-sm[data-action="unequip"]::before,
+.sao-btn-sm[data-action="equipFromInventory"]::before {
+    content: "▸";
+    font-size: 9px !important;
+    opacity: 0.55;
+    color: var(--primary, #00d2ff) !important;
+    transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease;
 }
 
 .sao-btn-sm[data-action="useConsumable"]:hover,
 .sao-btn-sm[data-action="unequip"]:hover,
 .sao-btn-sm[data-action="equipFromInventory"]:hover {
-    background: rgba(0, 210, 255, 0.2) !important;
-    border-color: rgba(0, 210, 255, 0.6) !important;
-    box-shadow: 0 0 8px rgba(0, 210, 255, 0.25) !important;
+    color: #ffffff !important;
+    background: linear-gradient(180deg, rgba(0, 210, 255, 0.22) 0%, rgba(0, 210, 255, 0.06) 100%) !important;
+    border-color: var(--primary, #00d2ff) !important;
+    box-shadow:
+        0 0 10px rgba(0, 210, 255, 0.45),
+        inset 0 0 0 1px rgba(0, 210, 255, 0.20) !important;
+    text-shadow: 0 0 8px rgba(0, 210, 255, 0.65) !important;
+    transform: translateY(-1px);
+}
+
+.sao-btn-sm[data-action="useConsumable"]:hover::before,
+.sao-btn-sm[data-action="unequip"]:hover::before,
+.sao-btn-sm[data-action="equipFromInventory"]:hover::before {
+    opacity: 1;
+    color: #ffffff !important;
+    transform: translateX(2px);
 }
 
 .sao-btn-sm[data-action="useConsumable"]:active,
 .sao-btn-sm[data-action="unequip"]:active,
 .sao-btn-sm[data-action="equipFromInventory"]:active {
-    background: rgba(0, 210, 255, 0.3) !important;
-    box-shadow: inset 0 0 6px rgba(0, 210, 255, 0.3) !important;
+    background: rgba(0, 210, 255, 0.32) !important;
+    box-shadow: inset 0 0 8px rgba(0, 210, 255, 0.35) !important;
+    transform: translateY(0);
 }
 
 /* 7. 末条消息入场脉冲 + 减少动画 + 窄屏 */

@@ -156,6 +156,16 @@ export function getStore() {
     if (!d.consumableMigrationV1) {
         // 若已有 inventoryStore.items 含 consumable 且无 consumable_id，为每个 name 创建空壳定义
         if (d.inventoryStore && Array.isArray(d.inventoryStore.items)) {
+            // Bug4 fix: 补全缺失的 item_id（useConsumable 按 item_id 查找）
+            let maxInvNum = 0;
+            // 先扫描已有 inv_* ID 的最大编号
+            for (const item of d.inventoryStore.items) {
+                if (item.item_id) {
+                    const m = item.item_id.match(/^inv_(\d+)$/);
+                    if (m) { const n = parseInt(m[1], 10); if (n > maxInvNum) maxInvNum = n; }
+                }
+            }
+
             for (const item of d.inventoryStore.items) {
                 if (item.type === 'consumable' && !item.consumable_id && item.name) {
                     // 检查 consumableStore 是否已有同名定义
@@ -190,6 +200,12 @@ export function getStore() {
                     item.consumable_id = consumableId;
                     delete item.name;
                     delete item.description;
+                }
+                // Bug4 fix: 补全缺失的 item_id（useConsumable 按 item_id 查找）
+                if (item.type === 'consumable' && !item.item_id) {
+                    maxInvNum++;
+                    item.item_id = 'inv_' + String(maxInvNum).padStart(3, '0');
+                    log(`[store-core] 迁移守卫: 补全 item_id → ${item.item_id}`);
                 }
             }
         }

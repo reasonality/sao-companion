@@ -15,6 +15,56 @@ import { createSaoShadowHost } from '../sao-dom-utils.js';
 const battleHostRegistry = new Map(); // Map<messageId, {host, shadowRoot}>
 
 /**
+ * Bug7: 若 zdText 缺少玩家基础数据（[HP:...]），从 store playerStore 补全。
+ * 避免战前准备面板显示全零。
+ * @param {string} zdText - 原始 zd_status 文本
+ * @returns {string} 补全后的文本
+ */
+function augmentZdTextFromStore(zdText) {
+    if (!zdText) return zdText;
+    // 已有 HP 数据则不补全
+    if (/\[HP:\d/.test(zdText)) return zdText;
+
+    try {
+        const ctx = (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) ? SillyTavern.getContext() : null;
+        const meta = ctx?.chatMetadata?.sao_companion;
+        const ps = meta?.playerStore;
+        if (!ps) return zdText;
+
+        const parts = [];
+        // 玩家名
+        if (meta.playerStore?.name || meta.playerCursor?.name) {
+            parts.push(`[PR:${meta.playerCursor?.name || meta.playerStore?.name || ''}]`);
+        }
+        // HP / MP
+        const hp = ps.vitals?.hp ?? 0;
+        const maxHp = ps.vitals?.maxHp ?? 0;
+        const mp = ps.vitals?.mp ?? 0;
+        const maxMp = ps.vitals?.maxMp ?? 0;
+        parts.push(`[HP:${hp}/${maxHp}]`);
+        parts.push(`[MP:${mp}/${maxMp}]`);
+        // 属性
+        const str = ps.attributes?.str ?? 0;
+        const agi = ps.attributes?.agi ?? 0;
+        const intel = ps.attributes?.int ?? 0;
+        const vit = ps.attributes?.vit ?? 0;
+        parts.push(`[STR:${str}]`);
+        parts.push(`[AGI:${agi}]`);
+        parts.push(`[INT:${intel}]`);
+        parts.push(`[VIT:${vit}]`);
+        // 等级
+        const level = ps.progression?.level ?? 1;
+        parts.push(`[GR:${level}]`);
+
+        // 追加到 zdText 末尾（保持原有数据完整）
+        zdText = zdText + parts.join('');
+    } catch (e) {
+        console.warn('[BattleRenderer] augmentZdTextFromStore 失败:', e);
+    }
+    return zdText;
+}
+
+/**
  * 注册战斗面板宿主到全局注册表
  * @param {number} messageId - 消息 ID
  * @param {HTMLElement} host - Shadow DOM 宿主元素
@@ -161,9 +211,11 @@ export function renderBattlePanel(messageEl, rawText, messageId) {
     setBattleDomRoot(shadow);
 
     // 注入 <zd_status> 数据到隐藏的数据源
+    // Bug7: 若 zdText 缺少玩家基础数据（HP/MP/属性），从 store 补全
+    const augmentedZdText = augmentZdTextFromStore(zdText);
     const dataSource = shadow.getElementById('status-data-source');
     if (dataSource) {
-        dataSource.textContent = zdText;
+        dataSource.textContent = augmentedZdText;
     }
 
     // 初始化战斗系统
