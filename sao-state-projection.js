@@ -839,7 +839,7 @@ export function projectStatusPanelHtml() {
                 <div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div>
                 <div class="sao-equip-item">${esc(e.name)}</div>
                 ${e.keyStats ? `<div class="sao-equip-stats">${esc(e.keyStats)}</div>` : ''}
-                <button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下">卸下</button>
+                ${e.equipId ? `<button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下">卸下</button>` : ''}
             </div>`;
         }).join('');
 

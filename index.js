@@ -1840,6 +1840,17 @@ function initPanelLogic() {
             document.querySelectorAll('.sao-tab-content').forEach(c => c.classList.remove('active'));
             document.querySelector(`.sao-tab[data-tab="${tabName}"]`)?.classList.add('active');
             document.querySelector(`.sao-tab-content[data-content="${tabName}"]`)?.classList.add('active');
+            // Bug4 fix: 防御性清理 inv-tab-content 状态，防止切tab时残留
+            if (tabName !== 'status') {
+                document.querySelectorAll('.sao-inv-tab-content').forEach(el => {
+                    el.style.setProperty('display', 'none', 'important');
+                });
+            } else {
+                // 切回 status 时恢复 inv-tab 显示（移除 inline override，由 CSS class 控制）
+                document.querySelectorAll('.sao-inv-tab-content').forEach(el => {
+                    el.style.removeProperty('display');
+                });
+            }
             if (tabName === 'calendar') _renderCalendarTab();
         },
 
