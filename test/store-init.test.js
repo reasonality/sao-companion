@@ -373,6 +373,124 @@ describe('initFloorFromWorldBook', () => {
         expect(getFloorById('floor_001').floor_number).toBe(1);
         expect(getFloorById('floor_048').floor_number).toBe(48);
     });
+
+    it('prefers worldbook-data JSON fence over regex extraction', () => {
+        const entries = [{
+            keys: ['第1层'],
+            comment: 'sao-第1层',
+            content: [
+                '### 第一层世界设定',
+                '核心原则：不应该被提取',
+                '主城區：【不应该】',
+                '迷宫区：不应该',
+                '守关Boss：不应该',
+                '',
+                '```worldbook-data',
+                '{"floor_number":1,"theme":"起始的原野","mainTown":"起始之镇","labyrinth":"地下迷宫","boss":"伊尔方","source":"external"}',
+                '```',
+            ].join('\n'),
+        }];
+        const count = initFloorFromWorldBook(entries);
+        expect(count).toBe(1);
+
+        const floor = getFloorByNumber(1);
+        expect(floor).toBeTruthy();
+        expect(floor.canon.theme).toBe('起始的原野');
+        expect(floor.canon.mainTown).toBe('起始之镇');
+        expect(floor.canon.labyrinth).toBe('地下迷宫');
+        expect(floor.canon.boss).toBe('伊尔方');
+        expect(floor.source).toBe('external');
+        // rawContent should NOT contain the fence
+        expect(floor.canon.rawContent).not.toContain('worldbook-data');
+        expect(floor.canon.rawContent).toContain('第一层世界设定');
+    });
+
+    it('falls back to regex when worldbook-data JSON is invalid', () => {
+        const entries = [{
+            keys: ['第2层'],
+            comment: 'sao-第2层',
+            content: [
+                '核心原则：回退主题',
+                '主城區：【回退城镇】',
+                '',
+                '```worldbook-data',
+                '{invalid json!!!}',
+                '```',
+            ].join('\n'),
+        }];
+        const count = initFloorFromWorldBook(entries);
+        expect(count).toBe(1);
+
+        const floor = getFloorByNumber(2);
+        expect(floor).toBeTruthy();
+        // should have regex-extracted values
+        expect(floor.canon.theme).toContain('回退主题');
+        expect(floor.canon.mainTown).toContain('回退城镇');
+        expect(floor.source).toBe('worldbook');
+    });
+
+    it('handles 65/66 merged entry (array in worldbook-data fence)', () => {
+        const entries = [{
+            keys: ['第65层', '第66层'],
+            comment: 'sao-第65层第66层',
+            content: [
+                '### 第65-66层合并设定',
+                '',
+                '```worldbook-data',
+                '[{"floor_number":65,"theme":"光明之巅","mainTown":"光明之城","labyrinth":"光辉迷宫","boss":"光明守护者","source":"external"},',
+                ' {"floor_number":66,"theme":"暗影深渊","mainTown":"暗影之都","labyrinth":"暗影迷宫","boss":"暗影领主","source":"external"}]',
+                '```',
+            ].join('\n'),
+        }];
+
+        const count = initFloorFromWorldBook(entries);
+        expect(count).toBe(2);
+
+        const floor65 = getFloorByNumber(65);
+        expect(floor65).toBeTruthy();
+        expect(floor65.canon.theme).toBe('光明之巅');
+        expect(floor65.canon.mainTown).toBe('光明之城');
+        expect(floor65.canon.labyrinth).toBe('光辉迷宫');
+        expect(floor65.canon.boss).toBe('光明守护者');
+        expect(floor65.source).toBe('external');
+
+        const floor66 = getFloorByNumber(66);
+        expect(floor66).toBeTruthy();
+        expect(floor66.canon.theme).toBe('暗影深渊');
+        expect(floor66.canon.mainTown).toBe('暗影之都');
+        expect(floor66.canon.labyrinth).toBe('暗影迷宫');
+        expect(floor66.canon.boss).toBe('暗影领主');
+        expect(floor66.source).toBe('external');
+    });
+
+    it('updates existing floor with worldbook-data fence on re-init', () => {
+        // First init with regex
+        const entries1 = [{
+            keys: ['第3层'],
+            comment: 'sao-第3层',
+            content: '核心原则：旧主题',
+        }];
+        initFloorFromWorldBook(entries1);
+        expect(getFloorByNumber(3).canon.theme).toBe('旧主题');
+        expect(getFloorByNumber(3).source).toBe('worldbook');
+
+        // Re-init with worldbook-data fence
+        const entries2 = [{
+            keys: ['第3层'],
+            comment: 'sao-第3层',
+            content: [
+                '### 新设定',
+                '',
+                '```worldbook-data',
+                '{"floor_number":3,"theme":"新主题","source":"external"}',
+                '```',
+            ].join('\n'),
+        }];
+        initFloorFromWorldBook(entries2);
+        const floor3 = getFloorByNumber(3);
+        expect(floor3.canon.theme).toBe('新主题');
+        expect(floor3.source).toBe('external');
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { initCalendarIfNeeded, queryTimeline } from './sao-calendar.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getStore } from './sao-store-core.js';
+import { getWorldStore } from './sao-store-world.js';
 import { event_types } from '../../../events.js';
 
 // ============================================================================
@@ -373,11 +374,133 @@ export function registerGetFloorInfo(ctx) {
 }
 
 
+export function registerGetWorldSetting(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_world_setting',
+        displayName: 'Get World Setting',
+        formatMessage: () => '查询世界设定...',
+        description: '查询SAO世界设定和游戏规则。可查死亡游戏规则、经济系统、PK规则、战斗机制、技能系统、升级规则、住房系统、环境设定等。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                topic: { type: 'string', description: '查询话题（必填）', 'enum': ['death_game', 'economy', 'pk', 'combat', 'skills', 'leveling', 'housing', 'environment'] },
+                arc: { type: 'string', description: '可选篇章过滤', 'enum': ['sao', 'alo', 'ggo', 'real'] },
+            },
+            required: ['topic'],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                const topic = args && args.topic;
+                if (!topic) return '请提供查询话题（topic）';
+
+                const ws = getWorldStore();
+                const rules = ws.rules;
+
+                if (!rules || typeof rules !== 'object' || !rules[topic]) {
+                    return `暂无"${topic}"的结构化数据，请参考世界书注入的规则条目。`;
+                }
+
+                let data = rules[topic];
+                // 可选 arc 过滤
+                if (args?.arc && typeof data === 'object' && !Array.isArray(data)) {
+                    data = data[args.arc] || data;
+                }
+
+                if (typeof data === 'string') return data;
+                if (typeof data === 'object') return JSON.stringify(data, null, 2);
+                return String(data);
+            } catch (e) {
+                log('get_world_setting 失败: ' + e.message, 'warn');
+                return '获取世界设定失败: ' + e.message;
+            }
+        }),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
+export function registerSearchWorldBook(ctx) {
+    ctx.registerFunctionTool({
+        name: 'search_world_book',
+        displayName: 'Search World Book',
+        formatMessage: () => '搜索世界书...',
+        description: '搜索世界书条目（通用回退工具）。当其他工具无法满足需求时使用，可按关键词搜索NPC、楼层、时间线、设定、规则等世界书内容。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: '搜索关键词（必填）' },
+                type: { type: 'string', description: '可选条目类型过滤', 'enum': ['npc', 'floor', 'timeline', 'setting', 'rule'] },
+            },
+            required: ['query'],
+        },
+        action: wrapToolAction(async (args) => {
+            try {
+                const query = args && args.query;
+                if (!query) return '请提供搜索关键词（query）';
+
+                const char = getCurrentCharacter();
+                const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
+                if (!entries || !entries.length) return '世界书数据不可用或为空';
+
+                const queryLower = query.toLowerCase();
+                const MAX_RESULTS = 5;
+
+                // 类型推断：根据 comment 前缀判断条目类型
+                function inferType(entry) {
+                    const c = (entry.comment || '').toLowerCase();
+                    if (/^sao-第|^\d+f|^floor/i.test(c)) return 'floor';
+                    if (/桐人|亚丝娜|结城|kirito|asuna|npc/i.test(c)) return 'npc';
+                    if (/时间|timeline|年|月|日/i.test(c)) return 'timeline';
+                    if (/规则|rule|机制/i.test(c)) return 'rule';
+                    return 'setting';
+                }
+
+                // 匹配函数：搜索 keys、comment、content
+                function matches(entry) {
+                    const keys = (entry.keys || []).map(k => k.toLowerCase());
+                    const comment = (entry.comment || '').toLowerCase();
+                    const content = (entry.content || '').toLowerCase();
+                    return keys.some(k => k.includes(queryLower) || queryLower.includes(k))
+                        || comment.includes(queryLower)
+                        || content.includes(queryLower);
+                }
+
+                const results = [];
+                for (const entry of entries) {
+                    // 类型过滤
+                    if (args?.type && inferType(entry) !== args.type) continue;
+                    // 关键词匹配
+                    if (!matches(entry)) continue;
+
+                    const comment = entry.comment || entry.name || '(无标题)';
+                    const content = (entry.content || '').substring(0, 100);
+                    results.push(`[${inferType(entry)}] ${comment}: ${content}${(entry.content || '').length > 100 ? '...' : ''}`);
+
+                    if (results.length >= MAX_RESULTS) break;
+                }
+
+                if (!results.length) {
+                    return `未找到与"${query}"匹配的世界书条目` + (args?.type ? `（类型: ${args.type}）` : '') + '。';
+                }
+
+                return results.join('\n---\n');
+            } catch (e) {
+                log('search_world_book 失败: ' + e.message, 'warn');
+                return '搜索世界书失败: ' + e.message;
+            }
+        }),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
 // === End Function Calling Tool Actions (P1) ===
 
 // === Function Calling Tool System (P0: framework only, tools registered in P1) ===
 
-export const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info'];
+export const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info', 'get_world_setting', 'search_world_book'];
 
 export function registerTools() {
     const ctx = getContext();
@@ -392,7 +515,9 @@ export function registerTools() {
     registerGetCalendar(ctx);
     registerGetCharacterInfo(ctx);
     registerGetFloorInfo(ctx);
-    log('function calling 工具系统已就绪（3 个工具已注册）');
+    registerGetWorldSetting(ctx);
+    registerSearchWorldBook(ctx);
+    log('function calling 工具系统已就绪（5 个工具已注册）');
     return true;
 }
 

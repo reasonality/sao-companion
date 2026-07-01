@@ -93,6 +93,7 @@ export function injectMemoryAndState() {
     const toolSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
 
     // Core State（toolSupported 时用 full state 替代 compact；full 是 compact 超集）
+    // TODO: 未来工具全面接管后，compactState 可精简（详细数据通过 tool call 按需获取）
     const compactState = formatCompactState(data.state);
     const stateText = toolSupported ? (projectFullState() || compactState) : compactState;
     if (stateText) {
@@ -111,7 +112,34 @@ export function injectMemoryAndState() {
         }
     }
 
+    // P3: 告知 AI 有工具可用（仅 toolSupported 时注入）
+    if (toolSupported) {
+        parts.push(
+            '## 可用工具\n' +
+            '你可以通过 function calling 调用以下工具获取详细信息：\n' +
+            '- get_floor_info(floor): 查询楼层设定（主题/主城/迷宫/BOSS）\n' +
+            '- get_character_info(name): 查询NPC/角色档案\n' +
+            '- get_calendar(date/month): 查询日历/时间线事件\n' +
+            '- get_world_setting(topic): 查询世界设定规则（死亡游戏/经济/PK/战斗/技能/等级/房屋等）\n' +
+            '- search_world_book(query): 按关键词搜索世界书条目（通用回退）\n' +
+            '当你需要某楼层/NPC/事件/规则的详细信息时，优先调用工具而非猜测。'
+        );
+    }
+
     if (parts.length > 0) {
         ctx.setExtensionPrompt('sao_companion_inject', parts.join('\n'), 1, 4, false, 0);
     }
+}
+
+/**
+ * 清理 prompt 中的数据类世界书条目注入（楼层/NPC/时间线等）。
+ * 阶段5：当数据类条目由 tool call 接管后，禁用其世界书注入时启用此函数。
+ * 当前数据类条目已 disabled（不在 prompt），暂不需要清理。
+ * TODO: 阶段5 实现 — 在 CHAT_COMPLETION_PROMPT_READY 中调用，清理 data-entry 注入
+ * @param {string} text
+ * @returns {string}
+ */
+export function cleanDataEntryInjections(text) {
+    // TODO: 阶段5 实现
+    return text;
 }

@@ -180,55 +180,111 @@ export function initFloorFromWorldBook(entries) {
             const isFloor = /层|floor|f\b/.test(allText);
             if (!isFloor) continue;
 
-            // 提取楼层号
-            const floorNumMatch = comment.match(/第(\d+)层/) ||
-                                  comment.match(/(\d+)F/i) ||
-                                  comment.match(/floor.*?(\d+)/i) ||
-                                  allText.match(/(\d+)/);
-            if (!floorNumMatch) continue;
+            // 提取所有楼层号（支持合并条目如"第65层-第66层"）
+            const floorNums = [];
+            const re6566 = /第(\d+)层/g;
+            let m;
+            while ((m = re6566.exec(comment)) !== null) {
+                const n = parseInt(m[1]);
+                if (n >= 1 && n <= 999) floorNums.push(n);
+            }
+            // 也从 keys 补充
+            const reNF = /(\d+)F/gi;
+            while ((m = reNF.exec(comment)) !== null) {
+                const n = parseInt(m[1]);
+                if (n >= 1 && n <= 999 && !floorNums.includes(n)) floorNums.push(n);
+            }
+            // 从 keys 中提取
+            for (const k of keys) {
+                const mk = k.match(/(\d+)/);
+                if (mk) {
+                    const n = parseInt(mk[1]);
+                    if (n >= 1 && n <= 999 && !floorNums.includes(n)) floorNums.push(n);
+                }
+            }
+            if (floorNums.length === 0) continue;
 
-            const floorNum = parseInt(floorNumMatch[1]);
-            if (floorNum < 1 || floorNum > 999) continue;
-
-            const padded = String(floorNum).padStart(3, '0');
-            const floorId = 'floor_' + padded;
             const content = entry.content || '';
             const contentHash = simpleHash(content);
 
-            // 检查是否已存在
-            if (store.numberToId[String(floorNum)] && store.byId[store.numberToId[String(floorNum)]]) {
-                const existing = store.byId[store.numberToId[String(floorNum)]];
-                // hash 变化 → 更新 canon
-                if (existing._canonHash !== contentHash) {
-                    existing.canon = _buildCanon(content);
-                    existing._canonHash = contentHash;
-                    log(`楼层 canon 刷新: ${floorNum}F (hash 变化)`);
+            // 优先：提取 worldbook-data JSON 围栏
+            const fenceMatch = content.match(/```worldbook-data\s*([\s\S]*?)```/);
+            let floorJson = null;
+            if (fenceMatch) {
+                try {
+                    const parsed = JSON.parse(fenceMatch[1].trim());
+                    // 支持单对象或数组（65/66合并条目）
+                    floorJson = Array.isArray(parsed) ? parsed : [parsed];
+                } catch (e) {
+                    log(`楼层 ${floorNums[0]} worldbook-data JSON 解析失败: ${e.message}`, 'warn');
                 }
-                count++;
-                continue;
             }
 
-            // 创建新条目
-            const floorEntry = {
-                floor_id: floorId,
-                floor_number: floorNum,
-                name: `第${floorNum}层`,
-                canon: _buildCanon(content),
-                state: {
-                    unlocked: true,
-                    cleared: false,
-                    discovered_locations: [],
-                    notes: [],
-                },
-                source: 'worldbook',
-                _canonHash: contentHash,
+            // 辅助：构建 canon（JSON 优先，回退正则）
+            const buildCanonFor = (fn) => {
+                if (floorJson) {
+                    const fd = floorJson.find(f => f.floor_number === fn);
+                    if (fd) {
+                        return {
+                            rawContent: content.replace(/```worldbook-data[\s\S]*?```/, '').trim(),
+                            theme: fd.theme || '',
+                            mainTown: fd.mainTown || '',
+                            labyrinth: fd.labyrinth || '',
+                            boss: fd.boss || '',
+                        };
+                    }
+                }
+                return _buildCanon(content);
+            };
+            const jsonSourceFor = (fn) => {
+                if (!floorJson) return null;
+                const fd = floorJson.find(f => f.floor_number === fn);
+                return fd ? (fd.source || 'worldbook') : null;
             };
 
-            store.byId[floorId] = floorEntry;
-            store.numberToId[String(floorNum)] = floorId;
+            // 对每个楼层号创建/更新条目
+            for (const floorNum of floorNums) {
+                const padded = String(floorNum).padStart(3, '0');
+                const floorId = 'floor_' + padded;
 
-            log(`楼层初始化: ${floorNum}F → ${floorId}`);
-            count++;
+                // 检查是否已存在
+                if (store.numberToId[String(floorNum)] && store.byId[store.numberToId[String(floorNum)]]) {
+                    const existing = store.byId[store.numberToId[String(floorNum)]];
+                    // hash 变化 → 更新 canon
+                    if (existing._canonHash !== contentHash) {
+                        existing.canon = buildCanonFor(floorNum);
+                        existing._canonHash = contentHash;
+                        const src = jsonSourceFor(floorNum);
+                        if (src) existing.source = src;
+                        log(`楼层 canon 刷新: ${floorNum}F (hash 变化)`);
+                    }
+                    count++;
+                    continue;
+                }
+
+                // 创建新条目
+                const resolvedSource = jsonSourceFor(floorNum);
+                const floorEntry = {
+                    floor_id: floorId,
+                    floor_number: floorNum,
+                    name: `第${floorNum}层`,
+                    canon: buildCanonFor(floorNum),
+                    state: {
+                        unlocked: true,
+                        cleared: false,
+                        discovered_locations: [],
+                        notes: [],
+                    },
+                    source: resolvedSource || 'worldbook',
+                    _canonHash: contentHash,
+                };
+
+                store.byId[floorId] = floorEntry;
+                store.numberToId[String(floorNum)] = floorId;
+
+                log(`楼层初始化: ${floorNum}F → ${floorId}`);
+                count++;
+            }
         } catch (e) {
             // 解析失败跳过
         }

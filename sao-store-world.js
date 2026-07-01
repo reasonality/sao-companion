@@ -18,10 +18,13 @@ import { log } from './sao-core.js';
 function ensureWorldStore() {
     const store = getStore();
     if (!store.worldStore) {
-        store.worldStore = { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null };
+        store.worldStore = { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _updatedAt: null };
     }
     if (!Array.isArray(store.worldStore.worldEvents)) {
         store.worldStore.worldEvents = [];
+    }
+    if (!store.worldStore.rules || typeof store.worldStore.rules !== 'object') {
+        store.worldStore.rules = {};
     }
     return store.worldStore;
 }
