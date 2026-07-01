@@ -942,6 +942,41 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 backdrop-filter: blur(4px);
             }
 
+            /* 内部分区：直接展示的卡片，不再是折叠面板。
+             * 与侧边面板 .sao-section / .sao-section-title 同语言，
+             * 但尺寸缩小以适配 HUD 内的紧凑节奏。 */
+            .sao-status-section {
+                margin: 0 0 10px 0;
+                position: relative;
+            }
+            .sao-status-section:last-child { margin-bottom: 0; }
+            .sao-status-section-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.92em;
+                font-weight: 700;
+                color: var(--text-primary);
+                letter-spacing: 0.7px;
+                text-transform: uppercase;
+                padding: 6px 0 6px 10px;
+                margin: 0 0 6px 0;
+                border-left: 3px solid var(--primary);
+                position: relative;
+            }
+            .sao-status-section-title::after {
+                content: "";
+                position: absolute;
+                bottom: 0;
+                left: 10px;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, var(--primary), transparent 75%);
+                opacity: 0.45;
+                pointer-events: none;
+            }
+
             /* 嵌套 details 间距控制 */
             .details-character-status > div > details {
                 margin: 2px 0 !important;
@@ -1672,12 +1707,8 @@ function _refreshStatusPanelContent(shadow) {
         }
         const contentDiv = shadow.querySelector('.sao-status-content');
         if (contentDiv) {
-            // 刷新前记录各 section details 的 open 状态（按 data-sao-section 识别，更可靠）
-            const prevOpen = new Set();
-            contentDiv.querySelectorAll('details[data-sao-section]').forEach(d => {
-                if (d.open) prevOpen.add(d.dataset.saoSection);
-            });
-            // 外壳 details 也要记录
+            // 外壳 details 是唯一需要保留 open 状态的折叠节点；
+            // 内部 7 个分区已改为直接展示（无 <details>），不再需要恢复开合。
             const outerDetails = shadow.querySelector('.details-character-status');
             const outerWasOpen = outerDetails ? outerDetails.open : false;
 
@@ -1686,15 +1717,10 @@ function _refreshStatusPanelContent(shadow) {
                 .replace(/[ \t]+$/gm, '')
                 .replace(/\n{3,}/g, '\n\n')
                 .replace(/<\/summary>\s*\n+/g, '</summary>')
-                .replace(/<\/details>\s*\n+\s*<details/g, '</details><details')
                 .replace(/\s+<\/details>/g, '</details>');
             contentDiv.innerHTML = safeContent;
 
-            // 恢复 section open 状态
-            contentDiv.querySelectorAll('details[data-sao-section]').forEach(d => {
-                if (prevOpen.has(d.dataset.saoSection)) d.open = true;
-            });
-            // 恢复外壳
+            // 恢复外壳折叠状态
             const newOuter = shadow.querySelector('.details-character-status');
             if (newOuter) newOuter.open = outerWasOpen;
 

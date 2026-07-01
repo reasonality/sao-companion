@@ -772,8 +772,8 @@ export function projectStatusPanelHtml() {
     const locationText = locationParts.join(' · ');
 
     sections.push(
-        `<details data-sao-section="info">
-            <summary>基本信息</summary>
+        `<div class="sao-status-section" data-sao-section="info">
+            <div class="sao-status-section-title">基本信息</div>
             <div class="sao-hud-card">
                 <div class="sao-hud-header">
                     <div>
@@ -784,7 +784,7 @@ export function projectStatusPanelHtml() {
                 </div>
                 ${locationText ? `<div class="sao-hud-sub">${esc(locationText)}</div>` : ''}
             </div>
-        </details>`
+        </div>`
     );
 
     // ---- 2. 等级与属性（HUD 生命与属性区） ----
@@ -815,8 +815,8 @@ export function projectStatusPanelHtml() {
     const metaLine = metaParts.length ? `<div class="sao-hud-meta">${esc(metaParts.join(' | '))}</div>` : '';
 
     sections.push(
-        `<details data-sao-section="vitals">
-            <summary>等级与属性</summary>
+        `<div class="sao-status-section" data-sao-section="vitals">
+            <div class="sao-status-section-title">等级与属性</div>
             <div class="sao-hud-card">
                 <div class="sao-bar-row">
                     <div class="sao-bar-labels"><span>HP</span><span>${hp}/${maxHp}</span></div>
@@ -829,7 +829,7 @@ export function projectStatusPanelHtml() {
                 ${statGrid}
                 ${metaLine}
             </div>
-        </details>`
+        </div>`
     );
 
     // ---- 3. 装备（HUD 装备槽网格 + 背包装备） ----
@@ -866,13 +866,13 @@ export function projectStatusPanelHtml() {
         }
 
         sections.push(
-            `<details data-sao-section="equip">
-                <summary>装备</summary>
+            `<div class="sao-status-section" data-sao-section="equip">
+                <div class="sao-status-section-title">装备</div>
                 <div class="sao-hud-card">
                     <div class="sao-equip-grid">${equippedSlots}</div>
                     ${backpackHtml}
                 </div>
-            </details>`
+            </div>`
         );
     }
 
@@ -900,10 +900,10 @@ export function projectStatusPanelHtml() {
             skillItems.push(`<div class="sao-text-muted">还有${skillData.length - cap}个...</div>`);
         }
         sections.push(
-            `<details data-sao-section="skills">
-                <summary>技能</summary>
+            `<div class="sao-status-section" data-sao-section="skills">
+                <div class="sao-status-section-title">技能</div>
                 <div class="sao-hud-card"><div class="sao-skill-list">${skillItems.join('')}</div></div>
-            </details>`
+            </div>`
         );
     }
 
@@ -937,14 +937,14 @@ export function projectStatusPanelHtml() {
         ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-text-secondary">${completed.map(q => `<div>${esc(q.title)}</div>`).join('')}</div></details>`
         : '';
     sections.push(
-        `<details data-sao-section="quests">
-            <summary>任务</summary>
+        `<div class="sao-status-section" data-sao-section="quests">
+            <div class="sao-status-section-title">任务</div>
             <div class="sao-hud-card">
                 ${questContent}
                 ${addQuestForm}
                 ${completedHtml}
             </div>
-        </details>`
+        </div>`
     );
 
     // ---- 6. 背包 / 货币（HUD 物品标签 + 珂尔） ----
@@ -969,13 +969,13 @@ export function projectStatusPanelHtml() {
         }
         const corHtml = invData.cor != null ? `<div class="sao-cor-row"><b>珂尔</b><span>${invData.cor}</span></div>` : '';
         sections.push(
-            `<details data-sao-section="inventory">
-                <summary>背包 / 货币</summary>
+            `<div class="sao-status-section" data-sao-section="inventory">
+                <div class="sao-status-section-title">背包 / 货币</div>
                 <div class="sao-hud-card">
                     ${itemsHtml}
                     ${corHtml}
                 </div>
-            </details>`
+            </div>`
         );
     }
 
@@ -997,10 +997,10 @@ export function projectStatusPanelHtml() {
             </div>`;
         }).join('');
         sections.push(
-            `<details data-sao-section="npcs">
-                <summary>NPC</summary>
+            `<div class="sao-status-section" data-sao-section="npcs">
+                <div class="sao-status-section-title">NPC</div>
                 <div class="sao-hud-card">${npcCards}</div>
-            </details>`
+            </div>`
         );
     }
 
