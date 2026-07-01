@@ -767,7 +767,7 @@ export function projectStatusPanelHtml() {
     infoParts.push(`光标: ${cursorText}`);
     if (infoParts.length) {
         sections.push(
-            `<details open><summary>基本信息</summary><div>${infoParts.join(' | ')}</div></details>`
+            `<details><summary>基本信息</summary><div>${infoParts.join(' | ')}</div></details>`
         );
     }
 
@@ -789,7 +789,7 @@ export function projectStatusPanelHtml() {
     }
     if (statParts.length) {
         sections.push(
-            `<details open><summary>等级与属性</summary><div>${statParts.join(' | ')}</div></details>`
+            `<details><summary>等级与属性</summary><div>${statParts.join(' | ')}</div></details>`
         );
     }
 
@@ -813,13 +813,13 @@ export function projectStatusPanelHtml() {
                 const equipBtn = ` <button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="穿戴">穿戴</button>`;
                 return `${esc(name)}${ks ? `(${ks})` : ''}${equipBtn}`;
             });
-            equipLines.push(`<br><span style="color:#6b5e50;font-size:13px;">背包装备:</span>`);
+            equipLines.push(`<br><span class="sao-text-secondary" style="font-size:13px;">背包装备:</span>`);
             equipLines.push(...invEquipLines);
         }
 
         if (equipLines.length) {
             sections.push(
-                `<details open><summary>装备</summary><div>${equipLines.join('<br>')}</div></details>`
+                `<details><summary>装备</summary><div>${equipLines.join('<br>')}</div></details>`
             );
         }
     }
@@ -839,7 +839,7 @@ export function projectStatusPanelHtml() {
                 if (c.mpCost) cParts.push(`MP:${c.mpCost}`);
                 if (c.cd) cParts.push(`CD:${c.cd}`);
                 if (cParts.length) {
-                    combatDetailHtml = `<div style="color:#6b5e50;font-size:13px;padding:2px 0 2px 16px;">${cParts.join(' ')}</div>`;
+                    combatDetailHtml = `<div class="sao-text-secondary" style="font-size:13px;padding:2px 0 2px 16px;">${cParts.join(' ')}</div>`;
                 }
             }
             if (combatDetailHtml) {
@@ -848,10 +848,10 @@ export function projectStatusPanelHtml() {
             return `<b>${esc(s.name)}</b>(熟练${s.proficiency})`;
         });
         if (skillData.length > cap) {
-            skillLines.push(`<span style="color:#8b7d6b;">还有${skillData.length - cap}个...</span>`);
+            skillLines.push(`<span class="sao-text-muted">还有${skillData.length - cap}个...</span>`);
         }
         sections.push(
-            `<details open><summary>技能</summary><div>${skillLines.join('<br>')}</div></details>`
+            `<details><summary>技能</summary><div>${skillLines.join('<br>')}</div></details>`
         );
     }
 
@@ -874,17 +874,17 @@ export function projectStatusPanelHtml() {
         questContent = questParts.join('<br><br>');
     }
     if (!questContent) {
-        questContent = '<span style="color:#8b7d6b;">暂无活跃任务</span>';
+        questContent = '<span class="sao-text-muted">暂无活跃任务</span>';
     }
     // 添加任务表单
-    const addQuestForm = `<div style="margin-top:6px;"><input type="text" data-sao-quest-input placeholder="输入任务标题..." style="width:60%;padding:2px 4px;font-size:13px;border:1px solid rgba(165,145,120,0.5);border-radius:3px;background:rgba(255,255,255,0.7);color:#4b3f34;" /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">添加</button></div>`;
+    const addQuestForm = `<div style="margin-top:6px;"><input type="text" data-sao-quest-input placeholder="输入任务标题..." /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">添加</button></div>`;
     // 已完成任务折叠
     const completed = questPanel?.completed || [];
     const completedHtml = completed.length
         ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-quest-list-completed">${completed.map(q => `<div class="sao-quest-item-completed"><span class="sao-quest-title">${esc(q.title)}</span></div>`).join('')}</div></details>`
         : '';
     sections.push(
-        `<details open><summary>任务</summary><div>${questContent}${addQuestForm}${completedHtml}</div></details>`
+        `<details><summary>任务</summary><div>${questContent}${addQuestForm}${completedHtml}</div></details>`
     );
 
     // ---- 6. 背包 / 货币 ----
@@ -903,14 +903,14 @@ export function projectStatusPanelHtml() {
                 return `${itemName}${qtyText}`;
             });
             if (invData.items.length > cap) {
-                shown.push(`<span style="color:#8b7d6b;">还有${invData.items.length - cap}个...</span>`);
+                shown.push(`<span class="sao-text-muted">还有${invData.items.length - cap}个...</span>`);
             }
             invParts.push(shown.join(' | '));
         }
         if (invData.cor != null) invParts.push(`<b>珂尔:</b> ${invData.cor}`);
         if (invParts.length) {
             sections.push(
-                `<details open><summary>背包 / 货币</summary><div>${invParts.join('<br>')}</div></details>`
+                `<details><summary>背包 / 货币</summary><div>${invParts.join('<br>')}</div></details>`
             );
         }
     }

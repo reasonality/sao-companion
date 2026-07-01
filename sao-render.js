@@ -664,232 +664,316 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
         .replace(/\s+<\/details>/g, '</details>')  // 消除 </details> 前的尾随空白（底部间隙）;
     shadow.innerHTML = `
         <style>
+            @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap");
             ${SHARED_SAO_CSS}
-            /* 主容器样式 */
-                .character-status-wrapper {
-                  background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
-                  border: 1px solid rgba(165, 145, 120, 0.5);
-                  border-radius: 6px;
-                  max-width: 861px;
-                  margin: 5px auto;
-                  padding: 0 5px 5px 5px;
-                  box-sizing: border-box;
-                  overflow: hidden;
-            
-                  /* 颜色变量 */
-                  --char-text-color: #4b3f34; /* 深灰褐色文本 */
-                  --char-content-border: rgba(165, 145, 120, 0.3);
-                  --char-button-bg: rgba(218, 198, 171, 0.95);
-                  --char-button-border: rgba(165, 145, 120, 0.8);
-                  --char-button-highlight: rgba(228, 208, 181, 0.95);
-                  --char-button-shadow: rgba(175, 155, 130, 0.85);
-                  --char-button-outer-shadow: rgba(150, 130, 105, 0.3);
-                  --char-icon-color: #5b99c9; /* 蓝色图标 */
-                  --char-content-bg: rgba(225, 215, 200, 0.95); /* 内容区背景 */
-                  --char-button-hover: rgba(225, 205, 178, 0.95); /* 悬停颜色 */
-                  --char-button-active: rgba(210, 190, 163, 0.95); /* 点击时颜色 */
-                }
-            
-                /* 定义标准字体栈 */
-                .character-status-wrapper {
-                  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif;
-                  color: var(--char-text-color); /* 应用默认文本颜色 */
-                }
-            
-                /* 全局禁用文本阴影 */
-                .character-status-wrapper,
-                .character-status-wrapper *,
-                .details-character-status,
-                .details-character-status *,
-                .details-character-status > summary,
-                .details-character-status > summary::before,
-                .details-character-status > div {
-                  text-shadow: none !important;
-                }
-            
-                /* 详情按钮样式 (使用新类名) */
-                .details-character-status {
-                  border: none;
-                  margin: 0;
-                  padding: 0;
-                  color: inherit; /* 继承 wrapper 的颜色 */
-                }
-            
-                /* 基础摘要样式 (使用新类名) */
-                .details-character-status > summary {
-                  display: flex;
-                  align-items: center;
-                  width: 100%;
-                  cursor: pointer;
-                  list-style: none;
-                  outline: none;
-                  image-rendering: auto;
-                  -webkit-font-smoothing: antialiased;
-                  -moz-osx-font-smoothing: grayscale;
-                  transition: all 0.1s ease-in-out;
-                  position: relative;
-                  top: 0;
-                  left: 0;
-                  box-sizing: border-box;
-                  font-weight: 600; /* 使用半粗体 (Semi-bold) 作为标题 */
-                  color: var(--char-text-color);
-                }
-            
-                /* 移除默认标记 (使用新类名) */
-                .details-character-status > summary::-webkit-details-marker,
-                .details-character-status > summary::marker {
-                  display: none;
-                  content: '';
-                }
-            
-                /* 基础图标样式 (使用新类名) */
-                .details-character-status > summary::before {
-                  content: '👤'; /* <<< 角色状态图标 */
-                  display: inline-block;
-                  line-height: 1;
-                  font-size: 1.1em;
-                  color: var(--char-icon-color);
-                  margin-right: 6px;
-                }
-            
-                /* 关闭时状态 (使用新类名) */
-                .details-character-status:not([open]) > summary {
-                  padding: 4px 8px 5px 8px;
-                  font-size: 16px;
-                  line-height: 1.2;
-                  margin-bottom: 0;
-                  background-color: var(--char-button-bg);
-                  border: 1px solid var(--char-button-border) !important;
-                  border-radius: 5px;
-                  box-shadow: 1px 1px 2px var(--char-button-outer-shadow) !important;
-                  filter: none;
-                  justify-content: flex-start;
-                }
-            
-                /* 鼠标悬停效果 (使用新类名) */
-                .details-character-status:not([open]) > summary:hover {
-                  background-color: var(--char-button-hover);
-                }
-            
-                /* 打开时状态 (使用新类名) */
-                .details-character-status[open] > summary {
-                  padding: 10px 8px;
-                  font-size: 18px;
-                  line-height: initial;
-                  margin-bottom: 5px;
-                  border: 1px solid var(--char-button-border);
-                  border-radius: 5px;
-                  background-color: var(--char-button-active);
-                  justify-content: flex-start;
-                  box-shadow: inset 1px 1px 0px 1px var(--char-button-highlight), inset -1px -1px 0px 1px var(--char-button-shadow);
-                  filter: drop-shadow(1px 1px 0px var(--char-button-outer-shadow));
-                  font-weight: 600; /* 保持半粗体 */
-                }
-            
-                /* 打开时图标样式 (使用新类名) */
-                .details-character-status[open] > summary::before {
-                  margin-right: 8px;
-                }
-            
-                /* 点击时反馈 (使用新类名) */
-                .details-character-status > summary:active {
-                  padding: 10px 8px;
-                  font-size: 18px;
-                  line-height: initial;
-                  background-color: var(--char-button-active);
-                  box-shadow: inset 1px 1px 0px 1px var(--char-button-highlight), inset -1px -1px 0px 1px var(--char-button-shadow);
-                  filter: drop-shadow(1px 1px 0px var(--char-button-outer-shadow));
-                  top: 1px;
-                  left: 1px;
-                  border: 1px solid var(--char-button-border);
-                  border-radius: 5px;
-                  justify-content: flex-start;
-                  margin-bottom: 5px;
-                  font-weight: 600; /* 保持半粗体 */
-                }
-            
-                /* 点击时图标样式 (使用新类名) */
-                .details-character-status > summary:active::before {
-                  margin-right: 8px;
-                }
-            
-                /* 打开时显示的内容 (使用新类名) */
-                .details-character-status > div {
-                  padding: 10px;
-                  margin: 0;
-                  font-size: 15px;
-                  line-height: 1.5;
-                  background-color: var(--char-content-bg);
-                  color: var(--char-text-color);
-                  border: 1px solid var(--char-content-border);
-                  border-radius: 4px;
-                  font-weight: normal; /* 内容使用普通字重 */
-                  white-space: pre-wrap;
-                  word-break: break-word;
-                }
-                /* 嵌套 details 间距控制 */
-                .details-character-status > div > details {
-                    margin: 2px 0 !important;
-                }
-                .details-character-status > div > details > summary {
-                    padding: 4px 8px !important;
-                    margin: 0 !important;
-                    font-size: 14px !important;
-                    font-weight: 600 !important;
-                    cursor: pointer !important;
-                }
-                .details-character-status > div > details[open] > summary {
-                    margin-bottom: 2px !important;
-                }
-                /* C3/C5.5: 操作按钮样式 */
-                .sao-equip-btn, .sao-quest-btn {
-                    display: inline-block;
-                    padding: 1px 6px;
-                    margin-left: 4px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    color: var(--char-text-color);
-                    background-color: var(--char-button-bg);
-                    border: 1px solid var(--char-button-border);
-                    border-radius: 3px;
-                    cursor: pointer;
-                    vertical-align: middle;
-                    line-height: 1.4;
-                    transition: background-color 0.1s;
-                }
-                .sao-equip-btn:hover, .sao-quest-btn:hover {
-                    background-color: var(--char-button-hover);
-                }
-                .sao-equip-btn:active, .sao-quest-btn:active {
-                    background-color: var(--char-button-active);
-                    box-shadow: inset 1px 1px 0 var(--char-button-highlight);
-                }
-                /* C4: 技能详情展开样式 */
-                .sao-skill-details {
-                    margin: 2px 0 !important;
-                }
-                .sao-skill-details > summary {
-                    cursor: pointer;
-                    list-style: none;
-                    padding: 2px 0;
-                }
-                .sao-skill-details > summary::-webkit-details-marker,
-                .sao-skill-details > summary::marker {
-                    display: none;
-                    content: '';
-                }
-                .sao-skill-details > summary::before {
-                    content: '▸ ';
-                    display: inline;
-                    font-size: 11px;
-                    color: #8b7d6b;
-                }
-                .sao-skill-details[open] > summary::before {
-                    content: '▾ ';
-                }
+            /* SAO 科技风：对话内角色状态面板 */
+            .character-status-wrapper {
+                /* 复用侧栏面板配色 */
+                --primary: #00d2ff;
+                --primary-dim: #0094b4;
+                --primary-bright: #66e8ff;
+                --success: #00d68a;
+                --warning: #ffb800;
+                --danger: #ff2e4a;
+                --text-primary: #eaf2ff;
+                --text-secondary: #9fb0cc;
+                --text-tertiary: #5c6b85;
+                --bg-base: #080c14;
+                --bg-elevated: #0f1522;
+                --bg-panel: #161e2e;
+                --bg-glass: rgba(22,30,46,0.82);
+                --border-subtle: rgba(255,255,255,0.08);
+                --border-accent: rgba(0,210,255,0.35);
+
+                background-color: rgba(12,18,28,0.94);
+                border: 1px solid var(--border-accent);
+                border-radius: 8px;
+                max-width: 861px;
+                margin: 5px auto;
+                padding: 0 5px 5px 5px;
+                box-sizing: border-box;
+                overflow: hidden;
+                position: relative;
+                box-shadow: 0 0 18px rgba(0,210,255,0.12), 0 8px 24px rgba(0,0,0,0.45);
+                font-family: "Exo 2", "Noto Sans SC", "Rajdhani", "Microsoft YaHei", sans-serif;
+                color: var(--text-primary);
+            }
+
+            /* 顶部发光条 */
+            .character-status-wrapper::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 2px;
+                background: linear-gradient(90deg, transparent 0%, var(--primary) 20%, var(--primary-bright) 50%, var(--primary) 80%, transparent 100%);
+                opacity: 0.85;
+                pointer-events: none;
+            }
+
+            /* 全局禁用文本阴影 */
+            .character-status-wrapper,
+            .character-status-wrapper *,
+            .details-character-status,
+            .details-character-status *,
+            .details-character-status > summary,
+            .details-character-status > summary::before,
+            .details-character-status > summary::after,
+            .details-character-status > div {
+                text-shadow: none !important;
+            }
+
+            /* 详情折叠容器 */
+            .details-character-status {
+                border: none;
+                margin: 0;
+                padding: 0;
+                color: inherit;
+            }
+
+            /* 摘要基础 */
+            .details-character-status > summary {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                cursor: pointer;
+                list-style: none;
+                outline: none;
+                image-rendering: auto;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                transition: all 0.2s ease;
+                position: relative;
+                top: 0;
+                left: 0;
+                box-sizing: border-box;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+                text-transform: uppercase;
+            }
+
+            /* 移除默认标记 */
+            .details-character-status > summary::-webkit-details-marker,
+            .details-character-status > summary::marker {
+                display: none;
+                content: '';
+            }
+
+            /* 闭合态：深色按钮条 + 左侧青色竖线 + ▸ 箭头 */
+            .details-character-status:not([open]) > summary {
+                padding: 6px 10px;
+                font-size: 15px;
+                line-height: 1.3;
+                margin: 5px 0 0 0;
+                background: rgba(15,21,34,0.85);
+                border: 1px solid rgba(0,210,255,0.22);
+                border-left: 3px solid var(--primary);
+                border-radius: 5px;
+                color: var(--text-secondary);
+                justify-content: flex-start;
+                box-shadow: -2px 0 6px rgba(0,210,255,0.18), 0 1px 4px rgba(0,0,0,0.25);
+            }
+            .details-character-status:not([open]) > summary::before {
+                content: '▸';
+                display: inline-block;
+                color: var(--primary);
+                margin-right: 8px;
+                font-size: 12px;
+                transition: transform 0.2s ease;
+            }
+            .details-character-status:not([open]) > summary:hover {
+                color: var(--primary-bright);
+                background: rgba(22,30,46,0.92);
+                border-color: rgba(0,210,255,0.45);
+                box-shadow: -2px 0 10px rgba(0,210,255,0.28), 0 0 10px rgba(0,210,255,0.12);
+            }
+
+            /* 展开态：标题青色 + 竖线发光 + 下方渐变分隔线 */
+            .details-character-status[open] > summary {
+                padding: 10px 8px;
+                font-size: 17px;
+                line-height: 1.3;
+                margin: 5px 0 8px 0;
+                background: transparent;
+                border: none;
+                border-left: 3px solid var(--primary);
+                border-radius: 0;
+                color: var(--primary);
+                justify-content: flex-start;
+                box-shadow: -2px 0 10px rgba(0,210,255,0.35);
+                text-shadow: 0 0 10px rgba(0,210,255,0.35) !important;
+            }
+            .details-character-status[open] > summary::before {
+                content: '▾';
+                display: inline-block;
+                color: var(--primary);
+                margin-right: 8px;
+                font-size: 12px;
+            }
+            .details-character-status[open] > summary::after {
+                content: "";
+                position: absolute;
+                bottom: -4px;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, var(--primary), transparent);
+                opacity: 0.6;
+            }
+
+            /* 内容区：HUD 卡片 */
+            .details-character-status > div {
+                padding: 10px;
+                margin: 0 0 5px 0;
+                font-size: 14.5px;
+                line-height: 1.55;
+                background: var(--bg-glass);
+                color: var(--text-primary);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                font-weight: 400;
+                white-space: pre-wrap;
+                word-break: break-word;
+                backdrop-filter: blur(4px);
+            }
+
+            /* 嵌套 details 间距控制 */
+            .details-character-status > div > details {
+                margin: 2px 0 !important;
+            }
+            .details-character-status > div > details > summary {
+                padding: 4px 8px !important;
+                margin: 0 !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                cursor: pointer !important;
+                font-family: "Exo 2", "Noto Sans SC", sans-serif;
+                text-transform: none;
+                letter-spacing: normal;
+                color: var(--text-primary);
+            }
+            .details-character-status > div > details[open] > summary {
+                margin-bottom: 2px !important;
+                color: var(--primary);
+            }
+
+            /* 辅助文字类 */
+            .sao-text-secondary { color: var(--text-secondary) !important; }
+            .sao-text-muted { color: var(--text-tertiary) !important; }
+
+            /* 任务输入框 */
+            input[data-sao-quest-input] {
+                width: 60%;
+                padding: 4px 8px;
+                font-size: 13px;
+                background: rgba(8,12,20,0.6);
+                border: 1px solid rgba(0,210,255,0.3);
+                border-radius: 4px;
+                color: var(--text-primary);
+                font-family: inherit;
+                outline: none;
+                transition: all 0.2s ease;
+            }
+            input[data-sao-quest-input]::placeholder {
+                color: var(--text-tertiary);
+            }
+            input[data-sao-quest-input]:focus {
+                border-color: var(--primary);
+                box-shadow: 0 0 10px rgba(0,210,255,0.2);
+                background: rgba(8,12,20,0.75);
+            }
+
+            /* C3/C5.5: 操作按钮 */
+            /* 主操作：完成 / 添加 任务 */
+            .sao-quest-btn {
+                display: inline-block;
+                padding: 2px 8px;
+                margin-left: 4px;
+                font-size: 12px;
+                font-weight: 700;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                letter-spacing: 0.4px;
+                text-transform: uppercase;
+                color: var(--bg-base);
+                background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
+                border: 1px solid rgba(0,210,255,0.45);
+                border-radius: 5px;
+                cursor: pointer;
+                vertical-align: middle;
+                line-height: 1.4;
+                transition: all 0.2s ease;
+                position: relative;
+                overflow: hidden;
+            }
+            .sao-quest-btn:hover {
+                filter: brightness(1.15);
+                box-shadow: 0 0 12px rgba(0,210,255,0.4);
+                transform: translateY(-1px);
+            }
+            .sao-quest-btn:active {
+                transform: translateY(0);
+                filter: brightness(0.95);
+            }
+
+            /* 次要操作：使用 / 卸下 / 穿戴 */
+            .sao-equip-btn {
+                display: inline-block;
+                padding: 1px 7px;
+                margin-left: 4px;
+                font-size: 12px;
+                font-weight: 600;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                letter-spacing: 0.3px;
+                text-transform: uppercase;
+                color: var(--primary);
+                background: transparent;
+                border: 1px solid rgba(0,210,255,0.45);
+                border-radius: 5px;
+                cursor: pointer;
+                vertical-align: middle;
+                line-height: 1.4;
+                transition: all 0.2s ease;
+            }
+            .sao-equip-btn:hover {
+                background: rgba(0,210,255,0.12);
+                color: var(--primary-bright);
+                border-color: var(--primary);
+                box-shadow: 0 0 10px rgba(0,210,255,0.18);
+            }
+            .sao-equip-btn:active {
+                background: rgba(0,210,255,0.18);
+                transform: translateY(0);
+            }
+
+            /* C4: 技能详情展开样式 */
+            .sao-skill-details {
+                margin: 2px 0 !important;
+            }
+            .sao-skill-details > summary {
+                cursor: pointer;
+                list-style: none;
+                padding: 2px 0;
+            }
+            .sao-skill-details > summary::-webkit-details-marker,
+            .sao-skill-details > summary::marker {
+                display: none;
+                content: '';
+            }
+            .sao-skill-details > summary::before {
+                content: '▸ ';
+                display: inline;
+                font-size: 11px;
+                color: var(--primary);
+            }
+            .sao-skill-details[open] > summary::before {
+                content: '▾ ';
+                color: var(--text-secondary);
+            }
         </style>
         <div class="character-status-wrapper">
-            <details class="details-character-status" open>
+            <details class="details-character-status">
                 <summary>角色状态栏</summary>
                 <div class="sao-status-content">${safeContent}</div>
             </details>
@@ -1031,6 +1115,18 @@ function _refreshStatusPanelContent(shadow) {
         }
         const contentDiv = shadow.querySelector('.sao-status-content');
         if (contentDiv) {
+            // 刷新前记录各 details 的 open 状态（按 summary 文本识别）
+            const prevOpenSummaries = new Set();
+            contentDiv.querySelectorAll('details').forEach(d => {
+                if (d.open) {
+                    const s = d.querySelector('summary');
+                    if (s) prevOpenSummaries.add(s.textContent.trim());
+                }
+            });
+            // 外壳 details 也要记录
+            const outerDetails = shadow.querySelector('.details-character-status');
+            const outerWasOpen = outerDetails ? outerDetails.open : false;
+
             const safeContent = sanitizeInlineSaoHtml(newHtml.trim())
                 .replace(/^[ \t]+/gm, '')
                 .replace(/[ \t]+$/gm, '')
@@ -1039,6 +1135,18 @@ function _refreshStatusPanelContent(shadow) {
                 .replace(/<\/details>\s*\n+\s*<details/g, '</details><details')
                 .replace(/\s+<\/details>/g, '</details>');
             contentDiv.innerHTML = safeContent;
+
+            // 恢复 open 状态
+            contentDiv.querySelectorAll('details').forEach(d => {
+                const s = d.querySelector('summary');
+                if (s && prevOpenSummaries.has(s.textContent.trim())) {
+                    d.open = true;
+                }
+            });
+            // 恢复外壳
+            const newOuter = shadow.querySelector('.details-character-status');
+            if (newOuter) newOuter.open = outerWasOpen;
+
             _attachStatusPanelListeners(shadow);
         }
     } catch (e) {

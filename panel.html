@@ -108,7 +108,13 @@
 </div>
 <div class="sao-status-actions">
 <button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="refreshStatus">刷新</button>
-<button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testGenerate" data-type="equipment">测试生成</button>
+<select id="sao_test_type" class="sao-btn sao-btn-secondary sao-btn-sm" style="padding:4px 8px;">
+  <option value="equipment">装备</option>
+  <option value="skill">剑技</option>
+  <option value="loot">战利品</option>
+  <option value="consumable">消耗品</option>
+</select>
+<button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testGenerate">测试生成</button>
 </div>
 <div class="sao-test-result" id="sao_generate_test"></div>
 </div>

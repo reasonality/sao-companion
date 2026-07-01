@@ -20,7 +20,7 @@ import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js
 import { useConsumable as useConsumableStore, getConsumableById } from './sao-store-consumable.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
-    generateEquipment, generateSkill, generateLoot,
+    generateEquipment, generateSkill, generateLoot, generateConsumable,
 } from './sao-generators.js';
 import { event_types } from '../../../events.js';
 import { power_user } from '../../../power-user.js';
@@ -1947,6 +1947,11 @@ function initPanelLogic() {
             updateLogDisplay();
         },
         async testGenerate(type) {
+            // type 参数若未传，从 select 读取
+            if (!type) {
+                const sel = document.getElementById('sao_test_type');
+                type = sel ? sel.value : 'equipment';
+            }
             const testEl = document.getElementById('sao_generate_test');
             if (!testEl) return;
             testEl.className = 'sao-test-result';
@@ -1967,6 +1972,8 @@ function initPanelLogic() {
                     result = await generateSkill({ weaponType: '单手直剑', skillLevel: 1, playerLevel: 5 }, callModel);
                 } else if (type === 'loot') {
                     result = await generateLoot({ enemyLevel: 3, floor: 1, enemyType: '野猪' }, callModel);
+                } else if (type === 'consumable') {
+                    result = await generateConsumable({ playerLevel: 5, floor: 1, qty: 1 }, callModel);
                 } else if (type === 'combat') {
                     // 战斗测试已迁移至确定性引擎 resolveCombatRound（sao-combat.js），
                     // 此处不再调用已删除的 LLM 版 calculateCombat。点击"战斗"测试按钮时给出提示。
@@ -2108,7 +2115,7 @@ function initPanelLogic() {
                 case 'saveModels': window.SaoPanel.saveModels(); break;
                 case 'toggleCalLlm': window.SaoPanel.toggleCalLlm(); break;
                 case 'toggleSpecialistPanels': window.SaoPanel.toggleSpecialistPanels(); break;
-                case 'testGenerate': window.SaoPanel.testGenerate(type); break;
+                case 'testGenerate': window.SaoPanel.testGenerate(); break;
                 case 'refreshStatus': refreshStatus(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
                 case 'closeDetail': window.SaoPanel.closeDetail(); break;
