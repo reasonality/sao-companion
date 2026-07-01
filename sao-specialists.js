@@ -7,6 +7,7 @@ import { getStore, saveStore, projectActionLogHint } from './sao-store-core.js';
 import { callSpecialist } from './sao-models.js';
 import { projectStateHint, projectEquipmentSummary, projectSkillSummary, projectNpcHint } from './sao-state-projection.js';
 import { applyWorldUpdates, projectWorldHint } from './sao-store-world.js';
+import { getRules } from './sao-rules.js';
 
 // ============================================================
 // P2: 装饰面板专家调用（map/equipment/swordskill）
@@ -76,9 +77,15 @@ export function _parseSpecialistHtml(content, panelType) {
  * @param {string} stateHint - 当前状态摘要
  * @param {number|string} messageId
  * @param {string} narrativeText
+ * @param {string[]} [rules] - 按需注入的规则关键词列表
  */
-export async function _callPanelSpecialist(panelType, panelName, instruction, stateHint, messageId, narrativeText) {
+export async function _callPanelSpecialist(panelType, panelName, instruction, stateHint, messageId, narrativeText, rules) {
     const messages = _buildPanelPrompt(panelName, instruction, narrativeText, stateHint);
+    // 规则按需注入
+    if (rules?.length > 0) {
+        const rh = getRules(rules, '面板参考规则');
+        if (rh) messages[0].content += rh;
+    }
     let content;
     try {
         content = await callSpecialist(panelType, messages, 512, { temperature: 0.5, jsonSchema: true });
@@ -94,9 +101,9 @@ export async function _callPanelSpecialist(panelType, panelName, instruction, st
 
 /** 装饰面板专家配置（DRY 驱动） */
 export const PANEL_SPECIALIST_CONFIG = [
-    { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '' },
-    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => projectEquipmentSummary() },
-    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => projectSkillSummary() },
+    { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '', rules: [] },
+    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => projectEquipmentSummary(), rules: ['技能'] },
+    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => projectSkillSummary(), rules: ['技能', '剑技获取'] },
 ];
 
 /**
@@ -110,8 +117,8 @@ export function fireSpecialistPanels(messageId, narrativeText) {
     if (getSettings().specialistPanels?.enabled === false) return [];
     const promises = [];
     for (const cfg of PANEL_SPECIALIST_CONFIG) {
-        const p = _callPanelSpecialist(cfg.type, cfg.name, cfg.instruction, cfg.hint(), messageId, narrativeText)
-            .catch(e => log(`${cfg.type} 专家失败: ` + e.message, 'warn'));
+        const p = _callPanelSpecialist(cfg.type, cfg.name, cfg.instruction, cfg.hint(), messageId, narrativeText, cfg.rules)
+            .catch(e => log(cfg.type + ' 专家失败: ' + e.message, 'warn'));
         promises.push(p);
     }
     return promises;
@@ -251,13 +258,16 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
         ? `\n\n## 玩家本地操作（UI 按钮触发，非叙事）\n${actionLogHint}\n这些操作已直接修改了玩家状态，请勿覆盖这些变更。\n`
         : '';
 
+    // 规则按需注入：等级、技能
+    const ruleHints = getRules(['等级', '技能'], '状态管理参考规则');
+
     const npcHint = projectNpcHint();
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +
         (npcHint ? `\n## 已知 NPC\n${npcHint}\n` : '') +
         `\n请输出 JSON。`;
 
     const messages = [
-        { role: 'system', content: systemPrompt + actionLogSection },
+        { role: 'system', content: systemPrompt + actionLogSection + ruleHints },
         { role: 'user', content: userPrompt },
     ];
 
@@ -384,12 +394,15 @@ export async function callWorldSpecialist(messageId, narrativeText) {
 ${stateHint || '(无)'}
 ${worldHint ? `世界: ${worldHint}` : ''}`;
 
+    // 规则按需注入：经济、房屋
+    const ruleHints = getRules(['经济', '房屋'], '世界状态参考规则');
+
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`;
 
     let content;
     try {
         content = await callSpecialist('worldStatus', [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: systemPrompt + ruleHints },
             { role: 'user', content: userPrompt },
         ], 768, { temperature: 0.4, jsonSchema: true, timeoutMs: 25000 });
     } catch (e) {

@@ -6,6 +6,7 @@ import { getSettings, log, safeJsonParse } from './sao-core.js';
 import { callSpecialist } from './sao-models.js';
 import { getQuestStore, createQuest, updateQuest, completeQuest } from './sao-store-quest.js';
 import { saveStore } from './sao-store-core.js';
+import { getRules } from './sao-rules.js';
 
 // ============================================================
 // 导出函数
@@ -78,10 +79,13 @@ ${messageText.substring(0, 2000)}
 
 请输出 JSON。`;
 
+    // 规则按需注入：等级
+    const ruleHints = getRules(['等级'], '任务参考规则');
+
     let content;
     try {
         content = await callSpecialist('quest', [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: systemPrompt + ruleHints },
             { role: 'user', content: userPrompt },
         ], 512, { temperature: 0.3, jsonSchema: true, timeoutMs: 20000 });
     } catch (e) {
