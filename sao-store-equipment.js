@@ -81,6 +81,12 @@ export function findOrCreateEquipment(equipData) {
         log('findOrCreateEquipment: 缺少 name', 'warn');
         return null;
     }
+    // 防御：空槽位占位词不应创建装备条目
+    const PLACEHOLDER_NAMES = ['无', '空', '[空]', 'なし', 'none', '空き', '未装备', '未知'];
+    if (PLACEHOLDER_NAMES.includes(name.trim())) {
+        log(`findOrCreateEquipment: 跳过占位装备名 "${name}"`, 'warn');
+        return null;
+    }
 
     const existingIds = store.nameToId[name];
     if (existingIds && existingIds.length > 0) {

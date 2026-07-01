@@ -225,15 +225,15 @@ body.sao-card-active #chat {
   background-attachment: local, local, local, local, local !important;
 }
 
-/* 2. 消息容器框架 + L角标 */
+/* 2. 消息容器框架 + L角标
+   注意：不覆盖 padding/margin，避免破坏 ST 原生头像(.mes_avatar)定位。
+   ST 通过 .mes 的 padding/margin 计算头像位置，覆盖会导致头像错位。 */
 body.sao-card-active .mes {
   position: relative !important;
   background: linear-gradient(180deg, var(--sao-msg-bg-top) 0%, var(--sao-msg-bg-bot) 100%) !important;
   border: 1px solid var(--sao-msg-border) !important;
   border-left: 3px solid var(--sao-accent-cyan) !important;
   border-radius: 10px !important;
-  padding: 12px 18px 14px 22px !important;
-  margin: 8px 4px !important;
   color: var(--text-primary, #eaf2ff) !important;
   --ls-edge: var(--sao-accent-cyan);
   box-shadow: 0 0 18px var(--sao-msg-glow-outer), inset 0 1px 0 var(--sao-msg-edge-hi), inset 0 -1px 0 var(--sao-msg-edge-lo) !important;
@@ -425,71 +425,37 @@ body.sao-card-active #send_but:hover::before { left: 100%; }
 
 /* ============================================================
    侧边面板 SAO HUD 操作按钮（卸下 / 装备 / 使用）
-   与 Shadow DOM 内 .sao-equip-btn 统一设计语言：
-   pixel-edge (2px radius) + 细描边 + ▸ prefix + hover 扫描线渐变 + cyan 发光
+   极小图标风格 — 融入文本行，hover 时发光提示
    ============================================================ */
 .sao-btn-sm[data-action="useConsumable"],
 .sao-btn-sm[data-action="unequip"],
 .sao-btn-sm[data-action="equipFromInventory"] {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 10px 3px 9px !important;
-    font-family: "Rajdhani", "Noto Sans SC", sans-serif !important;
-    font-size: 10px !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.6px !important;
-    text-transform: uppercase !important;
-    color: var(--primary-bright, #66e8ff) !important;
+    padding: 0 3px !important;
+    font-size: 11px !important;
+    color: var(--primary, #00d2ff) !important;
     background: transparent !important;
-    border: 1px solid rgba(0, 210, 255, 0.40) !important;
+    border: none !important;
     border-radius: 2px !important;
     cursor: pointer !important;
     vertical-align: middle !important;
-    position: relative !important;
-    overflow: hidden !important;
-    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease,
-                box-shadow 0.2s ease, transform 0.2s ease;
-    text-shadow: 0 0 6px rgba(0, 210, 255, 0.35) !important;
-}
-
-.sao-btn-sm[data-action="useConsumable"]::before,
-.sao-btn-sm[data-action="unequip"]::before,
-.sao-btn-sm[data-action="equipFromInventory"]::before {
-    content: "▸";
-    font-size: 9px !important;
-    opacity: 0.55;
-    color: var(--primary, #00d2ff) !important;
-    transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease;
+    opacity: 0.5 !important;
+    transition: opacity 0.2s ease, color 0.2s ease, text-shadow 0.2s ease !important;
 }
 
 .sao-btn-sm[data-action="useConsumable"]:hover,
 .sao-btn-sm[data-action="unequip"]:hover,
 .sao-btn-sm[data-action="equipFromInventory"]:hover {
-    color: #ffffff !important;
-    background: linear-gradient(180deg, rgba(0, 210, 255, 0.22) 0%, rgba(0, 210, 255, 0.06) 100%) !important;
-    border-color: var(--primary, #00d2ff) !important;
-    box-shadow:
-        0 0 10px rgba(0, 210, 255, 0.45),
-        inset 0 0 0 1px rgba(0, 210, 255, 0.20) !important;
-    text-shadow: 0 0 8px rgba(0, 210, 255, 0.65) !important;
-    transform: translateY(-1px);
-}
-
-.sao-btn-sm[data-action="useConsumable"]:hover::before,
-.sao-btn-sm[data-action="unequip"]:hover::before,
-.sao-btn-sm[data-action="equipFromInventory"]:hover::before {
-    opacity: 1;
-    color: #ffffff !important;
-    transform: translateX(2px);
+    opacity: 1 !important;
+    color: var(--primary-bright, #66e8ff) !important;
+    text-shadow: 0 0 6px rgba(0, 210, 255, 0.5) !important;
 }
 
 .sao-btn-sm[data-action="useConsumable"]:active,
 .sao-btn-sm[data-action="unequip"]:active,
 .sao-btn-sm[data-action="equipFromInventory"]:active {
-    background: rgba(0, 210, 255, 0.32) !important;
-    box-shadow: inset 0 0 8px rgba(0, 210, 255, 0.35) !important;
-    transform: translateY(0);
+    opacity: 0.8 !important;
 }
 
 /* 7. 末条消息入场脉冲 + 减少动画 + 窄屏 */
@@ -504,7 +470,7 @@ body.sao-card-active .mes.last_mes { animation: sao-last-mes-fadein 0.6s ease-ou
   }
 }
 @media (max-width: 600px) {
-  body.sao-card-active .mes { padding: 10px 12px 12px 16px !important; margin: 6px 2px !important; }
+  body.sao-card-active .mes { /* 不覆盖 padding/margin，保持 ST 原生布局 */ }
   body.sao-card-active .mes_text { padding: 8px 10px !important; font-size: 0.94em; }
   body.sao-card-active #send_textarea { font-size: 0.92em !important; }
 }

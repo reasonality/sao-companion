@@ -234,56 +234,29 @@ const SHARED_SAO_PANEL_CSS = `
                 backdrop-filter: blur(4px);
             }
 
-            /* 操作按钮（使用/卸下/穿戴）SAO HUD 风格 — 与侧边面板统一 */
+            /* 操作按钮（使用/卸下/穿戴）极小图标风格 — 融入文本行 */
             .sao-equip-btn {
                 display: inline-flex;
                 align-items: center;
-                gap: 4px;
-                padding: 2px 9px 2px 8px;
-                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.6px;
-                text-transform: uppercase;
-                color: var(--primary-bright);
+                padding: 0 3px;
+                font-size: 11px;
+                color: var(--primary);
                 background: transparent;
-                border: 1px solid rgba(0,210,255,0.40);
+                border: none;
                 border-radius: 2px;
                 cursor: pointer;
                 vertical-align: middle;
-                line-height: 1.4;
-                position: relative;
-                overflow: hidden;
-                transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease,
-                            box-shadow 0.2s ease, transform 0.2s ease;
-                text-shadow: 0 0 6px rgba(0,210,255,0.32);
-            }
-            .sao-equip-btn::before {
-                content: "▸";
-                font-size: 9px;
-                opacity: 0.55;
-                color: var(--primary);
-                transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease;
+                line-height: 1;
+                opacity: 0.5;
+                transition: opacity 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
             }
             .sao-equip-btn:hover {
-                color: #ffffff;
-                background: linear-gradient(180deg, rgba(0,210,255,0.22), rgba(0,210,255,0.06));
-                border-color: var(--primary);
-                box-shadow:
-                    0 0 10px rgba(0,210,255,0.45),
-                    inset 0 0 0 1px rgba(0,210,255,0.20);
-                text-shadow: 0 0 8px rgba(0,210,255,0.65);
-                transform: translateY(-1px);
-            }
-            .sao-equip-btn:hover::before {
                 opacity: 1;
-                color: #ffffff;
-                transform: translateX(2px);
+                color: var(--primary-bright);
+                text-shadow: 0 0 6px rgba(0,210,255,0.5);
             }
             .sao-equip-btn:active {
-                background: rgba(0,210,255,0.32);
-                box-shadow: inset 0 0 8px rgba(0,210,255,0.35);
-                transform: translateY(0);
+                opacity: 0.8;
             }
 
             /* 光标六边形徽章 — 3D 竖轴旋转 + 内联定位，无"光标"标签 */
@@ -1018,85 +991,52 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             /* C3/C5.5: 操作按钮 */
             /* 主操作：完成 / 添加 任务 */
             .sao-quest-btn {
-                display: inline-block;
-                padding: 2px 8px;
-                margin-left: 4px;
-                font-size: 12px;
-                font-weight: 700;
-                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-                letter-spacing: 0.4px;
-                text-transform: uppercase;
-                color: var(--bg-base);
-                background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%);
-                border: 1px solid rgba(0,210,255,0.45);
-                border-radius: 5px;
-                cursor: pointer;
-                vertical-align: middle;
-                line-height: 1.4;
-                transition: all 0.2s ease;
-                position: relative;
-                overflow: hidden;
-            }
-            .sao-quest-btn:hover {
-                filter: brightness(1.15);
-                box-shadow: 0 0 12px rgba(0,210,255,0.4);
-                transform: translateY(-1px);
-            }
-            .sao-quest-btn:active {
-                transform: translateY(0);
-                filter: brightness(0.95);
-            }
-
-            /* 次要操作：使用 / 卸下 / 穿戴 — 与侧边面板 + SHARED_SAO_PANEL_CSS 统一设计 */
-            .sao-equip-btn {
                 display: inline-flex;
                 align-items: center;
-                gap: 4px;
-                padding: 2px 9px 2px 8px;
-                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.6px;
-                text-transform: uppercase;
-                color: var(--primary-bright);
+                padding: 0 3px;
+                font-size: 11px;
+                color: var(--primary);
                 background: transparent;
-                border: 1px solid rgba(0,210,255,0.40);
+                border: none;
                 border-radius: 2px;
                 cursor: pointer;
                 vertical-align: middle;
-                line-height: 1.4;
-                position: relative;
-                overflow: hidden;
-                transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease,
-                            box-shadow 0.2s ease, transform 0.2s ease;
-                text-shadow: 0 0 6px rgba(0,210,255,0.32);
+                line-height: 1;
+                opacity: 0.5;
+                transition: opacity 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
             }
-            .sao-equip-btn::before {
-                content: "▸";
-                font-size: 9px;
-                opacity: 0.55;
+            .sao-quest-btn:hover {
+                opacity: 1;
+                color: var(--primary-bright);
+                text-shadow: 0 0 6px rgba(0,210,255,0.5);
+            }
+            .sao-quest-btn:active {
+                opacity: 0.8;
+            }
+
+            /* 次要操作：使用 / 卸下 / 穿戴 — 极小图标风格 */
+            .sao-equip-btn {
+                display: inline-flex;
+                align-items: center;
+                padding: 0 3px;
+                font-size: 11px;
                 color: var(--primary);
-                transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease;
+                background: transparent;
+                border: none;
+                border-radius: 2px;
+                cursor: pointer;
+                vertical-align: middle;
+                line-height: 1;
+                opacity: 0.5;
+                transition: opacity 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
             }
             .sao-equip-btn:hover {
-                color: #ffffff;
-                background: linear-gradient(180deg, rgba(0,210,255,0.22), rgba(0,210,255,0.06));
-                border-color: var(--primary);
-                box-shadow:
-                    0 0 10px rgba(0,210,255,0.45),
-                    inset 0 0 0 1px rgba(0,210,255,0.20);
-                text-shadow: 0 0 8px rgba(0,210,255,0.65);
-                transform: translateY(-1px);
-            }
-            .sao-equip-btn:hover::before {
                 opacity: 1;
-                color: #ffffff;
-                transform: translateX(2px);
+                color: var(--primary-bright);
+                text-shadow: 0 0 6px rgba(0,210,255,0.5);
             }
             .sao-equip-btn:active {
-                background: rgba(0,210,255,0.32);
-                box-shadow: inset 0 0 8px rgba(0,210,255,0.35);
-                transform: translateY(0);
+                opacity: 0.8;
             }
 
             /* C4: 技能详情展开样式 */
@@ -1382,7 +1322,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 letter-spacing: 0.3px;
             }
             .sao-equip-slot .sao-equip-btn {
-                margin: 4px 0 0 0;
+                margin: 2px 0 0 0;
                 align-self: flex-start;
             }
 
@@ -1509,8 +1449,8 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-tag .sao-equip-btn {
                 margin-left: 2px;
-                padding: 0 6px;
-                font-size: 0.78em;
+                padding: 0 2px;
+                font-size: 10px;
             }
             .sao-cor-row {
                 display: flex;

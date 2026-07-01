@@ -557,7 +557,7 @@ export function projectNpcHint() {
 
 /**
  * 投影 NPC 面板数据（结构化数组，供状态面板渲染）。
- * Bug8: 放宽过滤条件 —— 显示所有有 name 的 NPC（state 为空也显示）。
+ * 只显示有实际 state 数据的 NPC（至少一个 state 字段非空，或有 observations）。
  * @returns {Array|null}
  */
 export function renderNpcPanel() {
@@ -565,8 +565,13 @@ export function renderNpcPanel() {
         const store = getStore();
         if (!store?.npcStore?.byId) return null;
         const npcs = Object.values(store.npcStore.byId);
-        // Bug8: 不再以 state 字段过滤；只要有 name 就显示
-        const active = npcs.filter(npc => npc && npc.name);
+        // 只显示有 state 数据的 NPC：relationship/affinity/location/status 非空，或 observations 非空
+        const active = npcs.filter(npc => {
+            if (!npc || !npc.name) return false;
+            const s = npc.state || {};
+            return s.relationship || s.affinity || s.location || (s.status && s.status.length)
+                || (npc.observations && npc.observations.length);
+        });
         if (active.length === 0) return null;
         return active.map(npc => ({
             name: npc.name,
@@ -839,7 +844,7 @@ export function projectStatusPanelHtml() {
                 <div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div>
                 <div class="sao-equip-item">${esc(e.name)}</div>
                 ${e.keyStats ? `<div class="sao-equip-stats">${esc(e.keyStats)}</div>` : ''}
-                ${e.equipId ? `<button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下">卸下</button>` : ''}
+                ${e.equipId ? `<button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下装备">↓</button>` : ''}
             </div>`;
         }).join('');
 
@@ -854,7 +859,7 @@ export function projectStatusPanelHtml() {
                 return `<div class="sao-equip-slot">
                     <div class="sao-equip-item">${esc(name)}</div>
                     ${ks ? `<div class="sao-equip-stats">${esc(ks)}</div>` : ''}
-                    <button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="穿戴">穿戴</button>
+                    <button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="穿戴装备">↑</button>
                 </div>`;
             }).join('');
             backpackHtml = `<div class="sao-equip-backpack-title">背包装备</div><div class="sao-equip-grid">${backpackSlots}</div>`;
@@ -916,7 +921,7 @@ export function projectStatusPanelHtml() {
             return `<div class="sao-quest-card">
                 <div class="sao-quest-header">
                     <b>${esc(q.title)}</b>
-                    <button class="sao-quest-btn" data-sao-action="complete-quest" data-sao-quest-id="${q.quest_id}" title="完成任务">完成</button>
+                    <button class="sao-quest-btn" data-sao-action="complete-quest" data-sao-quest-id="${q.quest_id}" title="完成任务">✓</button>
                 </div>
                 ${summary}
                 ${objectives}
@@ -926,7 +931,7 @@ export function projectStatusPanelHtml() {
     if (!questContent) {
         questContent = '<div class="sao-empty">暂无活跃任务</div>';
     }
-    const addQuestForm = `<div class="sao-quest-add"><input type="text" data-sao-quest-input placeholder="输入任务标题..." /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">添加</button></div>`;
+    const addQuestForm = `<div class="sao-quest-add"><input type="text" data-sao-quest-input placeholder="输入任务标题..." /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">+</button></div>`;
     const completed = questPanel?.completed || [];
     const completedHtml = completed.length
         ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-text-secondary">${completed.map(q => `<div>${esc(q.title)}</div>`).join('')}</div></details>`
@@ -951,7 +956,7 @@ export function projectStatusPanelHtml() {
             const tags = invData.items.slice(0, cap).map(item => {
                 const qtyText = item.qty > 1 ? ` x${item.qty}` : '';
                 const useBtn = (item.type === 'consumable' && item.item_id)
-                    ? `<button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">使用</button>`
+                    ? `<button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">✓</button>`
                     : '';
                 return `<span class="sao-tag">${esc(item.name)}${qtyText}${useBtn}</span>`;
             });

@@ -213,6 +213,9 @@ function parseUserStatus(statusText) {
         const statsLine = afterLine.match(/❤️\+(\d+).*?💪\+(\d+).*?🏃\+(\d+).*?🧠\+(\d+).*?🔋\+(\d+)/s);
         
         const equip = { name: nameMatch ? nameMatch[1] : '未知' };
+        // Bug fix: 空槽位占位词过滤 — "主手: 无" 不应创建装备
+        const PLACEHOLDER_NAMES = ['无', '空', '[空]', 'なし', 'none', '空き', '未装备', '未知'];
+        if (PLACEHOLDER_NAMES.includes(equip.name.trim())) continue;
         if (lvlMatch) equip.item_level = parseInt(lvlMatch[1]);
         if (durMatch) equip.durability = durMatch[1];
         if (statsLine) {

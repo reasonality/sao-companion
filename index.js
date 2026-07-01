@@ -601,12 +601,13 @@ function bindEvents() {
                     }
                 });
                 // 延迟轮询未渲染的消息（DOM 可能尚未就绪）
+                // 关键修复：histEl 为 null 时也要启动轮询，否则 DOM 就绪后也不会渲染
                 chatCtx.chat.forEach((msg, idx) => {
                     if (!msg || msg.is_user) return;
                     // 同样跳过最后一条 AI 消息
                     if (idx === lastAiIdx) return;
                     const histEl = getMessageElement(idx);
-                    if (histEl && !histEl.querySelector('.sao-render-host')) {
+                    if (!histEl || !histEl.querySelector('.sao-render-host')) {
                         renderMessageWhenReady(idx, msg.mes || '');
                     }
                 });
@@ -2227,7 +2228,7 @@ function initPanelLogic() {
                     title = `${SLOT_LABELS[entry.slot] || entry.slot}: ${item.name || '未知'}`;
                     html = renderEquipmentDetail(item);
                     // R5: 卸下按钮
-                    html += `<div style="margin-top:12px;text-align:center;"><button class="sao-btn sao-btn-secondary" data-action="unequip" data-slot="${esc(entry.slot)}">卸下</button></div>`;
+                    html += `<div style="margin-top:12px;text-align:center;"><button class="sao-btn sao-btn-secondary" data-action="unequip" data-slot="${esc(entry.slot)}" title="卸下装备">↓ 卸下</button></div>`;
                 }
                 break;
             }
@@ -2427,7 +2428,7 @@ function refreshStatus() {
             equippedEl.innerHTML = equipArr.map((entry, i) =>
                 `<div class="sao-tag sao-tag-equip" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
                 `<span data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(SLOT_LABELS[entry.slot] || entry.slot)}: ${esc(entry.name)}</span>` +
-                `<button class="sao-btn sao-btn-sm" data-action="unequip" data-slot="${esc(entry.slot)}" style="padding:3px 8px;font-size:0.75em;">卸下</button>` +
+                `<button class="sao-btn sao-btn-sm" data-action="unequip" data-slot="${esc(entry.slot)}" title="卸下装备">↓</button>` +
                 `</div>`
             ).join('');
         } else {
@@ -2448,7 +2449,7 @@ function refreshStatus() {
                 const itemLevel = eq?.item_level;
                 return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
                     `<span data-detail-type="inv" data-detail-index="${(inventory.items || []).indexOf(item)}" style="cursor:pointer;">${esc(name)}${itemLevel ? ' ⭐' + itemLevel : ''}</span>` +
-                    `<button class="sao-btn sao-btn-sm" data-action="equipFromInventory" data-equipment-id="${esc(item.equipment_id)}" style="padding:3px 8px;font-size:0.75em;">装备</button>` +
+                    `<button class="sao-btn sao-btn-sm" data-action="equipFromInventory" data-equipment-id="${esc(item.equipment_id)}" title="穿戴装备">↑</button>` +
                     `</div>`;
             }).join('');
         } else {
@@ -2468,7 +2469,7 @@ function refreshStatus() {
                 // Bug4c: item_id 为空时不渲染使用按钮（useConsumable 需要 item_id）
                 return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
                     `<span data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</span>` +
-                    `${item.item_id ? `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" style="padding:3px 8px;font-size:0.75em;">使用</button>` : ''}` +
+                    `${item.item_id ? `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" title="使用">✓</button>` : ''}` +
                     `</div>`;
             }).join('');
         } else {
