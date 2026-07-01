@@ -2189,6 +2189,25 @@ function initPanelLogic() {
         });
     }
 
+    // Fix4: 详情弹窗 overlay 点击关闭 + Escape 键关闭
+    const detailModal = document.getElementById('sao_detail_modal');
+    if (detailModal) {
+        // 点击 overlay 背景（非 modal-window 区域）关闭
+        detailModal.addEventListener('click', (e) => {
+            if (e.target === detailModal) closeDetailModal();
+        });
+    }
+    // 全局 Escape 键关闭详情弹窗（不依赖 modal focus）
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('sao_detail_modal');
+            if (modal && modal.style.display !== 'none') {
+                closeDetailModal();
+                e.stopPropagation();
+            }
+        }
+    });
+
     // 详情弹窗事件委托
     function handleDetailClick(e) {
         const target = e.target.closest('[data-detail-type]');

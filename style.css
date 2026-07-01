@@ -176,6 +176,8 @@
 
 .sao-status-row1.sao-grid-2,
 .sao-status-row2.sao-grid-2 {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
     align-items: start !important;
 }
 

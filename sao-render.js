@@ -237,9 +237,9 @@ const SHARED_SAO_PANEL_CSS = `
             /* 操作按钮（使用/卸下/穿戴）SAO HUD 风格 */
             .sao-equip-btn {
                 display: inline-block;
-                padding: 2px 8px;
-                margin-left: 6px;
-                font-size: 11px;
+                padding: 1px 6px;
+                margin-left: 4px;
+                font-size: 10px;
                 font-weight: 600;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
                 letter-spacing: 0.5px;
@@ -1009,9 +1009,9 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             /* 次要操作：使用 / 卸下 / 穿戴 */
             .sao-equip-btn {
                 display: inline-block;
-                padding: 1px 7px;
+                padding: 1px 6px;
                 margin-left: 4px;
-                font-size: 12px;
+                font-size: 10px;
                 font-weight: 600;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
                 letter-spacing: 0.3px;
@@ -1705,7 +1705,7 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
             ${SHARED_SAO_PANEL_CSS}
         </style>
         <div class="sao-panel-wrapper">
-            <details class="sao-panel-details" open>
+            <details class="sao-panel-details">
                 <summary>👥 NPC状态</summary>
                 <div>${safeContent}</div>
             </details>
@@ -1731,7 +1731,7 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
             ${SHARED_SAO_PANEL_CSS}
         </style>
         <div class="sao-panel-wrapper">
-            <details class="sao-panel-details" open>
+            <details class="sao-panel-details">
                 <summary>🎒 新装备</summary>
                 <div>${itemsHtml}</div>
             </details>
@@ -1757,7 +1757,7 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
             ${SHARED_SAO_PANEL_CSS}
         </style>
         <div class="sao-panel-wrapper">
-            <details class="sao-panel-details" open>
+            <details class="sao-panel-details">
                 <summary>✨ 新剑技</summary>
                 <div>${itemsHtml}</div>
             </details>
@@ -1783,7 +1783,7 @@ function renderMap(messageEl, rawText, messageId, refNode) {
             ${SHARED_SAO_PANEL_CSS}
         </style>
         <div class="sao-panel-wrapper">
-            <details class="sao-panel-details" open>
+            <details class="sao-panel-details">
                 <summary>🗺️ 地图</summary>
                 <div>${safeContent}</div>
             </details>
