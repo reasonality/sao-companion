@@ -204,15 +204,18 @@ function stardewDetailsSharedCSS(className) {
 
 /**
  * 白名单清洗内联 HTML，仅保留 SAO 卡中常见的安全标签与属性。
- * 允许：br, font[color], span[style|color], b, strong, i, em
- * 移除：script/style/事件属性/data-/javascript: 等。
+ * 允许：br, font[color], span[style|color], b, strong, i, em, div, details, summary,
+ *      button, input, ul, li 及 data-sao-* 等交互属性
+ * 移除：script/style/事件属性/javascript: 等。
  */
 function sanitizeInlineSaoHtml(html) {
     if (!html) return '';
     return DOMPurify.sanitize(html, {
-        ALLOWED_TAGS: ['br', 'font', 'span', 'b', 'strong', 'i', 'em', 'div', 'details', 'summary'],
-        ALLOWED_ATTR: ['color', 'style', 'open'],
-        ALLOWED_CSS_PROPERTIES: ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration'],
+        ALLOWED_TAGS: ['br', 'font', 'span', 'b', 'strong', 'i', 'em', 'div', 'details', 'summary', 'button', 'input', 'ul', 'li', 'small'],
+        ALLOWED_ATTR: ['color', 'style', 'open', 'class', 'title', 'type', 'placeholder',
+            'data-sao-action', 'data-sao-slot', 'data-sao-equip-id', 'data-sao-quest-id',
+            'data-item-id', 'data-sao-quest-input', 'data-sao-section'],
+        ALLOWED_CSS_PROPERTIES: ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration', 'width'],
     });
 }
 /**
@@ -688,7 +691,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 background-color: rgba(12,18,28,0.94);
                 border: 1px solid var(--border-accent);
                 border-radius: 8px;
-                max-width: 861px;
+                max-width: min(100%, 861px);
                 margin: 5px auto;
                 padding: 0 5px 5px 5px;
                 box-sizing: border-box;
@@ -971,6 +974,436 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 content: '▾ ';
                 color: var(--text-secondary);
             }
+
+            /* ============================================================
+             * R1: 对话内 HUD 化样式
+             * ============================================================ */
+
+            /* 保留 fallback 文本换行，但 HUD 卡片内部恢复正常排版 */
+            .details-character-status > .sao-status-content { white-space: pre-wrap !important; }
+            .sao-status-content > .sao-hud-card { white-space: normal; }
+
+            /* HUD 卡片基座 */
+            .sao-hud-card {
+                background: linear-gradient(180deg, rgba(22,30,46,0.92) 0%, rgba(15,21,34,0.92) 100%);
+                border: 1px solid var(--border-subtle);
+                border-left: 3px solid var(--primary);
+                border-radius: 8px;
+                padding: 10px 12px;
+                margin: 0 0 8px 0;
+                box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+                position: relative;
+                overflow: hidden;
+            }
+            .sao-hud-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, var(--primary), transparent 70%);
+                opacity: 0.4;
+                pointer-events: none;
+            }
+            .sao-hud-card:last-child { margin-bottom: 0; }
+
+            /* 角色信息区 */
+            .sao-hud-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 6px;
+            }
+            .sao-hud-name {
+                font-family: "Orbitron", "Noto Sans SC", sans-serif;
+                font-size: 1.35em;
+                font-weight: 700;
+                color: var(--text-primary);
+                letter-spacing: 0.4px;
+                text-shadow: 0 0 10px rgba(0,210,255,0.25);
+            }
+            .sao-hud-title {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.92em;
+                color: var(--text-secondary);
+                margin-top: 2px;
+            }
+            .sao-hud-sub {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.85em;
+                color: var(--text-tertiary);
+                letter-spacing: 0.5px;
+            }
+
+            /* 光标徽章 */
+            .sao-cursor-badge {
+                display: inline-flex;
+                align-items: center;
+                padding: 3px 10px;
+                border-radius: 12px;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.78em;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                border: 1px solid rgba(255,255,255,0.12);
+                box-shadow: 0 0 8px currentColor;
+                white-space: nowrap;
+            }
+            .sao-cursor-green { background: rgba(0,214,138,0.12); color: var(--success); }
+            .sao-cursor-orange { background: rgba(255,184,0,0.12); color: var(--warning); }
+            .sao-cursor-red { background: rgba(255,46,74,0.14); color: var(--danger); }
+
+            /* HP / MP 进度条 */
+            .sao-bar-row { margin-bottom: 10px; }
+            .sao-bar-row:last-child { margin-bottom: 0; }
+            .sao-bar-labels {
+                display: flex;
+                justify-content: space-between;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.82em;
+                margin-bottom: 3px;
+                color: var(--text-secondary);
+                letter-spacing: 0.5px;
+            }
+            .sao-bar-container {
+                height: 9px;
+                background: rgba(255,255,255,0.06);
+                border-radius: 5px;
+                overflow: hidden;
+                box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+                position: relative;
+            }
+            .sao-bar {
+                height: 100%;
+                border-radius: 5px;
+                transition: width 0.5s cubic-bezier(0.22,0.61,0.36,1);
+                position: relative;
+                box-shadow: 0 0 10px currentColor;
+            }
+            .sao-bar::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 40%;
+                background: linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0));
+                pointer-events: none;
+                border-radius: 5px 5px 0 0;
+            }
+            .sao-bar-hp { background: linear-gradient(90deg, #ff4757, #ff6b81); color: rgba(255,71,87,0.5); }
+            .sao-bar-mp { background: linear-gradient(90deg, #00a8e6, #00d2ff); color: rgba(0,210,255,0.5); }
+            .sao-bar-hp-low { animation: sao-pulse-red 1.1s ease-in-out infinite; }
+            @keyframes sao-pulse-red {
+                0%, 100% { filter: brightness(1); box-shadow: 0 0 0 rgba(255,46,74,0); }
+                50% { filter: brightness(1.25); box-shadow: 0 0 14px rgba(255,46,74,0.55); }
+            }
+
+            /* 属性卡片 */
+            .sao-stat-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+                margin: 12px 0;
+            }
+            .sao-stat-item {
+                text-align: center;
+                padding: 8px 6px;
+                background: rgba(22,30,46,0.65);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                transition: all 0.25s ease;
+                position: relative;
+                overflow: hidden;
+            }
+            .sao-stat-item::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 2px;
+                background: var(--primary);
+                opacity: 0;
+                transition: opacity 0.25s ease;
+            }
+            .sao-stat-item:hover {
+                background: rgba(30,40,58,0.8);
+                border-color: var(--border-accent);
+                transform: translateY(-2px);
+                box-shadow: 0 6px 18px rgba(0,210,255,0.14);
+            }
+            .sao-stat-item:hover::before { opacity: 1; }
+            .sao-stat-value {
+                font-family: "Orbitron", "Noto Sans SC", sans-serif;
+                font-size: 1.25em;
+                font-weight: 700;
+                color: var(--primary);
+                text-shadow: 0 0 8px rgba(0,210,255,0.3);
+            }
+            .sao-stat-label {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.72em;
+                color: var(--text-secondary);
+                margin-top: 2px;
+                letter-spacing: 0.6px;
+            }
+
+            /* 元信息 */
+            .sao-hud-meta {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.8em;
+                color: var(--text-tertiary);
+                letter-spacing: 0.4px;
+                margin-top: 6px;
+            }
+
+            /* 装备槽网格 */
+            .sao-equip-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+                margin-top: 8px;
+            }
+            .sao-equip-grid:first-child { margin-top: 0; }
+            .sao-equip-slot {
+                background: rgba(22,30,46,0.55);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                padding: 8px;
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+                transition: all 0.2s ease;
+            }
+            .sao-equip-slot:hover {
+                background: rgba(30,40,58,0.7);
+                border-color: var(--border-accent);
+            }
+            .sao-equip-slot-label {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.72em;
+                color: var(--text-tertiary);
+                letter-spacing: 0.6px;
+                text-transform: uppercase;
+            }
+            .sao-equip-item {
+                font-family: "Exo 2", "Noto Sans SC", sans-serif;
+                font-size: 0.9em;
+                font-weight: 600;
+                color: var(--text-primary);
+            }
+            .sao-equip-empty {
+                color: var(--text-tertiary);
+                font-style: italic;
+            }
+            .sao-equip-stats {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.75em;
+                color: var(--success);
+                letter-spacing: 0.3px;
+            }
+            .sao-equip-slot .sao-equip-btn {
+                margin: 4px 0 0 0;
+                align-self: flex-start;
+            }
+
+            /* 背包装备标题 */
+            .sao-equip-backpack-title {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.82em;
+                color: var(--text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+                margin: 12px 0 4px 0;
+            }
+
+            /* 技能列表 */
+            .sao-skill-list { display: flex; flex-direction: column; gap: 6px; }
+            .sao-skill-details {
+                background: rgba(22,30,46,0.55);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                overflow: hidden;
+                margin: 0 !important;
+            }
+            .sao-skill-details > summary {
+                padding: 7px 10px !important;
+                font-size: 0.95em !important;
+                font-weight: 600 !important;
+                color: var(--text-primary) !important;
+                cursor: pointer !important;
+                list-style: none !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 8px !important;
+            }
+            .sao-skill-details > summary small {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.78em;
+                color: var(--text-tertiary);
+                font-weight: 500;
+            }
+            .sao-skill-combat {
+                padding: 6px 10px 8px 10px;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.82em;
+                color: var(--text-secondary);
+                background: rgba(8,12,20,0.45);
+                border-top: 1px solid var(--border-subtle);
+                letter-spacing: 0.4px;
+            }
+            .sao-skill-item {
+                padding: 7px 10px;
+                background: rgba(22,30,46,0.55);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                font-size: 0.92em;
+                color: var(--text-primary);
+            }
+
+            /* 任务卡 */
+            .sao-quest-card {
+                background: rgba(22,30,46,0.55);
+                border: 1px solid var(--border-subtle);
+                border-left: 3px solid var(--warning);
+                border-radius: 6px;
+                padding: 8px 10px;
+                margin-bottom: 8px;
+            }
+            .sao-quest-card:last-child { margin-bottom: 0; }
+            .sao-quest-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                margin-bottom: 3px;
+            }
+            .sao-quest-header b {
+                font-family: "Exo 2", "Noto Sans SC", sans-serif;
+                font-size: 0.98em;
+                color: var(--text-primary);
+            }
+            .sao-quest-objectives {
+                margin: 6px 0 0 0;
+                padding-left: 18px;
+                font-size: 0.88em;
+                color: var(--text-secondary);
+            }
+            .sao-quest-objectives li { margin: 2px 0; }
+            .sao-quest-add { margin-top: 10px; display: flex; gap: 6px; align-items: center; }
+            .sao-quest-completed { margin-top: 10px; }
+
+            /* 背包标签 */
+            .sao-inv-tags {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 8px;
+            }
+            .sao-tag {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 4px 10px;
+                background: rgba(0,210,255,0.08);
+                border: 1px solid rgba(0,210,255,0.28);
+                border-radius: 14px;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.82em;
+                color: var(--primary-bright);
+                transition: all 0.2s ease;
+            }
+            .sao-tag:hover {
+                background: rgba(0,210,255,0.16);
+                border-color: rgba(0,210,255,0.5);
+                box-shadow: 0 0 10px rgba(0,210,255,0.14);
+            }
+            .sao-tag .sao-equip-btn {
+                margin-left: 2px;
+                padding: 0 6px;
+                font-size: 0.78em;
+            }
+            .sao-cor-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.9em;
+                color: var(--warning);
+                margin-top: 6px;
+            }
+            .sao-cor-row b { color: var(--text-secondary); }
+
+            /* NPC 迷你卡 */
+            .sao-npc-card {
+                background: rgba(22,30,46,0.55);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                padding: 8px 10px;
+                margin-bottom: 8px;
+            }
+            .sao-npc-card:last-child { margin-bottom: 0; }
+            .sao-npc-name {
+                font-family: "Exo 2", "Noto Sans SC", sans-serif;
+                font-weight: 600;
+                font-size: 0.95em;
+                color: var(--text-primary);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .sao-npc-meta {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.8em;
+                color: var(--text-secondary);
+                margin-top: 3px;
+                letter-spacing: 0.3px;
+            }
+            .sao-npc-tags {
+                display: inline-flex;
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            .sao-npc-tag {
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-size: 0.72em;
+                padding: 1px 7px;
+                border-radius: 10px;
+                background: rgba(0,210,255,0.1);
+                color: var(--primary-bright);
+                border: 1px solid rgba(0,210,255,0.22);
+            }
+            .sao-npc-tag.sao-npc-tag-rel { background: rgba(0,214,138,0.1); border-color: rgba(0,214,138,0.25); color: var(--success); }
+
+            /* 辅助元素 */
+            .sao-divider {
+                height: 1px;
+                background: linear-gradient(90deg, var(--border-accent), transparent);
+                margin: 10px 0;
+                opacity: 0.5;
+            }
+            .sao-empty {
+                font-size: 0.88em;
+                color: var(--text-tertiary);
+                font-style: italic;
+                padding: 6px 0;
+            }
+            .sao-text-secondary { color: var(--text-secondary) !important; }
+            .sao-text-muted { color: var(--text-tertiary) !important; }
+
+            /* 响应式：小屏幕属性/装备网格降级 */
+            @media (max-width: 560px) {
+                .sao-stat-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+                .sao-equip-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+                .sao-hud-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+                .sao-quest-header { flex-wrap: wrap; }
+            }
         </style>
         <div class="character-status-wrapper">
             <details class="details-character-status">
@@ -1115,13 +1548,10 @@ function _refreshStatusPanelContent(shadow) {
         }
         const contentDiv = shadow.querySelector('.sao-status-content');
         if (contentDiv) {
-            // 刷新前记录各 details 的 open 状态（按 summary 文本识别）
-            const prevOpenSummaries = new Set();
-            contentDiv.querySelectorAll('details').forEach(d => {
-                if (d.open) {
-                    const s = d.querySelector('summary');
-                    if (s) prevOpenSummaries.add(s.textContent.trim());
-                }
+            // 刷新前记录各 section details 的 open 状态（按 data-sao-section 识别，更可靠）
+            const prevOpen = new Set();
+            contentDiv.querySelectorAll('details[data-sao-section]').forEach(d => {
+                if (d.open) prevOpen.add(d.dataset.saoSection);
             });
             // 外壳 details 也要记录
             const outerDetails = shadow.querySelector('.details-character-status');
@@ -1136,12 +1566,9 @@ function _refreshStatusPanelContent(shadow) {
                 .replace(/\s+<\/details>/g, '</details>');
             contentDiv.innerHTML = safeContent;
 
-            // 恢复 open 状态
-            contentDiv.querySelectorAll('details').forEach(d => {
-                const s = d.querySelector('summary');
-                if (s && prevOpenSummaries.has(s.textContent.trim())) {
-                    d.open = true;
-                }
+            // 恢复 section open 状态
+            contentDiv.querySelectorAll('details[data-sao-section]').forEach(d => {
+                if (prevOpen.has(d.dataset.saoSection)) d.open = true;
             });
             // 恢复外壳
             const newOuter = shadow.querySelector('.details-character-status');

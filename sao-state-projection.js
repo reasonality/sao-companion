@@ -758,174 +758,245 @@ export function projectStatusPanelHtml() {
 
     const sections = [];
 
-    // ---- 1. 基本信息 ----
-    const infoParts = [];
-    if (playerPanel.name)  infoParts.push(`姓名: ${esc(playerPanel.name)}`);
-    if (playerPanel.title) infoParts.push(`称号: ${esc(playerPanel.title)}`);
-    // 光标类型
+    // ---- 1. 基本信息（HUD 角色信息区） ----
     const cursorText = CURSOR_LABELS[playerPanel.cursor_type] || CURSOR_LABELS.green;
-    infoParts.push(`光标: ${cursorText}`);
-    if (infoParts.length) {
-        sections.push(
-            `<details><summary>基本信息</summary><div>${infoParts.join(' | ')}</div></details>`
-        );
-    }
+    const cursorLabel = cursorText.replace(/^\S+\s*/, '');
+    const cursorClass = `sao-cursor-${esc(playerPanel.cursor_type || 'green')}`;
+    const locationParts = [];
+    if (levelPanel.floorId != null) locationParts.push(`${levelPanel.floorId}F`);
+    if (levelPanel.location) locationParts.push(levelPanel.location);
+    const locationText = locationParts.join(' · ');
 
-    // ---- 2. 等级与属性 ----
-    const statParts = [];
-    if (levelPanel.level != null) statParts.push(`等级: ${levelPanel.level}`);
-    if (levelPanel.totalExp != null) statParts.push(`经验: ${levelPanel.totalExp}`);
-    const attrParts = [];
-    if (levelPanel.str != null) attrParts.push(`STR:${levelPanel.str}`);
-    if (levelPanel.agi != null) attrParts.push(`AGI:${levelPanel.agi}`);
-    if (levelPanel.int != null) attrParts.push(`INT:${levelPanel.int}`);
-    if (levelPanel.vit != null) attrParts.push(`VIT:${levelPanel.vit}`);
-    if (attrParts.length) statParts.push(attrParts.join(' '));
-    if (levelPanel.hp != null) {
-        statParts.push(`HP:${levelPanel.hp}/${levelPanel.maxHp ?? 0}${levelPanel.inCombat ? ' (战斗中)' : ''} MP:${levelPanel.mp ?? 0}/${levelPanel.maxMp ?? 0}`);
-    }
-    if (levelPanel.floorId || levelPanel.location) {
-        statParts.push(`位置: ${levelPanel.floorId || '?'}F ${levelPanel.location || ''}`);
-    }
-    if (statParts.length) {
-        sections.push(
-            `<details><summary>等级与属性</summary><div>${statParts.join(' | ')}</div></details>`
-        );
-    }
+    sections.push(
+        `<details data-sao-section="info">
+            <summary>基本信息</summary>
+            <div class="sao-hud-card">
+                <div class="sao-hud-header">
+                    <div>
+                        <div class="sao-hud-name">${esc(playerPanel.name || '未知')}</div>
+                        ${playerPanel.title ? `<div class="sao-hud-title">${esc(playerPanel.title)}</div>` : ''}
+                    </div>
+                    <span class="sao-cursor-badge ${cursorClass}">${esc(cursorLabel)}</span>
+                </div>
+                ${locationText ? `<div class="sao-hud-sub">${esc(locationText)}</div>` : ''}
+            </div>
+        </details>`
+    );
 
-    // ---- 3. 装备（C3: 含卸下按钮 + 背包装备穿戴） ----
+    // ---- 2. 等级与属性（HUD 生命与属性区） ----
+    const hp = levelPanel.hp ?? 0;
+    const maxHp = levelPanel.maxHp ?? 0;
+    const mp = levelPanel.mp ?? 0;
+    const maxMp = levelPanel.maxMp ?? 0;
+    const hpPct = maxHp > 0 ? Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100))) : 0;
+    const mpPct = maxMp > 0 ? Math.max(0, Math.min(100, Math.round((mp / maxMp) * 100))) : 0;
+    const hpLowClass = hpPct < 25 ? 'sao-bar-hp-low' : '';
+
+    const attrList = [
+        { label: 'STR', val: levelPanel.str },
+        { label: 'AGI', val: levelPanel.agi },
+        { label: 'INT', val: levelPanel.int },
+        { label: 'VIT', val: levelPanel.vit },
+    ].filter(a => a.val != null);
+    const statGrid = attrList.length
+        ? `<div class="sao-stat-grid">${attrList.map(a =>
+            `<div class="sao-stat-item"><div class="sao-stat-value">${a.val}</div><div class="sao-stat-label">${a.label}</div></div>`
+        ).join('')}</div>`
+        : '';
+
+    const metaParts = [];
+    if (levelPanel.level != null) metaParts.push(`Lv.${levelPanel.level}`);
+    if (levelPanel.totalExp != null) metaParts.push(`EXP ${levelPanel.totalExp}`);
+    if (levelPanel.inCombat) metaParts.push('战斗中');
+    const metaLine = metaParts.length ? `<div class="sao-hud-meta">${esc(metaParts.join(' | '))}</div>` : '';
+
+    sections.push(
+        `<details data-sao-section="vitals">
+            <summary>等级与属性</summary>
+            <div class="sao-hud-card">
+                <div class="sao-bar-row">
+                    <div class="sao-bar-labels"><span>HP</span><span>${hp}/${maxHp}</span></div>
+                    <div class="sao-bar-container"><div class="sao-bar sao-bar-hp ${hpLowClass}" style="width:${hpPct}%"></div></div>
+                </div>
+                <div class="sao-bar-row">
+                    <div class="sao-bar-labels"><span>MP</span><span>${mp}/${maxMp}</span></div>
+                    <div class="sao-bar-container"><div class="sao-bar sao-bar-mp" style="width:${mpPct}%"></div></div>
+                </div>
+                ${statGrid}
+                ${metaLine}
+            </div>
+        </details>`
+    );
+
+    // ---- 3. 装备（HUD 装备槽网格 + 背包装备） ----
     const equipData = renderEquipmentPanel();
     if (equipData) {
-        const equipLines = equipData.map(e => {
-            if (!e.name) return `${e.slotDisplay}: 无`;
-            const unequipBtn = ` <button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下">卸下</button>`;
-            return `${e.slotDisplay}: ${esc(e.name)}${e.keyStats ? `(${e.keyStats})` : ''}${unequipBtn}`;
-        });
+        const equippedSlots = equipData.map(e => {
+            if (!e.name) {
+                return `<div class="sao-equip-slot"><div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div><div class="sao-equip-item sao-equip-empty">无</div></div>`;
+            }
+            return `<div class="sao-equip-slot">
+                <div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div>
+                <div class="sao-equip-item">${esc(e.name)}</div>
+                ${e.keyStats ? `<div class="sao-equip-stats">${esc(e.keyStats)}</div>` : ''}
+                <button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下">卸下</button>
+            </div>`;
+        }).join('');
 
-        // 背包装备子区块
+        let backpackHtml = '';
         const inv = safe(() => getInventoryStore(), 'getInventoryStore');
         const equipItems = inv?.items?.filter(item => item.type === 'equipment') || [];
         if (equipItems.length) {
-            const invEquipLines = equipItems.map(item => {
+            const backpackSlots = equipItems.map(item => {
                 const detail = safe(() => getEquipmentById(item.equipment_id), `getEquipmentById(${item.equipment_id})`);
                 const name = detail?.name || item.equipment_id || '?';
                 const ks = detail ? keyStats(detail, detail.slot, 2) : '';
-                const equipBtn = ` <button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="穿戴">穿戴</button>`;
-                return `${esc(name)}${ks ? `(${ks})` : ''}${equipBtn}`;
-            });
-            equipLines.push(`<br><span class="sao-text-secondary" style="font-size:13px;">背包装备:</span>`);
-            equipLines.push(...invEquipLines);
+                return `<div class="sao-equip-slot">
+                    <div class="sao-equip-item">${esc(name)}</div>
+                    ${ks ? `<div class="sao-equip-stats">${esc(ks)}</div>` : ''}
+                    <button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="穿戴">穿戴</button>
+                </div>`;
+            }).join('');
+            backpackHtml = `<div class="sao-equip-backpack-title">背包装备</div><div class="sao-equip-grid">${backpackSlots}</div>`;
         }
 
-        if (equipLines.length) {
-            sections.push(
-                `<details><summary>装备</summary><div>${equipLines.join('<br>')}</div></details>`
-            );
-        }
-    }
-
-    // ---- 4. 技能（C4: 每个技能用 <details>/<summary> 展开战斗属性） ----
-    const skillData = renderSkillPanel();
-    if (skillData) {
-        const cap = 15;
-        const skillLines = skillData.slice(0, cap).map(s => {
-            let combatDetailHtml = '';
-            if (s.combat) {
-                const c = s.combat;
-                const cParts = [];
-                if (c.atk) cParts.push(`ATK:${c.atk}`);
-                if (c.hit) cParts.push(`HIT:${c.hit}`);
-                if (c.crit) cParts.push(`CRIT:${c.crit}`);
-                if (c.mpCost) cParts.push(`MP:${c.mpCost}`);
-                if (c.cd) cParts.push(`CD:${c.cd}`);
-                if (cParts.length) {
-                    combatDetailHtml = `<div class="sao-text-secondary" style="font-size:13px;padding:2px 0 2px 16px;">${cParts.join(' ')}</div>`;
-                }
-            }
-            if (combatDetailHtml) {
-                return `<details class="sao-skill-details"><summary><b>${esc(s.name)}</b>(熟练${s.proficiency})</summary>${combatDetailHtml}</details>`;
-            }
-            return `<b>${esc(s.name)}</b>(熟练${s.proficiency})`;
-        });
-        if (skillData.length > cap) {
-            skillLines.push(`<span class="sao-text-muted">还有${skillData.length - cap}个...</span>`);
-        }
         sections.push(
-            `<details><summary>技能</summary><div>${skillLines.join('<br>')}</div></details>`
+            `<details data-sao-section="equip">
+                <summary>装备</summary>
+                <div class="sao-hud-card">
+                    <div class="sao-equip-grid">${equippedSlots}</div>
+                    ${backpackHtml}
+                </div>
+            </details>`
         );
     }
 
-    // ---- 5. 任务（C5.5: 含添加任务表单 + 完成按钮 + 已完成折叠） ----
+    // ---- 4. 技能（HUD 技能折叠卡） ----
+    const skillData = renderSkillPanel();
+    if (skillData) {
+        const cap = 15;
+        const skillItems = skillData.slice(0, cap).map(s => {
+            const combat = s.combat || {};
+            const combatParts = [];
+            if (combat.atk) combatParts.push(`ATK:${combat.atk}`);
+            if (combat.hit) combatParts.push(`HIT:${combat.hit}`);
+            if (combat.crit) combatParts.push(`CRIT:${combat.crit}`);
+            if (combat.mpCost) combatParts.push(`MP:${combat.mpCost}`);
+            if (combat.cd) combatParts.push(`CD:${combat.cd}`);
+            if (combatParts.length) {
+                return `<details class="sao-skill-details">
+                    <summary><b>${esc(s.name)}</b><small>熟练${s.proficiency}</small></summary>
+                    <div class="sao-skill-combat">${esc(combatParts.join(' '))}</div>
+                </details>`;
+            }
+            return `<div class="sao-skill-item"><b>${esc(s.name)}</b><span class="sao-text-muted"> · 熟练${s.proficiency}</span></div>`;
+        });
+        if (skillData.length > cap) {
+            skillItems.push(`<div class="sao-text-muted">还有${skillData.length - cap}个...</div>`);
+        }
+        sections.push(
+            `<details data-sao-section="skills">
+                <summary>技能</summary>
+                <div class="sao-hud-card"><div class="sao-skill-list">${skillItems.join('')}</div></div>
+            </details>`
+        );
+    }
+
+    // ---- 5. 任务（HUD 任务卡 + 添加表单 + 已完成折叠） ----
     const questPanel = renderQuestPanel();
     let questContent = '';
     if (questPanel?.active?.length) {
-        const questParts = questPanel.active.map(q => {
-            const title = esc(q.title);
-            const summary = q.summary ? ` — ${esc(q.summary)}` : '';
+        questContent = questPanel.active.map(q => {
+            const summary = q.summary ? `<div class="sao-text-secondary">${esc(q.summary)}</div>` : '';
             const objectives = q.objectives?.length
-                ? '<br>' + q.objectives.map(o => {
-                    const check = o.done ? '☑' : '☐';
-                    return `${check} ${esc(o.text)}`;
-                }).join('<br>')
+                ? `<ul class="sao-quest-objectives">${q.objectives.map(o =>
+                    `<li>${o.done ? '☑' : '☐'} ${esc(o.text)}</li>`
+                ).join('')}</ul>`
                 : '';
-            const completeBtn = ` <button class="sao-quest-btn" data-sao-action="complete-quest" data-sao-quest-id="${q.quest_id}" title="完成任务">完成</button>`;
-            return `<b>${title}</b>${completeBtn}${summary}${objectives}`;
-        });
-        questContent = questParts.join('<br><br>');
+            return `<div class="sao-quest-card">
+                <div class="sao-quest-header">
+                    <b>${esc(q.title)}</b>
+                    <button class="sao-quest-btn" data-sao-action="complete-quest" data-sao-quest-id="${q.quest_id}" title="完成任务">完成</button>
+                </div>
+                ${summary}
+                ${objectives}
+            </div>`;
+        }).join('');
     }
     if (!questContent) {
-        questContent = '<span class="sao-text-muted">暂无活跃任务</span>';
+        questContent = '<div class="sao-empty">暂无活跃任务</div>';
     }
-    // 添加任务表单
-    const addQuestForm = `<div style="margin-top:6px;"><input type="text" data-sao-quest-input placeholder="输入任务标题..." /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">添加</button></div>`;
-    // 已完成任务折叠
+    const addQuestForm = `<div class="sao-quest-add"><input type="text" data-sao-quest-input placeholder="输入任务标题..." /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">添加</button></div>`;
     const completed = questPanel?.completed || [];
     const completedHtml = completed.length
-        ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-quest-list-completed">${completed.map(q => `<div class="sao-quest-item-completed"><span class="sao-quest-title">${esc(q.title)}</span></div>`).join('')}</div></details>`
+        ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-text-secondary">${completed.map(q => `<div>${esc(q.title)}</div>`).join('')}</div></details>`
         : '';
     sections.push(
-        `<details><summary>任务</summary><div>${questContent}${addQuestForm}${completedHtml}</div></details>`
+        `<details data-sao-section="quests">
+            <summary>任务</summary>
+            <div class="sao-hud-card">
+                ${questContent}
+                ${addQuestForm}
+                ${completedHtml}
+            </div>
+        </details>`
     );
 
-    // ---- 6. 背包 / 货币 ----
+    // ---- 6. 背包 / 货币（HUD 物品标签 + 珂尔） ----
     const invData = renderInventoryPanel();
     if (invData) {
-        const invParts = [];
+        let itemsHtml = '';
         if (invData.items.length) {
             const cap = 20;
-            const shown = invData.items.slice(0, cap).map(item => {
-                const itemName = esc(item.name);
+            const tags = invData.items.slice(0, cap).map(item => {
                 const qtyText = item.qty > 1 ? ` x${item.qty}` : '';
-                if (item.type === 'consumable' && item.item_id) {
-                    const useBtn = ` <button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">使用</button>`;
-                    return `${itemName}${qtyText}${useBtn}`;
-                }
-                return `${itemName}${qtyText}`;
+                const useBtn = (item.type === 'consumable' && item.item_id)
+                    ? `<button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">使用</button>`
+                    : '';
+                return `<span class="sao-tag">${esc(item.name)}${qtyText}${useBtn}</span>`;
             });
             if (invData.items.length > cap) {
-                shown.push(`<span class="sao-text-muted">还有${invData.items.length - cap}个...</span>`);
+                tags.push(`<span class="sao-text-muted">还有${invData.items.length - cap}个...</span>`);
             }
-            invParts.push(shown.join(' | '));
+            itemsHtml = `<div class="sao-inv-tags">${tags.join('')}</div>`;
+        } else {
+            itemsHtml = '<div class="sao-empty">背包空空如也</div>';
         }
-        if (invData.cor != null) invParts.push(`<b>珂尔:</b> ${invData.cor}`);
-        if (invParts.length) {
-            sections.push(
-                `<details><summary>背包 / 货币</summary><div>${invParts.join('<br>')}</div></details>`
-            );
-        }
+        const corHtml = invData.cor != null ? `<div class="sao-cor-row"><b>珂尔</b><span>${invData.cor}</span></div>` : '';
+        sections.push(
+            `<details data-sao-section="inventory">
+                <summary>背包 / 货币</summary>
+                <div class="sao-hud-card">
+                    ${itemsHtml}
+                    ${corHtml}
+                </div>
+            </details>`
+        );
     }
 
-    // ---- 7. NPC 关系 ----
+    // ---- 7. NPC 关系（HUD NPC 迷你卡） ----
     const npcData = renderNpcPanel();
     if (npcData && npcData.length > 0) {
-        const npcLines = npcData.map(npc => {
-            const rel = npc.relationship ? `(${npc.relationship})` : '';
-            const affinity = npc.affinity ? ` 好感${npc.affinity}` : '';
-            const loc = npc.location ? ` @${npc.location}` : '';
-            const status = (npc.status && npc.status.length) ? ` [${npc.status.join(',')}]` : '';
-            return `${esc(npc.name)}${rel}${affinity}${loc}${status}`;
-        });
-        sections.push(`<details><summary>NPC</summary><div>${npcLines.join('<br>')}</div></details>`);
+        const npcCards = npcData.map(npc => {
+            const tags = [];
+            if (npc.relationship) tags.push(`<span class="sao-npc-tag sao-npc-tag-rel">${esc(npc.relationship)}</span>`);
+            if (npc.affinity) tags.push(`<span class="sao-npc-tag">${esc(`好感${npc.affinity}`)}</span>`);
+            if (npc.location) tags.push(`<span class="sao-npc-tag">${esc(npc.location)}</span>`);
+            if (npc.status && npc.status.length) tags.push(`<span class="sao-npc-tag">${esc(npc.status.join(','))}</span>`);
+            const metaParts = [];
+            if (npc.floor_id != null) metaParts.push(`${npc.floor_id}F`);
+            const meta = metaParts.length ? `<div class="sao-npc-meta">${esc(metaParts.join(' · '))}</div>` : '';
+            return `<div class="sao-npc-card">
+                <div class="sao-npc-name">${esc(npc.name)}<span class="sao-npc-tags">${tags.join('')}</span></div>
+                ${meta}
+            </div>`;
+        }).join('');
+        sections.push(
+            `<details data-sao-section="npcs">
+                <summary>NPC</summary>
+                <div class="sao-hud-card">${npcCards}</div>
+            </details>`
+        );
     }
 
     // ---- 组装 ----

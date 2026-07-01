@@ -190,6 +190,99 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('背包');
     });
 
+    it('uses structured HUD classes and data-sao-section attributes', () => {
+        mockStore = {
+            playerStore: {
+                identity: { name: '桐人', title: '黑衣剑士' },
+                progression: { level: 25, totalExp: 50000 },
+                attributes: { str: 50, agi: 60, int: 10, vit: 20 },
+                vitals: { hp: 585, maxHp: 585, mp: 120, maxMp: 120 },
+                position: { floor_id: 48, location: '黑铁宫' },
+                equipment: {
+                    weapon: 'e1',
+                    off_hand: null,
+                    head: null,
+                    chest: 'e2',
+                    hands: null,
+                    legs: null,
+                    accessory: null,
+                },
+                skills: [
+                    { skill_id: 's1', name: '水平方阵斩', proficiency: 3 },
+                ],
+                customSkills: [],
+            },
+            equipmentStore: {
+                byId: {
+                    e1: { name: '阐释者', stats: { atk: 40, str: 10, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0, hit: 0, crit: 0 } },
+                    e2: { name: '黑衣', stats: { atk: 0, str: 0, agi: 5, int: 0, vit: 10, maxHp: 0, maxMp: 0, hit: 0, crit: 0 } },
+                },
+                nameToId: {},
+            },
+            skillStore: {
+                byId: {
+                    s1: { name: '水平方阵斩', combat: { atk: 45, hit: 80, crit: 10, mpCost: 15, cd: 2 } },
+                },
+                nameToId: {},
+            },
+            inventoryStore: {
+                owner_id: 'player',
+                currency: { cor: 5000 },
+                items: [
+                    { item_id: 'i1', type: 'consumable', name: '回复药水', qty: 3 },
+                    { item_id: 'e3', type: 'equipment', equipment_id: 'e3', name: '试做短剑' },
+                ],
+            },
+            equipmentStore: {
+                byId: {
+                    e1: { name: '阐释者', stats: { atk: 40, str: 10, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0, hit: 0, crit: 0 } },
+                    e2: { name: '黑衣', stats: { atk: 0, str: 0, agi: 5, int: 0, vit: 10, maxHp: 0, maxMp: 0, hit: 0, crit: 0 } },
+                    e3: { name: '试做短剑', slot: 'weapon', stats: { atk: 25, str: 5, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0, hit: 0, crit: 0 } },
+                },
+                nameToId: {},
+            },
+            questStore: {
+                byId: {
+                    q1: { quest_id: 'q1', title: '黑铁宫试炼', summary: '探索深处', status: 'active', objectives: [] },
+                },
+                activeIds: ['q1'],
+                completedIds: [],
+            },
+            runtime: {},
+        };
+
+        const html = projectStatusPanelHtml();
+        // section markers
+        expect(html).toContain('data-sao-section="info"');
+        expect(html).toContain('data-sao-section="vitals"');
+        expect(html).toContain('data-sao-section="equip"');
+        expect(html).toContain('data-sao-section="skills"');
+        expect(html).toContain('data-sao-section="quests"');
+        expect(html).toContain('data-sao-section="inventory"');
+
+        // HUD structure
+        expect(html).toContain('sao-hud-card');
+        expect(html).toContain('sao-hud-header');
+        expect(html).toContain('sao-cursor-badge');
+        expect(html).toContain('sao-bar-hp');
+        expect(html).toContain('sao-bar-mp');
+        expect(html).toContain('sao-stat-grid');
+        expect(html).toContain('sao-stat-item');
+        expect(html).toContain('sao-equip-grid');
+        expect(html).toContain('sao-equip-slot');
+        expect(html).toContain('sao-skill-details');
+        expect(html).toContain('sao-quest-card');
+        expect(html).toContain('sao-inv-tags');
+        expect(html).toContain('sao-cor-row');
+
+        // action buttons preserved
+        expect(html).toContain('data-sao-action="unequip"');
+        expect(html).toContain('data-sao-action="equip"');
+        expect(html).toContain('data-sao-action="use-consumable"');
+        expect(html).toContain('data-sao-action="complete-quest"');
+        expect(html).toContain('data-sao-action="add-quest"');
+    });
+
     it('uses combat HP during active combat (soft-guard)', () => {
         mockStore = {
             playerStore: {
@@ -240,8 +333,10 @@ describe('projectStatusPanelHtml', () => {
         };
 
         const html = projectStatusPanelHtml();
-        expect(html).toContain('主手: 无');
-        expect(html).toContain('副手: 无');
+        expect(html).toContain('sao-equip-empty');
+        expect(html).toContain('>主手<');
+        expect(html).toContain('>副手<');
+        expect(html).toContain('>无<');
     });
 
     it('HTML-escapes special characters in names', () => {

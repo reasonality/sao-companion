@@ -51,6 +51,7 @@ import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
+import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
 
 // ============================================================
 // 常量
@@ -512,6 +513,7 @@ export function deactivate() {
     }
     destroyBattleSideEffects();
     clearBattleHostRegistry();
+    document.body.classList.remove('sao-card-active');
     log('SAO Companion 已停用，事件监听已清理');
 }
 
@@ -534,6 +536,7 @@ function bindEvents() {
         }
         // A3: 清理 battle host 注册表，防止切换聊天后内存泄漏
         clearBattleHostRegistry();
+        document.body.classList.toggle('sao-card-active', isSaoCard());
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
             stabilizeSaoRegexScripts();
@@ -777,6 +780,12 @@ function bindEvents() {
             // R3: 世界状态专家（fire-and-forget，不阻塞主链）
             callWorldSpecialist(messageId, rawText)
                 .catch(e => log('worldStatus 专家失败: ' + e.message, 'warn'));
+
+            // R4: NPC 后台专家（fire-and-forget，每 10 轮触发一次）
+            if (shouldTriggerNpcBackground(saoData.runtime?.calendarTurnCounter || 0)) {
+                callNpcBackgroundSpecialist(messageId, rawText)
+                    .catch(e => log('npcBackground 专家失败: ' + e.message, 'warn'));
+            }
         });
 
         // 状态提取完成后刷新面板（如果已打开）
@@ -2290,7 +2299,6 @@ function refreshStatus() {
         setText('sao_stat_int', '-');
         setText('sao_stat_vit', '-');
         setText('sao_level_text', '-');
-        setText('sao_floor_text', '-');
         setText('sao_cursor_text', '-');
         setText('sao_player_location', '-');
         setText('sao_world_location', '-');
@@ -2337,7 +2345,6 @@ function refreshStatus() {
     setText('sao_stat_int', player.attributes?.int ?? '?');
     setText('sao_stat_vit', player.attributes?.vit ?? '?');
     setText('sao_level_text', player.progression?.level ?? '?');
-    setText('sao_floor_text', floorNum || '?');
 
     // 光标类型（侧边栏填充，元素由 designer 后续添加）
     setText('sao_cursor_text', CURSOR_LABEL[player.cursor_type] || '🟢 普通');
@@ -2617,6 +2624,7 @@ export function init() {
         }
     });
 
+    document.body.classList.toggle('sao-card-active', isSaoCard());
     console.log('[SAO Companion] 初始化完成');
 }
 

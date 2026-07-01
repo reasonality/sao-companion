@@ -12,7 +12,7 @@ export const ROLE_LABELS = {
 };
 
 // 子角色覆盖（高级，可选；空则回退到所属主档）
-export const SUB_ROLES = ['extract', 'status', 'combat', 'swordskill', 'calendar', 'quest', 'map', 'worldStatus'];
+export const SUB_ROLES = ['extract', 'status', 'combat', 'swordskill', 'calendar', 'quest', 'map', 'worldStatus', 'npcBackground'];
 export const SUB_ROLE_LABELS = {
     extract: '📊 状态提取',
     status: '📋 状态面板专家',
@@ -22,11 +22,12 @@ export const SUB_ROLE_LABELS = {
     quest: '📜 任务',
     map: '🗺️ 地图面板专家',
     worldStatus: '🌍 世界状态专家',
+    npcBackground: '🧑‍🤝‍🧑 NPC后台专家',
 };
 
 // 子角色 → 所属主档映射
 const ROLE_PARENT = {
-    extract: 'state', status: 'state',
+    extract: 'state', status: 'state', npcBackground: 'state',
     combat: 'equipment', swordskill: 'equipment',
     calendar: 'world', quest: 'world', map: 'world', worldStatus: 'world',
 };

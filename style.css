@@ -191,3 +191,38 @@
     }
 }
 
+
+/* ============================================================
+   R2: SAO 卡聊天正文 HUD 美化（仅 SAO 卡生效）
+   ============================================================ */
+body.sao-card-active .mes_text {
+  position: relative;
+  padding-left: 14px;
+  border-left: 2px solid rgba(0, 210, 255, 0.18);
+  transition: border-color 0.25s ease;
+}
+body.sao-card-active .mes_text::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg, #00d2ff, transparent);
+  opacity: 0.5;
+  pointer-events: none;
+}
+body.sao-card-active .mes_text:hover {
+  border-left-color: rgba(0, 210, 255, 0.45);
+}
+body.sao-card-active .mes_text::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(0, 210, 255, 0.12);
+  border-bottom: 2px solid rgba(0, 210, 255, 0.12);
+  pointer-events: none;
+}
