@@ -776,7 +776,7 @@ export function projectStatusPanelHtml() {
                         <div class="sao-hud-name">${esc(playerPanel.name || '未知')}</div>
                         ${playerPanel.title ? `<div class="sao-hud-title">${esc(playerPanel.title)}</div>` : ''}
                     </div>
-                    <span class="sao-cursor-badge ${cursorClass}">${esc(cursorLabel)}</span>
+                    <span class="sao-cursor-badge ${cursorClass}"><span class="sao-cursor-hex"></span><span class="sao-cursor-text">${esc(cursorLabel)}</span></span>
                 </div>
                 ${locationText ? `<div class="sao-hud-sub">${esc(locationText)}</div>` : ''}
             </div>

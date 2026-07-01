@@ -343,8 +343,7 @@ function stabilizeSaoRegexScripts() {
 // 白名单：插件应管理的正则脚本（排除3个不应自动启用的工具/可选脚本）
 const REGEX_WHITELIST = new Set([
     '公会状态栏',
-    // npc状态栏: keep on-card (disabled=false) like 公会状态栏 — replaceString is clean pure HTML, no Shadow DOM renderer needed
-    'npc状态栏',
+    // npc状态栏: 已由插件 Shadow DOM 渲染器接管（renderNpcStatus），从白名单移除
     '快速回复', '开场白',
     // 注意: '战斗1.30手机' 有意不加入白名单。
     // 手机版是桌面端的窄屏适配，两者不应同时启用。
@@ -376,6 +375,7 @@ const REGEX_WHITELIST = new Set([
 const MIGRATED_SCRIPTS = new Set([
     '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
     '战斗1.30电脑',
+    'npc状态栏',
     '摘要',
     '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
     '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告',
@@ -2359,7 +2359,14 @@ function refreshStatus() {
     setText('sao_level_text', player.progression?.level ?? '?');
 
     // 光标类型（侧边栏填充，元素由 designer 后续添加）
-    setText('sao_cursor_text', CURSOR_LABEL[player.cursor_type] || '🟢 普通');
+    // 光标六边形徽章（SAO HUD 风格）
+    const cursorType = player.cursor_type || 'green';
+    const cursorRaw = CURSOR_LABEL[cursorType] || '🟢 普通';
+    const cursorText = cursorRaw.replace(/^\S+\s*/, '');
+    const cursorEl = document.getElementById('sao_cursor_text');
+    if (cursorEl) {
+        cursorEl.innerHTML = `<span class="sao-cursor-badge sao-cursor-${esc(cursorType)}"><span class="sao-cursor-hex"></span><span class="sao-cursor-text">${esc(cursorText)}</span></span>`;
+    }
 
     // 世界状态
     const worldStore = getWorldStore();

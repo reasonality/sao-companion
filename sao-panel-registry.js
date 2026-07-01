@@ -11,6 +11,7 @@ export const PANEL_REGISTRY = [
     { tag: 'equip' },
     { tag: 'swordskill' },
     { tag: 'user_status' },
+    { tag: 'npc_status' },
     { tag: 'map' },
     { tag: 'calendar' },
     { tag: 'zd_status', isSpecial: true },

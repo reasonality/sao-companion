@@ -4,7 +4,7 @@
 import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
-import { projectStatusPanelHtml } from './sao-state-projection.js';
+import { projectStatusPanelHtml, renderNpcPanel } from './sao-state-projection.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
@@ -233,6 +233,58 @@ const SHARED_SAO_PANEL_CSS = `
                 word-break: break-word;
                 backdrop-filter: blur(4px);
             }
+
+            /* 操作按钮（使用/卸下/穿戴）SAO HUD 风格 */
+            .sao-equip-btn {
+                display: inline-block;
+                padding: 2px 8px;
+                margin-left: 6px;
+                font-size: 11px;
+                font-weight: 600;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                letter-spacing: 0.5px;
+                color: var(--primary-bright, #66e8ff);
+                background: rgba(0, 210, 255, 0.08);
+                border: 1px solid rgba(0, 210, 255, 0.3);
+                border-radius: 3px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                text-shadow: none;
+                vertical-align: middle;
+            }
+            .sao-equip-btn:hover {
+                background: rgba(0, 210, 255, 0.2);
+                border-color: rgba(0, 210, 255, 0.6);
+                box-shadow: 0 0 8px rgba(0, 210, 255, 0.25);
+            }
+            .sao-equip-btn:active {
+                background: rgba(0, 210, 255, 0.3);
+                box-shadow: inset 0 0 6px rgba(0, 210, 255, 0.3);
+            }
+
+            /* 光标六边形徽章 */
+            .sao-cursor-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 2px 10px;
+                border-radius: 12px;
+                font-size: 0.82em;
+                font-weight: 600;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                letter-spacing: 0.5px;
+            }
+            .sao-cursor-hex {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                background: currentColor;
+                clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+                box-shadow: 0 0 6px currentColor;
+            }
+            .sao-cursor-green { color: #00d68a; background: rgba(0,214,138,0.1); border: 1px solid rgba(0,214,138,0.3); }
+            .sao-cursor-orange { color: #ff8a3d; background: rgba(255,138,61,0.1); border: 1px solid rgba(255,138,61,0.3); }
+            .sao-cursor-red { color: #ff2e4a; background: rgba(255,46,74,0.1); border: 1px solid rgba(255,46,74,0.3); }
 `;
 
 /**
@@ -583,6 +635,7 @@ const _RENDER_FN_MAP = {
     equip: renderEquipment,
     swordskill: renderSwordSkill,
     user_status: renderUserStatus,
+    npc_status: renderNpcStatus,
     map: renderMap,
     calendar: renderCalendar,
 };
@@ -590,7 +643,7 @@ const _RENDER_FN_MAP = {
 export function renderAllTags(messageEl, rawText, messageId) {
     // 面板渲染顺序由 PANEL_REGISTRY 定义（sao-panel-registry.js），匹配消息中标签的原始顺序。
     // 每个渲染器通过 createSaoShadowHost(refNode) 在标签 DOM 节点处插入 Shadow host（位置插入）。
-    // NPC状态栏由卡片正则脚本在 light DOM 渲染（已在正确位置），不在此处管理。
+    // NPC状态栏已由插件 Shadow DOM 渲染器接管（renderNpcStatus），卡片正则脚本已从白名单移除。
     // 过渡期主 LLM 可能仍发标签 → 需隐藏 light DOM 避免双重渲染
     const hasAnySaoTags = _SAO_TAG_RE.test(rawText || '');
     if (hasAnySaoTags) {
@@ -1074,6 +1127,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-cursor-badge {
                 display: inline-flex;
                 align-items: center;
+                gap: 6px;
                 padding: 3px 10px;
                 border-radius: 12px;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
@@ -1084,6 +1138,14 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 border: 1px solid rgba(255,255,255,0.12);
                 box-shadow: 0 0 8px currentColor;
                 white-space: nowrap;
+            }
+            .sao-cursor-hex {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                background: currentColor;
+                clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+                box-shadow: 0 0 6px currentColor;
             }
             .sao-cursor-green { background: rgba(0,214,138,0.12); color: var(--success); }
             .sao-cursor-orange { background: rgba(255,184,0,0.12); color: var(--warning); }
@@ -1612,6 +1674,43 @@ function _refreshStatusPanelContent(shadow) {
     } catch (e) {
         log(`刷新状态面板失败: ${e.message}`, 'warn');
     }
+}
+
+function renderNpcStatus(messageEl, rawText, messageId, refNode) {
+    let content = null;
+    // 1. 优先从 npcStore projection
+    try {
+        const npcData = renderNpcPanel();
+        if (npcData && npcData.length > 0) {
+            content = npcData.map(npc => {
+                const parts = [`<b>${esc(npc.name)}</b>`];
+                if (npc.relationship) parts.push(`(${esc(npc.relationship)})`);
+                if (npc.affinity) parts.push(` 好感${npc.affinity}`);
+                if (npc.location) parts.push(` @${esc(npc.location)}`);
+                if (npc.status && npc.status.length) parts.push(` [${esc(npc.status.join(','))}]`);
+                return parts.join('');
+            }).join('\n');
+        }
+    } catch (e) { /* ignore */ }
+    // 2. 回退：从 <npc_status> 标签提取
+    if (!content) {
+        content = extractTag(rawText, 'npc_status');
+        if (content === null) return;
+    }
+    const { shadow } = createSaoShadowHost(messageEl, 'npc_status', refNode);
+    const safeContent = sanitizeInlineSaoHtml(content.trim());
+    shadow.innerHTML = `
+        <style>
+            ${SHARED_SAO_CSS}
+            ${SHARED_SAO_PANEL_CSS}
+        </style>
+        <div class="sao-panel-wrapper">
+            <details class="sao-panel-details" open>
+                <summary>👥 NPC状态</summary>
+                <div>${safeContent}</div>
+            </details>
+        </div>
+    `;
 }
 
 function renderEquipment(messageEl, rawText, messageId, refNode) {
