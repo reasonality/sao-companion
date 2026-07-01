@@ -718,7 +718,9 @@ export function renderInventoryPanel() {
     const inv = safe(() => getInventoryStore(), 'getInventoryStore');
     let cor = 0;
     try { cor = getCurrency() || 0; } catch { /* ignore */ }
-    const items = (inv?.items || []).map(item => {
+    const items = (inv?.items || [])
+        .filter(item => (item.qty ?? 1) > 0)
+        .map(item => {
         // bug-fix: 消耗品条目只有 consumable_id，没有 name
         // 必须从 consumableStore.byId[item.consumable_id].name 取真实名字
         let resolvedName = item.name;
@@ -730,7 +732,7 @@ export function renderInventoryPanel() {
         }
         return {
             name: resolvedName || item.item_id || '?',
-            qty: item.qty || 1,
+            qty: item.qty ?? 1,
             type: item.type || 'unknown',
             ...(item.item_id ? { item_id: item.item_id } : {}),
             ...(item.description ? { description: item.description } : {}),

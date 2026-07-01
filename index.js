@@ -1107,7 +1107,7 @@ function renderInventoryDetail(item) {
     if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(TYPE_LABELS_CN[item.type] || item.type)}</span></div>`)
     if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
     if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
-    if (item.type === 'consumable') {
+    if (item.type === 'consumable' && item.item_id) {
         return rows.join('') + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button></div>`;
     }
     return rows.join('')

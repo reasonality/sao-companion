@@ -756,8 +756,14 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
     if (!content) {
         content = extractTag(rawText, 'user_status')
         if (content === null) return
+        // Bug2: 剥离嵌套的其他 SAO 自定义标签及其内容（DOMPurify 会保留文本导致异常显示）
+        const _stripRe = new RegExp(`<(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})\\b[^>]*>[\\s\\S]*?<\\/(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})>`, 'gi');
+        content = content.replace(_stripRe, '');
     }
     const { shadow } = createSaoShadowHost(messageEl, 'user_status', refNode)
+    // 保留已有 details 的 open 状态（renderAllTags 每次重建 innerHTML 会丢失）
+    const _existingDetails = shadow.querySelector('.details-character-status');
+    const _wasOpen = _existingDetails ? _existingDetails.open : false;
     const safeContent = sanitizeInlineSaoHtml(content.trim())
         .replace(/^[ \t]+/gm, '')      // 去除每行前导缩进（LLM 常插入多余缩进）
         .replace(/[ \t]+$/gm, '')      // 去除每行尾随空格
@@ -797,11 +803,13 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 background: rgba(12,18,28,0.94);
                 border: 1px solid rgba(0,210,255,0.45);
                 border-radius: 8px;
-                max-width: min(100%, 760px);
+                max-width: min(100%, 861px);
                 margin: 5px auto;
                 padding: 0 4px 4px 4px;
                 box-sizing: border-box;
-                overflow: hidden;
+                overflow-x: hidden;
+                overflow-y: auto;
+                max-height: 60vh;
                 position: relative;
                 box-shadow: 0 0 18px rgba(0,210,255,0.12), 0 8px 24px rgba(0,0,0,0.45);
                 font-family: "Exo 2", "Noto Sans SC", "Rajdhani", "Microsoft YaHei", sans-serif;
@@ -1061,7 +1069,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-cursor-red    { color: #ff7d8a; background: rgba(255,46,74,0.18); border: 1px solid rgba(255,125,138,0.45); }
 
             /* === HP / MP 进度条 (8px 高 — 用户要求) === */
-            .sao-bar-row { margin-bottom: 8px; }
+            .sao-bar-row { margin-bottom: 3px; }
             .sao-bar-row:last-child { margin-bottom: 0; }
             .sao-bar-labels {
                 display: flex;
@@ -1125,7 +1133,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 justify-content: center;
                 gap: 1px;
                 background: rgba(22,30,46,0.80);
-                border: 1px solid: var(--border-subtle);
+                border: 1px solid var(--border-subtle);
                 border-radius: 6px;
                 padding: 4px 2px;
                 text-align: center;
@@ -1514,7 +1522,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
 '@
 
         <div class="character-status-wrapper">
-            <details class="details-character-status">
+            <details class="details-character-status"${_wasOpen ? ' open' : ''}>
                 <summary>角色状态栏</summary>
                 <div class="sao-status-content">${safeContent}</div>
             </details>

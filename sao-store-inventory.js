@@ -137,6 +137,11 @@ export async function addConsumable(name, qty, description, skipSave) {
  * @returns {string} item_id
  */
 export async function addConsumableItem(consumableId, qty, skipSave) {
+    // Bug5: consumableId 为空时直接返回（避免创建 consumable_id=null 的残缺条目）
+    if (!consumableId) {
+        log(`addConsumableItem: consumableId 为空，跳过`, 'warn');
+        return null;
+    }
     const store = ensureInventoryStore();
     const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
 

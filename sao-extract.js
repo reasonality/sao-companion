@@ -602,6 +602,7 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                     await addQuestItem(item.name, item.description || '', true);
                 } else {
                     // consumable (default) — use consumableStore definition pattern
+                    if (!item.name) { log('extract: 消耗品缺少 name，跳过', 'warn'); continue; }
                     const consumableId = findOrCreateConsumable({
                         name: item.name,
                         category: item.category || 'hp_restore',
@@ -611,7 +612,7 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                         description: item.description || '',
                         source: 'llm'
                     });
-                    await addConsumableItem(consumableId, qty, true);
+                    if (consumableId) await addConsumableItem(consumableId, qty, true);
                 }
             }
         }
