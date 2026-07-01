@@ -1,4 +1,4 @@
-// sao-state-projection.js — Store → 可读文本投影层
+﻿// sao-state-projection.js — Store → 可读文本投影层
 // 将 playerStore / equipmentStore / skillStore / inventoryStore 投影为
 // 主 LLM prompt 注入所需的 compact / full / summary 文本格式。
 // 纯函数，无副作用，不写 store。
@@ -11,6 +11,7 @@ import { getInventoryStore, getCurrency } from './sao-store-inventory.js';
 import { getQuestStore } from './sao-store-quest.js';
 import { getWorldStore } from './sao-store-world.js';
 import { getFloorStore } from './sao-store-floor.js';
+import { getConsumableById } from './sao-store-consumable.js';
 import { log, esc } from './sao-core.js';
 
 /** 区域危险度 → 中文标签（与面板侧栏 index.js DANGER_LABEL 对齐） */
@@ -717,13 +718,24 @@ export function renderInventoryPanel() {
     const inv = safe(() => getInventoryStore(), 'getInventoryStore');
     let cor = 0;
     try { cor = getCurrency() || 0; } catch { /* ignore */ }
-    const items = (inv?.items || []).map(item => ({
-        name: item.name || item.item_id || '?',
-        qty: item.qty || 1,
-        type: item.type || 'unknown',
-        ...(item.item_id ? { item_id: item.item_id } : {}),
-        ...(item.description ? { description: item.description } : {}),
-    }));
+    const items = (inv?.items || []).map(item => {
+        // bug-fix: 消耗品条目只有 consumable_id，没有 name
+        // 必须从 consumableStore.byId[item.consumable_id].name 取真实名字
+        let resolvedName = item.name;
+        if (!resolvedName && item.type === 'consumable' && item.consumable_id) {
+            try {
+                const def = safe(() => getConsumableById(item.consumable_id), `getConsumableById(${item.consumable_id})`);
+                resolvedName = def?.name;
+            } catch { /* keep undefined */ }
+        }
+        return {
+            name: resolvedName || item.item_id || '?',
+            qty: item.qty || 1,
+            type: item.type || 'unknown',
+            ...(item.item_id ? { item_id: item.item_id } : {}),
+            ...(item.description ? { description: item.description } : {}),
+        };
+    });
     return { cor, items };
 }
 
@@ -818,9 +830,10 @@ export function renderWorldPanel() {
  * 投影状态面板 HTML（用于 Shadow DOM 渲染）。
  * 内部调用 C1 结构化数据函数，再转换为 HTML。
  *
- * 布局：与侧边面板状态监控 tab 同语言（panel.html:48-104）——
- * 第 1 行：玩家状态（左） | 世界状态（右）
- * 第 2 行：物品相关（左） | 装备+技能（右堆叠）
+ * 布局（照图3精确实现；与侧边面板 panel.html:48-104 同语言）：
+ *   Row 1：玩家状态（左 55%）| 世界状态（右 45%）
+ *   任务：单独一栏，夹在 Row 1 与 Row 2 之间，整行宽
+ *   Row 2：物品（左 55%）| 装备 + 技能（右 45% stack）
  *
  * @returns {string|null} HTML 字符串，store 不可用时返回 null（让 renderUserStatus 回退）
  */
@@ -832,34 +845,15 @@ export function projectStatusPanelHtml() {
     // 检查是否有任何有意义的数据（至少有名字或等级）
     if (!playerPanel.name && levelPanel.level == null) return null;
 
-    const sections = [];
-
-    // ---- 1. 基本信息（HUD 角色信息区） ----
+    // ============================================================
+    // ---- 1. 玩家状态（HUD 紧凑版，对齐侧边面板 sao_player_card） ----
+    // 图3布局：name + 普通徽章 | Lv.X + 位置 | HP 条 | MP 条 | 4 个 70x70 属性卡
+    // ============================================================
     const cursorText = CURSOR_LABELS[playerPanel.cursor_type] || CURSOR_LABELS.green;
+    // 移除 icon 前缀（['🟢','🟠','🔴']），只保留中文标签 "普通/敌对/红名"
     const cursorLabel = cursorText.replace(/^\S+\s*/, '');
     const cursorClass = `sao-cursor-${esc(playerPanel.cursor_type || 'green')}`;
-    const locationParts = [];
-    if (levelPanel.floorId != null) locationParts.push(`${levelPanel.floorId}F`);
-    if (levelPanel.location) locationParts.push(levelPanel.location);
-    const locationText = locationParts.join(' · ');
 
-    sections.push(
-        `<div class="sao-status-section" data-sao-section="info">
-            <div class="sao-status-section-title">基本信息</div>
-            <div class="sao-hud-card">
-                <div class="sao-hud-header">
-                    <div>
-                        <div class="sao-hud-name">${esc(playerPanel.name || '未知')}</div>
-                        ${playerPanel.title ? `<div class="sao-hud-title">${esc(playerPanel.title)}</div>` : ''}
-                    </div>
-                    <span class="sao-cursor-badge ${cursorClass}"><span class="sao-cursor-hex"></span><span class="sao-cursor-text">${esc(cursorLabel)}</span></span>
-                </div>
-                ${locationText ? `<div class="sao-hud-sub">${esc(locationText)}</div>` : ''}
-            </div>
-        </div>`
-    );
-
-    // ---- 2. 等级与属性（HUD 生命与属性区） ----
     const hp = levelPanel.hp ?? 0;
     const maxHp = levelPanel.maxHp ?? 0;
     const mp = levelPanel.mp ?? 0;
@@ -868,6 +862,12 @@ export function projectStatusPanelHtml() {
     const mpPct = maxMp > 0 ? Math.max(0, Math.min(100, Math.round((mp / maxMp) * 100))) : 0;
     const hpLowClass = hpPct < 25 ? 'sao-bar-hp-low' : '';
 
+    const locationParts = [];
+    if (levelPanel.floorId != null) locationParts.push(`${levelPanel.floorId}F`);
+    if (levelPanel.location) locationParts.push(levelPanel.location);
+    const locationText = locationParts.join(' / ');
+
+    // 属性卡片 — 70x70，数字 24px（≈1.5em of 16px base），标签 11px
     const attrList = [
         { label: 'STR', val: levelPanel.str },
         { label: 'AGI', val: levelPanel.agi },
@@ -880,107 +880,51 @@ export function projectStatusPanelHtml() {
         ).join('')}</div>`
         : '';
 
-    const metaParts = [];
-    if (levelPanel.level != null) metaParts.push(`Lv.${levelPanel.level}`);
-    if (levelPanel.totalExp != null) metaParts.push(`EXP ${levelPanel.totalExp}`);
-    if (levelPanel.inCombat) metaParts.push('战斗中');
-    const metaLine = metaParts.length ? `<div class="sao-hud-meta">${esc(metaParts.join(' | '))}</div>` : '';
-
-    sections.push(
-        `<div class="sao-status-section" data-sao-section="vitals">
-            <div class="sao-status-section-title">等级与属性</div>
-            <div class="sao-hud-card">
-                <div class="sao-bar-row">
-                    <div class="sao-bar-labels"><span>HP</span><span>${hp}/${maxHp}</span></div>
-                    <div class="sao-bar-container"><div class="sao-bar sao-bar-hp ${hpLowClass}" style="width:${hpPct}%"></div></div>
-                </div>
-                <div class="sao-bar-row">
-                    <div class="sao-bar-labels"><span>MP</span><span>${mp}/${maxMp}</span></div>
-                    <div class="sao-bar-container"><div class="sao-bar sao-bar-mp" style="width:${mpPct}%"></div></div>
-                </div>
-                ${statGrid}
-                ${metaLine}
+    const playerInfoHtml = `<div class="sao-hud-header">
+            <div class="sao-hud-name-wrap">
+                <span class="sao-hud-name">${esc(playerPanel.name || '未知')}</span>
+                <span class="sao-cursor-badge ${cursorClass}"><span class="sao-cursor-dot"></span><span class="sao-cursor-text">${esc(cursorLabel)}</span></span>
             </div>
-        </div>`
-    );
+            <div class="sao-hud-sub-wrap">
+                ${levelPanel.level != null ? `<span class="sao-hud-lv">Lv.${levelPanel.level}</span>` : ''}
+                ${locationText ? `<span class="sao-hud-sub">${esc(locationText)}</span>` : ''}
+            </div>
+        </div>
+        <div class="sao-bar-row">
+            <div class="sao-bar-labels"><span>HP</span><span>${hp}/${maxHp}</span></div>
+            <div class="sao-bar-container"><div class="sao-bar sao-bar-hp ${hpLowClass}" style="width:${hpPct}%"></div></div>
+        </div>
+        <div class="sao-bar-row">
+            <div class="sao-bar-labels"><span>MP</span><span>${mp}/${maxMp}</span></div>
+            <div class="sao-bar-container"><div class="sao-bar sao-bar-mp" style="width:${mpPct}%"></div></div>
+        </div>
+        ${statGrid}`;
 
-    // ---- 3. 装备（HUD 装备槽网格 + 背包装备） ----
-    const equipData = renderEquipmentPanel();
-    if (equipData) {
-        const equippedSlots = equipData.map(e => {
-            // Bug3: 空槽位只显示"无"，无卸下按钮；有 equipId 才渲染卸下按钮
-            // C-Redesign: 空槽加 sao-equip-slot-empty 类，让 CSS 用 dashed 边 + 居中显示区分
-            if (!e.name) {
-                return `<div class="sao-equip-slot sao-equip-slot-empty"><div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div><div class="sao-equip-item sao-equip-empty">无</div></div>`;
-            }
-            return `<div class="sao-equip-slot">
-                <div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div>
-                <div class="sao-equip-item">${esc(e.name)}</div>
-                ${e.keyStats ? `<div class="sao-equip-stats">${esc(e.keyStats)}</div>` : ''}
-                ${e.equipId ? `<button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下装备">↓</button>` : ''}
-            </div>`;
-        }).join('');
+    const playerSection = `<div class="sao-status-section" data-sao-section="info">
+            <div class="sao-status-section-title">玩家状态</div>
+            <div class="sao-hud-card">${playerInfoHtml}</div>
+        </div>`;
 
-        let backpackHtml = '';
-        const inv = safe(() => getInventoryStore(), 'getInventoryStore');
-        const equipItems = inv?.items?.filter(item => item.type === 'equipment') || [];
-        if (equipItems.length) {
-            const backpackSlots = equipItems.map(item => {
-                const detail = safe(() => getEquipmentById(item.equipment_id), `getEquipmentById(${item.equipment_id})`);
-                const name = detail?.name || item.equipment_id || '?';
-                const ks = detail ? keyStats(detail, detail.slot, 2) : '';
-                return `<div class="sao-equip-slot">
-                    <div class="sao-equip-item">${esc(name)}</div>
-                    ${ks ? `<div class="sao-equip-stats">${esc(ks)}</div>` : ''}
-                    <button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="穿戴装备">↑</button>
-                </div>`;
-            }).join('');
-            backpackHtml = `<div class="sao-equip-backpack-title">背包装备</div><div class="sao-equip-grid">${backpackSlots}</div>`;
+    // ============================================================
+    // ---- 2. 世界状态（HUD 世界行卡） ----
+    // 总是渲染（占位 -），保持视觉密度稳定。
+    // ============================================================
+    const worldRows = (() => {
+        try { return renderWorldPanel(); }
+        catch (e) {
+            log(`[projection] renderWorldPanel 失败: ${e.message}`, 'warn');
+            return '';
         }
+    })();
+    const worldSection = `<div class="sao-status-section" data-sao-section="world">
+            <div class="sao-status-section-title">世界状态</div>
+            <div class="sao-hud-card">${worldRows}</div>
+        </div>`;
 
-        sections.push(
-            `<div class="sao-status-section" data-sao-section="equip">
-                <div class="sao-status-section-title">装备</div>
-                <div class="sao-hud-card">
-                    <div class="sao-equip-grid">${equippedSlots}</div>
-                    ${backpackHtml}
-                </div>
-            </div>`
-        );
-    }
-
-    // ---- 4. 技能（HUD 技能折叠卡） ----
-    const skillData = renderSkillPanel();
-    if (skillData) {
-        const cap = 15;
-        const skillItems = skillData.slice(0, cap).map(s => {
-            const combat = s.combat || {};
-            const combatParts = [];
-            if (combat.atk) combatParts.push(`ATK:${combat.atk}`);
-            if (combat.hit) combatParts.push(`HIT:${combat.hit}`);
-            if (combat.crit) combatParts.push(`CRIT:${combat.crit}`);
-            if (combat.mpCost) combatParts.push(`MP:${combat.mpCost}`);
-            if (combat.cd) combatParts.push(`CD:${combat.cd}`);
-            if (combatParts.length) {
-                return `<details class="sao-skill-details">
-                    <summary><b>${esc(s.name)}</b><small>熟练${s.proficiency}</small></summary>
-                    <div class="sao-skill-combat">${esc(combatParts.join(' '))}</div>
-                </details>`;
-            }
-            return `<div class="sao-skill-item"><b>${esc(s.name)}</b><span class="sao-text-muted"> · 熟练${s.proficiency}</span></div>`;
-        });
-        if (skillData.length > cap) {
-            skillItems.push(`<div class="sao-text-muted">还有${skillData.length - cap}个...</div>`);
-        }
-        sections.push(
-            `<div class="sao-status-section" data-sao-section="skills">
-                <div class="sao-status-section-title">技能</div>
-                <div class="sao-hud-card"><div class="sao-skill-list">${skillItems.join('')}</div></div>
-            </div>`
-        );
-    }
-
-    // ---- 5. 任务（HUD 任务卡 + 添加表单 + 已完成折叠） ----
+    // ============================================================
+    // ---- 3. 任务（单独一栏，整行宽） ----
+    // 任务独立 section，与 物品 不混排，符合用户"任务应该单独一栏"。
+    // ============================================================
     const questPanel = renderQuestPanel();
     let questContent = '';
     if (questPanel?.active?.length) {
@@ -1009,120 +953,127 @@ export function projectStatusPanelHtml() {
     const completedHtml = completed.length
         ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-text-secondary">${completed.map(q => `<div>${esc(q.title)}</div>`).join('')}</div></details>`
         : '';
-    sections.push(
-        `<div class="sao-status-section" data-sao-section="quests">
+    const questSection = `<div class="sao-status-section sao-status-section-standalone" data-sao-section="quests">
             <div class="sao-status-section-title">任务</div>
             <div class="sao-hud-card">
                 ${questContent}
                 ${addQuestForm}
                 ${completedHtml}
             </div>
-        </div>`
-    );
+        </div>`;
 
-    // ---- 6. 背包 / 货币（HUD 物品标签 + 珂尔） ----
+    // ============================================================
+    // ---- 4. 物品（HUD 4-tab + 胶囊标签，对齐侧边面板 物品 区块） ----
+    // ============================================================
+    let inventorySection = '';
     const invData = renderInventoryPanel();
     if (invData) {
-        let itemsHtml = '';
-        if (invData.items.length) {
+        // 按 type 分桶
+        const buckets = { consumable: [], quest_item: [], material: [], equipment: [] };
+        for (const item of invData.items) {
+            const t = item.type;
+            if (buckets[t]) buckets[t].push(item);
+            else buckets.consumable.push(item); // unknown fallback
+        }
+
+        const renderTab = (key, arr) => {
+            if (!arr.length) return '';
             const cap = 20;
-            const tags = invData.items.slice(0, cap).map(item => {
+            const tags = arr.slice(0, cap).map(item => {
                 const qtyText = item.qty > 1 ? ` x${item.qty}` : '';
                 const useBtn = (item.type === 'consumable' && item.item_id)
                     ? `<button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">✓</button>`
                     : '';
-                return `<span class="sao-tag">${esc(item.name)}${qtyText}${useBtn}</span>`;
+                return `<span class="sao-tag sao-tag-${item.type}">${esc(item.name)}${qtyText}${useBtn}</span>`;
             });
-            if (invData.items.length > cap) {
-                tags.push(`<span class="sao-text-muted">还有${invData.items.length - cap}个...</span>`);
-            }
-            itemsHtml = `<div class="sao-inv-tags">${tags.join('')}</div>`;
-        } else {
-            itemsHtml = '<div class="sao-empty">背包空空如也</div>';
-        }
+            let rest = '';
+            if (arr.length > cap) rest = `<span class="sao-text-muted">还有${arr.length - cap}个...</span>`;
+            return `<div class="sao-inv-tab-content sao-inv-tab-content-${key}" data-content="${key}"><div class="sao-inv-tags">${tags.join('')}${rest}</div></div>`;
+        };
+
+        const tabsHtml = `
+            <div class="sao-inv-tabs">
+                <span class="sao-inv-tab active" data-action="switchInvTab" data-tab="consumable">消耗品</span>
+                <span class="sao-inv-tab" data-action="switchInvTab" data-tab="quest_item">任务物品</span>
+                <span class="sao-inv-tab" data-action="switchInvTab" data-tab="material">材料</span>
+                <span class="sao-inv-tab" data-action="switchInvTab" data-tab="equipment">背包装备</span>
+            </div>
+            ${renderTab('consumable', buckets.consumable)}
+            ${renderTab('quest_item', buckets.quest_item)}
+            ${renderTab('material', buckets.material)}
+            ${renderTab('equipment', buckets.equipment)}
+        `;
         const corHtml = invData.cor != null ? `<div class="sao-cor-row"><b>珂尔</b><span>${invData.cor}</span></div>` : '';
-        sections.push(
-            `<div class="sao-status-section" data-sao-section="inventory">
-                <div class="sao-status-section-title">背包 / 货币</div>
-                <div class="sao-hud-card">
-                    ${itemsHtml}
-                    ${corHtml}
-                </div>
-            </div>`
-        );
+        inventorySection = `<div class="sao-status-section" data-sao-section="inventory">
+                <div class="sao-status-section-title">物品</div>
+                <div class="sao-hud-card">${tabsHtml}${corHtml}</div>
+            </div>`;
     }
 
-    // ---- 7. NPC 关系（HUD NPC 迷你卡） ----
-    const npcData = renderNpcPanel();
-    if (npcData && npcData.length > 0) {
-        const npcCards = npcData.map(npc => {
-            const tags = [];
-            if (npc.relationship) tags.push(`<span class="sao-npc-tag sao-npc-tag-rel">${esc(npc.relationship)}</span>`);
-            if (npc.affinity) tags.push(`<span class="sao-npc-tag">${esc(`好感${npc.affinity}`)}</span>`);
-            if (npc.location) tags.push(`<span class="sao-npc-tag">${esc(npc.location)}</span>`);
-            if (npc.status && npc.status.length) tags.push(`<span class="sao-npc-tag">${esc(npc.status.join(','))}</span>`);
-            const metaParts = [];
-            if (npc.floor_id != null) metaParts.push(`${npc.floor_id}F`);
-            const meta = metaParts.length ? `<div class="sao-npc-meta">${esc(metaParts.join(' · '))}</div>` : '';
-            return `<div class="sao-npc-card">
-                <div class="sao-npc-name">${esc(npc.name)}<span class="sao-npc-tags">${tags.join('')}</span></div>
-                ${meta}
+    // ============================================================
+    // ---- 5. 装备（HUD 紧凑列表，对齐侧边面板 sao_equipped_list） ----
+    // 不用 3x3 大格子堆叠；改用单一紧凑列表（slot 名 + 物品名 + 关键属性 + 卸下按钮）。
+    // ============================================================
+    let equipSection = '';
+    const equipData = renderEquipmentPanel();
+    if (equipData) {
+        const equippedList = equipData.map(e => {
+            if (!e.name) {
+                return `<div class="sao-equip-row sao-equip-row-empty">
+                    <span class="sao-equip-slot-label">${esc(e.slotDisplay)}</span>
+                    <span class="sao-equip-empty">无</span>
+                </div>`;
+            }
+            return `<div class="sao-equip-row">
+                <span class="sao-equip-slot-label">${esc(e.slotDisplay)}</span>
+                <span class="sao-equip-item">${esc(e.name)}</span>
+                ${e.keyStats ? `<span class="sao-equip-stats">${esc(e.keyStats)}</span>` : ''}
+                ${e.equipId ? `<button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下装备">↓</button>` : ''}
             </div>`;
         }).join('');
-        sections.push(
-            `<div class="sao-status-section" data-sao-section="npcs">
-                <div class="sao-status-section-title">NPC</div>
-                <div class="sao-hud-card">${npcCards}</div>
-            </div>`
-        );
+
+        equipSection = `<div class="sao-status-section" data-sao-section="equip">
+                <div class="sao-status-section-title">装备</div>
+                <div class="sao-hud-card"><div class="sao-equip-list">${equippedList}</div></div>
+            </div>`;
     }
 
-    // ---- 7b. 世界状态（HUD 世界行卡） — 与侧边面板 panel.html:76-83 同语言 ----
-    // 总是渲染（占位 -），保持视觉密度稳定。
-    const worldRows = (() => {
-        try { return renderWorldPanel(); }
-        catch (e) {
-            log(`[projection] renderWorldPanel 失败: ${e.message}`, 'warn');
-            return '';
-        }
-    })();
-    sections.push(
-        `<div class="sao-status-section" data-sao-section="world">
-            <div class="sao-status-section-title">世界状态</div>
-            <div class="sao-hud-card">${worldRows}</div>
-        </div>`
-    );
+    // ============================================================
+    // ---- 6. 技能（HUD 紧凑按钮列表，对齐侧边面板 sao_skills_list） ----
+    // 图3样式：上方浅蓝边框、白粗体"刺击/斩击"按钮式。
+    // ============================================================
+    let skillsSection = '';
+    const skillData = renderSkillPanel();
+    if (skillData) {
+        const skillItems = skillData.slice(0, 4).map(s => {
+            return `<button class="sao-skill-btn" type="button" title="熟练 ${s.proficiency}">
+                <span class="sao-skill-btn-name">${esc(s.name)}</span>
+                <span class="sao-skill-btn-proficiency">熟练 ${s.proficiency}</span>
+            </button>`;
+        }).join('');
+        const skillWrap = skillData.length > 4
+            ? `${skillItems}<div class="sao-text-muted">还有 ${skillData.length - 4} 个技能...</div>`
+            : skillItems;
+        skillsSection = `<div class="sao-status-section" data-sao-section="skills">
+                <div class="sao-status-section-title">技能</div>
+                <div class="sao-hud-card"><div class="sao-skill-grid">${skillWrap}</div></div>
+            </div>`;
+    }
 
-    // ---- 8. 装配：2 行 × 2 列网格，与侧边面板 panel.html:48-104 同语言 ----
-    // 把 8 个 section 按视觉密度分到两个 stack 列，避免单栏纵向堆叠冗长。
-    // 行 1：玩家（info+vitals） | 世界（world）
-    // 行 2：物品（quests+inventory） | 装备+技能（equip+skills+npcs 堆叠）
-    if (sections.length === 0) return null;
-
-    // 按 data-sao-section 名归类到对应列（同 section 渲染顺序敏感，回退友好）
-    const byName = (name) => sections.find(s => s.includes(`data-sao-section="${name}"`)) || '';
-    const infoHtml     = byName('info');
-    const vitalsHtml   = byName('vitals');
-    const worldHtml    = byName('world');
-    const questsHtml   = byName('quests');
-    const inventoryHtml = byName('inventory');
-    const equipHtml    = byName('equip');
-    const skillsHtml   = byName('skills');
-    const npcsHtml     = byName('npcs');
-
-    const row1Left  = [infoHtml, vitalsHtml].filter(Boolean).join('\n');
-    const row1Right = worldHtml;
-    const row2Left  = [questsHtml, inventoryHtml].filter(Boolean).join('\n');
-    const row2Right = [equipHtml, skillsHtml, npcsHtml].filter(Boolean).join('\n');
-
+    // ---- 装配：照图3布局 ----
+    // Row 1：玩家状态 (左 55%) | 世界状态 (右 45%)
+    // 任务   单独一栏 (整行宽)
+    // Row 2：物品 (左 55%) | 装备 + 技能 (右 stack)
     return [
         `<div class="sao-status-row sao-status-row1">`,
-            `<div class="sao-status-col">${row1Left}</div>`,
-            `<div class="sao-status-col">${row1Right}</div>`,
+            `<div class="sao-status-col sao-status-col-player">${playerSection}</div>`,
+            `<div class="sao-status-col sao-status-col-world">${worldSection}</div>`,
         `</div>`,
+        // 任务：单独一栏
+        questSection,
         `<div class="sao-status-row sao-status-row2">`,
-            `<div class="sao-status-col">${row2Left}</div>`,
-            `<div class="sao-status-col sao-status-right-stack">${row2Right}</div>`,
+            `<div class="sao-status-col sao-status-col-inventory">${inventorySection}</div>`,
+            `<div class="sao-status-col sao-status-right-stack">${equipSection}${skillsSection}</div>`,
         `</div>`,
     ].join('\n');
 }

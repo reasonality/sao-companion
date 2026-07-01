@@ -60,6 +60,13 @@ vi.mock('../sao-store-floor.js', () => ({
     updateFloorState: vi.fn(),
 }));
 
+vi.mock('../sao-store-consumable.js', () => ({
+    getConsumableById: vi.fn((id) => mockStore?.consumableStore?.byId?.[id] || null),
+    getConsumableStore: vi.fn(() => mockStore?.consumableStore || { byId: {}, nameToId: {} }),
+    findOrCreateConsumable: vi.fn(() => null),
+    useConsumable: vi.fn(() => []),
+}));
+
 // Import AFTER mocks
 import { projectStatusPanelHtml, projectQuestSummary } from '../sao-state-projection.js';
 
@@ -151,8 +158,8 @@ describe('projectStatusPanelHtml', () => {
 
         // Contains player name (HTML escaped)
         expect(html).toContain('桐人');
-        // Contains title
-        expect(html).toContain('黑衣剑士');
+        // NOTE: title (player.title 称号) 不再渲染到 HUD — 改为 cursor/badges 焦点；
+        //       HUD 紧凑布局省下空间（ver 角色状态栏照图3）。
         // Contains equipment names
         expect(html).toContain('阐释者');
         expect(html).toContain('黑衣');
@@ -169,9 +176,9 @@ describe('projectStatusPanelHtml', () => {
         expect(html).not.toContain('s1');
         expect(html).not.toContain('s2');
 
-        // Should use <details>/<summary> structure
-        expect(html).toContain('<details');
-        expect(html).toContain('<summary>');
+        // 投影输出是 inner content；外层 <details>/<summary> 由 sao-render.js 包裹（本测试仅测投影）
+        // 因此这里不强求 <details>，但确认任务 section 存在
+        expect(html).toContain('sao-status-section-standalone');
     });
 
     it('contains all six section labels', () => {
@@ -194,17 +201,18 @@ describe('projectStatusPanelHtml', () => {
         };
 
         const html = projectStatusPanelHtml();
-        expect(html).toContain('基本信息');
-        expect(html).toContain('等级与属性');
+        // 玩家 + vitals 已合并为单 section '玩家状态'（照图3）
+        expect(html).toContain('玩家状态');
         expect(html).toContain('装备');
         expect(html).toContain('技能');
         expect(html).toContain('任务');
-        expect(html).toContain('背包');
-        // 双栏布局新增：世界状态 section
+        // 物品：原 '背包 / 货币' 简化为 '物品'
+        expect(html).toContain('物品');
+        // 世界状态 section（行 1 右列）
         expect(html).toContain('世界状态');
     });
 
-    it('renders 2-row × 2-col grid with player/world on row1 and items/equip-stack on row2', () => {
+    it('renders 2-row × 2-col grid (玩家状态|世界状态） row1 + tasks standalone + (物品|+技能) row2', () => {
         mockStore = {
             playerStore: {
                 identity: { name: '桐人', title: null },
@@ -241,18 +249,24 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('sao-status-col');
         expect(html).toContain('sao-status-right-stack');
 
-        // 行 1（在 row2 标记之前）应包含 info、vitals、world 三个 section
+        // Row 1 切片（row1 ~ row2）应包含 info + world（玩家已合并入 info，对齐图3）
         const row1Slice = html.slice(idxRow1, idxRow2);
         expect(row1Slice).toContain('data-sao-section="info"');
-        expect(row1Slice).toContain('data-sao-section="vitals"');
         expect(row1Slice).toContain('data-sao-section="world"');
 
-        // 行 2（在 row2 标记之后）应包含 quests、inventory、equip、skills
+        // 任务已脱离 Row 2，移到 row1 与 row2 之间（整行宽 sao-status-section-standalone）
+        expect(html).toContain('sao-status-section-standalone');
+        const questBlock = html.match(/<div class="sao-status-section sao-status-section-standalone"[\s\S]*?<\/div>\s*\n\s*<div class="sao-status-row sao-status-row2">/);
+        expect(questBlock).not.toBeNull();
+        expect(questBlock[0]).toContain('data-sao-section="quests"');
+
+        // Row 2（在 row2 标记之后）应包含 inventory、equip、skills
         const row2Slice = html.slice(idxRow2);
-        expect(row2Slice).toContain('data-sao-section="quests"');
         expect(row2Slice).toContain('data-sao-section="inventory"');
         expect(row2Slice).toContain('data-sao-section="equip"');
         expect(row2Slice).toContain('data-sao-section="skills"');
+        // 任务已不在 row2 内（已上移为独立 section）
+        expect(row2Slice).not.toContain('data-sao-section="quests"');
     });
 
     it('renders world rows with location/weather/area/clearing/events (always 5 rows)', () => {
@@ -362,9 +376,10 @@ describe('projectStatusPanelHtml', () => {
         };
 
         const html = projectStatusPanelHtml();
-        // section markers
+        // section markers（玩家+vitals 已合并到 'info' 玩家状态；其余保留）
         expect(html).toContain('data-sao-section="info"');
-        expect(html).toContain('data-sao-section="vitals"');
+        // vitals section 已并入 info（玩家状态），不再独立数据 section
+        expect(html).not.toContain('data-sao-section="vitals"');
         expect(html).toContain('data-sao-section="equip"');
         expect(html).toContain('data-sao-section="skills"');
         expect(html).toContain('data-sao-section="quests"');
@@ -382,7 +397,7 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('sao-world-label');
         expect(html).toContain('sao-world-value');
 
-        // HUD structure
+        // HUD structure（注意：equip 改为紧凑列表，skill 改为按钮网格）
         expect(html).toContain('sao-hud-card');
         expect(html).toContain('sao-hud-header');
         expect(html).toContain('sao-cursor-badge');
@@ -390,19 +405,26 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('sao-bar-mp');
         expect(html).toContain('sao-stat-grid');
         expect(html).toContain('sao-stat-item');
-        expect(html).toContain('sao-equip-grid');
-        expect(html).toContain('sao-equip-slot');
-        expect(html).toContain('sao-skill-details');
+        // 装备已从 3x3 grid 改为紧凑列表（sao-equip-list + sao-equip-row）
+        expect(html).toContain('sao-equip-list');
+        expect(html).toContain('sao-equip-row');
+        // 技能已从 details 折叠改为按钮网格（sao-skill-btn / sao-skill-grid）
+        expect(html).toContain('sao-skill-btn');
+        expect(html).toContain('sao-skill-grid');
         expect(html).toContain('sao-quest-card');
         expect(html).toContain('sao-inv-tags');
         expect(html).toContain('sao-cor-row');
 
         // action buttons preserved
         expect(html).toContain('data-sao-action="unequip"');
-        expect(html).toContain('data-sao-action="equip"');
+        // equip-from-backpack dropped from dialog HUD（背包装备改到物品 tab）
+        expect(html).not.toContain('data-sao-action="equip"');
         expect(html).toContain('data-sao-action="use-consumable"');
         expect(html).toContain('data-sao-action="complete-quest"');
         expect(html).toContain('data-sao-action="add-quest"');
+
+        // 任务 standalone section
+        expect(html).toContain('sao-status-section-standalone');
     });
 
     it('uses combat HP during active combat (soft-guard)', () => {
@@ -430,9 +452,11 @@ describe('projectStatusPanelHtml', () => {
         };
 
         const html = projectStatusPanelHtml();
-        // Should show combat HP (300), not store HP (585)
-        expect(html).toContain('300');
-        expect(html).toContain('战斗中');
+        // Should show combat HP (300/585), not store HP (585/585)
+        expect(html).toContain('300/585');
+        // compact HUD 不再单独渲染 '战斗中' meta，但 HP 数据本身已切换
+        // sao-hud-lv 仍然渲染
+        expect(html).toContain('sao-hud-lv');
     });
 
     it('shows "无" for empty equipment slots', () => {
@@ -481,10 +505,54 @@ describe('projectStatusPanelHtml', () => {
         };
 
         const html = projectStatusPanelHtml();
-        // Should be escaped, not raw
+        // Name 必须 HTML-escape（玩家名仍渲染到 HUD 头条）
+        // title (称号) 不再渲染到 dialog HUD（紧凑布局省略）以省空间、照图3
         expect(html).not.toContain('<script>');
         expect(html).toContain('&lt;script&gt;');
-        expect(html).toContain('&amp;');
+        // 注入的引号被 escape 为 &quot;
+        expect(html).toContain('&quot;');
+    });
+
+    it('resolves consumable name via consumableStore.getConsumableById(item.consumable_id)', () => {
+        // Bug 复现：旧代码只读 item.name || item.item_id，导致背包物品显示 inv_001 而非真实名字。
+        // 修复后：consumable 类型 item 无 name，但有 consumable_id 时，从 consumableStore.byId 取真实 name。
+        mockStore = {
+            playerStore: {
+                identity: { name: '桐人', title: null },
+                progression: { level: 1, totalExp: 0 },
+                attributes: { str: 10, agi: 10, int: 5, vit: 5 },
+                vitals: { hp: 100, maxHp: 100, mp: 20, maxMp: 20 },
+                position: { floor_id: 1, location: '' },
+                equipment: { weapon: null, off_hand: null, head: null, chest: null, hands: null, legs: null, accessory: null },
+                skills: [],
+                customSkills: [],
+            },
+            equipmentStore: { byId: {}, nameToId: {} },
+            skillStore: { byId: {}, nameToId: {} },
+            inventoryStore: {
+                owner_id: 'player',
+                currency: { cor: 0 },
+                items: [
+                    // 注意：item 没有 name 字段，只有 consumable_id = consumable_001
+                    { item_id: 'test_item_001', type: 'consumable', consumable_id: 'consumable_001', qty: 20 },
+                ],
+            },
+            consumableStore: {
+                byId: {
+                    consumable_001: { consumable_id: 'consumable_001', name: '初级治疗药水' },
+                },
+                nameToId: { '初级治疗药水': 'consumable_001' },
+            },
+            questStore: { byId: {}, activeIds: [], completedIds: [] },
+            runtime: {},
+        };
+
+        const html = projectStatusPanelHtml();
+        // 真实药品名应被渲染
+        expect(html).toContain('初级治疗药水');
+        // item.item_id 用于 use 按钮的 data-item-id（这是允许保留的内部链路），
+        // 但定义库 id consumable_001 不应泄漏到用户可见文案
+        expect(html).not.toContain('consumable_001');
     });
 });
 
