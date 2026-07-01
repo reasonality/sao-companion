@@ -909,8 +909,9 @@ export function projectStatusPanelHtml() {
     if (equipData) {
         const equippedSlots = equipData.map(e => {
             // Bug3: 空槽位只显示"无"，无卸下按钮；有 equipId 才渲染卸下按钮
+            // C-Redesign: 空槽加 sao-equip-slot-empty 类，让 CSS 用 dashed 边 + 居中显示区分
             if (!e.name) {
-                return `<div class="sao-equip-slot"><div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div><div class="sao-equip-item sao-equip-empty">无</div></div>`;
+                return `<div class="sao-equip-slot sao-equip-slot-empty"><div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div><div class="sao-equip-item sao-equip-empty">无</div></div>`;
             }
             return `<div class="sao-equip-slot">
                 <div class="sao-equip-slot-label">${esc(e.slotDisplay)}</div>
