@@ -46,8 +46,7 @@
 <div class="sao-tab" data-action="switchTab" data-tab="about">关于</div>
 </div>
 <div class="sao-tab-content active" data-content="status">
-<div class="sao-grid-2 sao-status-layout">
-<div class="sao-status-left">
+<div class="sao-grid-2 sao-status-row1">
 <div class="sao-section"><div class="sao-section-title">玩家状态</div>
 <div id="sao_player_card" class="sao-card">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -88,20 +87,22 @@
 </div>
 </div>
 </div>
-<div class="sao-status-right">
+<div class="sao-grid-2 sao-status-row2" style="margin-top:16px;">
 <div class="sao-section">
-<div class="sao-section-title">装备/物品</div>
+<div class="sao-section-title">物品</div>
 <div class="sao-inv-tabs">
-<div class="sao-inv-tab active" data-action="switchInvTab" data-tab="equipment">装备</div>
-<div class="sao-inv-tab" data-action="switchInvTab" data-tab="consumable">消耗品</div>
+<div class="sao-inv-tab active" data-action="switchInvTab" data-tab="consumable">消耗品</div>
 <div class="sao-inv-tab" data-action="switchInvTab" data-tab="quest_item">任务物品</div>
 <div class="sao-inv-tab" data-action="switchInvTab" data-tab="material">材料</div>
+<div class="sao-inv-tab" data-action="switchInvTab" data-tab="equipment">背包装备</div>
 </div>
-<div class="sao-inv-tab-content active" data-content="equipment" id="sao_equipment_list" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">暂无装备数据</span></div>
-<div class="sao-inv-tab-content" data-content="consumable" id="sao_consumable_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
+<div class="sao-inv-tab-content active" data-content="consumable" id="sao_consumable_list" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
 <div class="sao-inv-tab-content" data-content="quest_item" id="sao_questitem_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
 <div class="sao-inv-tab-content" data-content="material" id="sao_material_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">空</span></div>
+<div class="sao-inv-tab-content" data-content="equipment" id="sao_equipment_list" style="min-height:40px;display:none;"><span style="opacity:0.6;font-size:0.85em;">暂无装备数据</span></div>
 </div>
+<div class="sao-status-right-stack">
+<div class="sao-section"><div class="sao-section-title">装备</div><div id="sao_equipped_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">暂无已穿戴装备</span></div></div>
 <div class="sao-section"><div class="sao-section-title">技能</div><div id="sao_skills_list" class="sao-card" style="min-height:40px;"><span style="opacity:0.6;font-size:0.85em;">空</span></div></div>
 </div>
 </div>

@@ -164,3 +164,30 @@
     align-items: center !important;
     margin-top: 10px !important;
 }
+
+/* ============================================
+   Refactored status tab layout
+   ============================================ */
+
+.sao-status-row1.sao-grid-2,
+.sao-status-row2.sao-grid-2 {
+    align-items: start !important;
+}
+
+.sao-status-right-stack {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+}
+
+.sao-status-right-stack .sao-section {
+    margin-bottom: 0 !important;
+}
+
+@media (max-width: 768px) {
+    .sao-status-row1.sao-grid-2,
+    .sao-status-row2.sao-grid-2 {
+        grid-template-columns: 1fr !important;
+    }
+}
+

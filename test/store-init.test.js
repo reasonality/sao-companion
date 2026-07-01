@@ -28,6 +28,7 @@ import {
     getFloorByNumber,
     getFloorById,
     validateFloorEntry,
+    ensureAllFloorsExist,
 } from '../sao-store-floor.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -416,5 +417,106 @@ describe('Floor Store validation', () => {
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('source'))).toBe(true);
+    });
+
+    it('validateFloorEntry accepts stub source', () => {
+        const result = validateFloorEntry({
+            floor_id: 'floor_001',
+            floor_number: 1,
+            name: 'test',
+            source: 'stub',
+        });
+        expect(result.valid).toBe(true);
+    });
+
+    it('validateFloorEntry accepts external source', () => {
+        const result = validateFloorEntry({
+            floor_id: 'floor_001',
+            floor_number: 1,
+            name: 'test',
+            source: 'external',
+        });
+        expect(result.valid).toBe(true);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Floor Store — ensureAllFloorsExist
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('ensureAllFloorsExist', () => {
+    it('creates 100 stub floors for sao arc', () => {
+        const created = ensureAllFloorsExist('sao');
+        expect(created).toBe(100);
+        expect(getFloorByNumber(1)).toBeTruthy();
+        expect(getFloorByNumber(50)).toBeTruthy();
+        expect(getFloorByNumber(100)).toBeTruthy();
+    });
+
+    it('is idempotent — second call creates 0', () => {
+        ensureAllFloorsExist('sao');
+        const created2 = ensureAllFloorsExist('sao');
+        expect(created2).toBe(0);
+    });
+
+    it('skips floors already created by initFloorFromWorldBook', () => {
+        const entries = [{
+            keys: ['第1层'],
+            comment: 'sao-第1层',
+            content: '### 第一层世界设定\n#### 核心原则：起始之野',
+        }];
+        initFloorFromWorldBook(entries);
+
+        const created = ensureAllFloorsExist('sao');
+        expect(created).toBe(99); // 100 - 1 existing
+
+        // worldbook floor should remain unchanged
+        const floor1 = getFloorByNumber(1);
+        expect(floor1.source).toBe('worldbook');
+        expect(floor1.canon.theme).toContain('起始之野');
+    });
+
+    it('stub floors have correct structure', () => {
+        ensureAllFloorsExist('sao');
+        const floor50 = getFloorByNumber(50);
+        expect(floor50.floor_id).toBe('floor_050');
+        expect(floor50.floor_number).toBe(50);
+        expect(floor50.name).toBe('第50层');
+        expect(floor50.source).toBe('stub');
+        expect(floor50.state.unlocked).toBe(false);
+        expect(floor50.state.cleared).toBe(false);
+        expect(floor50.canon.rawContent).toBe('');
+        expect(floor50._canonHash).toBe('');
+    });
+
+    it('floor 1 stub has unlocked:true', () => {
+        ensureAllFloorsExist('sao');
+        const floor1 = getFloorByNumber(1);
+        expect(floor1.state.unlocked).toBe(true);
+    });
+
+    it('floor 100 stub has unlocked:false', () => {
+        ensureAllFloorsExist('sao');
+        const floor100 = getFloorByNumber(100);
+        expect(floor100.state.unlocked).toBe(false);
+        expect(floor100.floor_id).toBe('floor_100');
+    });
+
+    it('returns 0 for non-SAO arcs with maxFloor 0', () => {
+        expect(ensureAllFloorsExist('ggo')).toBe(0);
+        expect(ensureAllFloorsExist('现实')).toBe(0);
+    });
+
+    it('defaults to sao when arc is undefined', () => {
+        const created = ensureAllFloorsExist();
+        expect(created).toBe(100);
+    });
+
+    it('creates 9 floors for alo_old arc', () => {
+        const created = ensureAllFloorsExist('alo_old');
+        expect(created).toBe(9);
+        expect(getFloorById('oldalo_floor_001')).toBeTruthy();
+        expect(getFloorById('oldalo_floor_009')).toBeTruthy();
+        expect(getFloorById('oldalo_floor_010')).toBeNull();
     });
 });

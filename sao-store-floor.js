@@ -102,6 +102,30 @@ function _buildCanon(content) {
 }
 
 // ============================================================
+// 外部楼层数据 & 章节配置
+// ============================================================
+
+/**
+ * 外部已知楼层信息（SAO Progressive / Wiki 训练数据）。
+ * 仅填写有把握的条目；不确定的留空由 stub 等 LLM 到达后补充。
+ * 当前为空——不编造数据，未来手动补充。
+ * @type {Record<number, { theme?: string, mainTown?: string, boss?: string }>}
+ */
+const EXTERNAL_FLOOR_DATA = {};
+
+/**
+ * 各章节楼层配置。
+ * maxFloor <= 0 的章节不做楼层补全。
+ */
+const ARC_FLOOR_CONFIG = {
+    sao:       { maxFloor: 100, prefix: 'floor_' },
+    'alo_new':  { maxFloor: 100, prefix: 'newalo_floor_' },  // 新生 ALO 世界树9层+其他，预留100
+    'alo_old':  { maxFloor: 9,   prefix: 'oldalo_floor_' },   // 旧 ALO 9 大世界
+    ggo:        { maxFloor: 0,   prefix: 'ggo_' },            // GGO 无楼层概念
+    'real':     { maxFloor: 0,   prefix: 'real_' },           // 现实无楼层
+};
+
+// ============================================================
 // 导出函数
 // ============================================================
 
@@ -214,6 +238,46 @@ export function initFloorFromWorldBook(entries) {
 }
 
 /**
+ * 补全当前章节的全部楼层 stub（世界书已有则跳过）。
+ * @param {string} [arc] - 章节key，默认 'sao'。非 SAO 章节预留结构（当前只 SAO 填100层，其余留空待后续）。
+ * @returns {number} 新创建的 stub 数量
+ */
+export function ensureAllFloorsExist(arc) {
+    const cfg = ARC_FLOOR_CONFIG[arc || 'sao'];
+    if (!cfg || cfg.maxFloor <= 0) return 0;
+
+    const store = ensureFloorStore();
+    let created = 0;
+
+    for (let i = 1; i <= cfg.maxFloor; i++) {
+        const padded = String(i).padStart(3, '0');
+        const id = cfg.prefix + padded;
+        if (store.byId[id]) continue; // 已有（世界书或之前创建），跳过
+
+        const ext = EXTERNAL_FLOOR_DATA[i] || {};
+        store.byId[id] = {
+            floor_id: id,
+            floor_number: i,
+            name: `第${i}层`,
+            canon: {
+                rawContent: '',
+                theme: ext.theme || '',
+                mainTown: ext.mainTown || '',
+                labyrinth: '',
+                boss: ext.boss || '',
+            },
+            state: { unlocked: i === 1, cleared: false, discovered_locations: [], notes: [] },
+            source: ext.theme ? 'external' : 'stub',
+            _canonHash: '',
+        };
+        store.numberToId[String(i)] = id;
+        created++;
+    }
+
+    return created;
+}
+
+/**
  * 更新楼层状态字段（合并）。
  * @param {string} floor_id
  * @param {object} stateUpdate - 要合并的状态字段
@@ -278,7 +342,7 @@ export function validateFloorEntry(data) {
     }
 
     // source: 枚举校验
-    const SOURCE_ENUM = ['worldbook', 'narrative', 'manual'];
+    const SOURCE_ENUM = ['worldbook', 'narrative', 'manual', 'stub', 'external'];
     if (data.source != null && !SOURCE_ENUM.includes(data.source)) {
         errors.push(`source 必须是 ${SOURCE_ENUM.join('|')} 之一`);
     }
