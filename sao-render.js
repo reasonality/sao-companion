@@ -52,155 +52,188 @@ export function registerSaoDompurifyHook() {
 // 所有 5 个渲染器共用的 :host 重置
 const SHARED_SAO_CSS = `:host { display: block; margin: 0; padding: 0; }`;
 
-// renderEquipment + renderSwordSkill 共用的暗色 Stardew 主题基础样式
-const SHARED_STARDEW_CSS = `
-            /* Define the custom font */
-                    @font-face {
-                        font-family: 'NotoSansCJKsc-Bold';
-                        src: url('https://files.catbox.moe/tisct7.otf') format('opentype');
-                        font-style: normal;
-                        font-weight: bold;
-                        font-display: swap;
-                    }
-
-                    /* Main container style */
-                    .stardew-text-wrapper {
-                        background-color: rgba(40, 40, 40, 0.85);
-                        border: 1px solid #666;
-                        border-radius: 6px;
-                        max-width: 861px;
-                        margin: 5px auto;
-                        padding: 0 5px 5px 5px;
-                        box-sizing: border-box;
-                        overflow: hidden;
-
-                        /* --- Color Variables --- */
-                        --stardew-header-text: #FFFFFF;
-                        --stardew-content-border: rgba(255, 255, 255, 0.15);
-                        --stardew-pressed-bg: rgba(40, 40, 40, 0.85);
-                        --stardew-pressed-border: #666;
-                        --stardew-pressed-highlight: rgba(80, 80, 80, 0.85);
-                        --stardew-pressed-shadow: rgba(20, 20, 20, 0.85);
-                        --stardew-pressed-text: #DDDDDD;
-                        --stardew-pressed-outer-shadow-color: rgba(50, 50, 50, 0.3);
-                    }
-`;
-
 /**
- * renderEquipment + renderSwordSkill 共用的 details/summary 交互样式。
- * 两个渲染器的 CSS 结构完全一致，只有 class 名、icon、icon 颜色不同，
- * 这些差异通过 CSS 自定义属性 --stardew-icon / --stardew-icon-open-color /
- * --stardew-icon-closed-color 参数化，由各自的 .stardew-text-wrapper 设定。
- * @param {string} className - details 元素的 class 名（如 'details-character-bar'）
- * @returns {string} CSS 规则文本
+ * renderEquipment + renderSwordSkill + renderMap 共用的 SAO 深色青色 HUD 面板样式。
+ * 与 renderUserStatus (details-character-status) 完全同一套语言：
+ *   - navy rgba(12,18,28,0.94) + cyan border + top 发光条
+ *   - 闭合态暗色按钮条 + 左 cyan 竖线 + ▸ 箭头
+ *   - 展开态 cyber 标题 cyan + text-shadow glow + 1px 渐变分隔线
+ *   - 内容区 HUD glass 卡 + backdrop-filter blur
+ * 三个渲染器共用本常量，仅 summary 文字/icon 与 wrapper/details 类名（sao-panel-wrapper / sao-panel-details）一致。
  */
-function stardewDetailsSharedCSS(className) {
-    return `
-                    .${className} {
-                        border: none;
-                        margin: 0;
-                        padding: 0;
-                        color: #CCCCCC;
-                        font-family: 'NotoSansCJKsc-Bold', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    }
-                    .${className} > summary {
-                        display: flex;
-                        align-items: center;
-                        width: 100%;
-                        cursor: pointer;
-                        font-weight: bold;
-                        list-style: none;
-                        outline: none;
-                        image-rendering: pixelated;
-                        -webkit-font-smoothing: none;
-                        -moz-osx-font-smoothing: grayscale;
-                        transition: all 0.1s ease-in-out;
-                        position: relative;
-                        top: 0; left: 0;
-                        box-sizing: border-box;
-                    }
-                    .${className} > summary::-webkit-details-marker,
-                    .${className} > summary::marker {
-                         display: none;
-                         content: '';
-                    }
-                    .${className} > summary::before {
-                        content: var(--stardew-icon);
-                        display: inline-block;
-                        line-height: 1;
-                        font-size: 1.1em;
-                    }
-                    .${className}:not([open]) > summary {
-                        padding: 4px 8px 5px 8px;
-                        font-size: 16px;
-                        line-height: 1.2;
-                        margin-bottom: 0;
-                        background-color: transparent;
-                        border: none !important;
-                        border-radius: 0;
-                        box-shadow: none !important;
-                        filter: none;
-                        justify-content: flex-start;
-                        color: var(--stardew-header-text);
-                        border-bottom: 1px solid var(--stardew-content-border);
-                    }
-                    .${className}:not([open]) > summary::before {
-                         color: var(--stardew-icon-closed-color);
-                         margin-right: 6px;
-                    }
-                    .${className}[open] > summary {
-                        padding: 10px 8px;
-                        font-size: 18px;
-                        line-height: initial;
-                        margin-bottom: 5px;
-                        border: 2px solid var(--stardew-pressed-border);
-                        border-radius: 5px;
-                        background-color: var(--stardew-pressed-bg);
-                        justify-content: flex-start;
-                        color: var(--stardew-pressed-text);
-                        border-bottom: none;
-                        box-shadow:
-                            inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
-                            inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
-                        filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
-                        top: 1px;
-                        left: 1px;
-                    }
-                    .${className}[open] > summary::before {
-                        color: var(--stardew-icon-open-color);
-                        margin-right: 8px;
-                    }
-                    .${className} > summary:active {
-                         padding: 10px 8px;
-                         font-size: 18px;
-                         line-height: initial;
-                         background-color: var(--stardew-pressed-bg);
-                         color: var(--stardew-pressed-text);
-                         box-shadow:
-                             inset 1px 1px 0px 1px var(--stardew-pressed-highlight),
-                             inset -1px -1px 0px 1px var(--stardew-pressed-shadow);
-                         filter: drop-shadow(1px 1px 0px var(--stardew-pressed-outer-shadow-color));
-                         top: 1px;
-                         left: 1px;
-                         border: 2px solid var(--stardew-pressed-border);
-                         border-radius: 5px;
-                         justify-content: flex-start;
-                         margin-bottom: 5px;
-                         border-bottom: none;
-                    }
-                    .${className} > summary:active::before {
-                        color: var(--stardew-icon-open-color);
-                        margin-right: 8px;
-                    }
-                    .${className} > div {
-                        padding: 5px 0 0 0;
-                        margin: 0;
-                        font-size: 15px;
-                        line-height: 1.4;
-                        background-color: rgba(40, 40, 40, 0.85);
-                        color: #CCCCCC;
-                    }`;
-}
+const SHARED_SAO_PANEL_CSS = `
+            @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+            /* 主容器：与 renderUserStatus 的 .character-status-wrapper 同一 token */
+            .sao-panel-wrapper {
+                --primary: #00d2ff;
+                --primary-dim: #0094b4;
+                --primary-bright: #66e8ff;
+                --success: #00d68a;
+                --warning: #ffb800;
+                --danger: #ff2e4a;
+                --text-primary: #eaf2ff;
+                --text-secondary: #9fb0cc;
+                --text-tertiary: #5c6b85;
+                --bg-base: #080c14;
+                --bg-elevated: #0f1522;
+                --bg-panel: #161e2e;
+                --bg-glass: rgba(22,30,46,0.82);
+                --border-subtle: rgba(255,255,255,0.08);
+                --border-accent: rgba(0,210,255,0.35);
+
+                background-color: rgba(12,18,28,0.94);
+                border: 1px solid var(--border-accent);
+                border-radius: 8px;
+                max-width: min(100%, 861px);
+                margin: 5px auto;
+                padding: 0 5px 5px 5px;
+                box-sizing: border-box;
+                overflow: hidden;
+                position: relative;
+                box-shadow: 0 0 18px rgba(0,210,255,0.12), 0 8px 24px rgba(0,0,0,0.45);
+                font-family: "Exo 2", "Noto Sans SC", "Rajdhani", "Microsoft YaHei", sans-serif;
+                color: var(--text-primary);
+            }
+
+            /* 顶部发光条 */
+            .sao-panel-wrapper::before {
+                content: "";
+                position: absolute;
+                top: 0; left: 0; right: 0;
+                height: 2px;
+                background: linear-gradient(90deg, transparent 0%, var(--primary) 20%, var(--primary-bright) 50%, var(--primary) 80%, transparent 100%);
+                opacity: 0.85;
+                pointer-events: none;
+            }
+
+            /* 全局禁用文本阴影（仅 open summary 标题允许发光，由下方 !important 单点启用） */
+            .sao-panel-wrapper,
+            .sao-panel-wrapper *,
+            .sao-panel-details,
+            .sao-panel-details *,
+            .sao-panel-details > summary,
+            .sao-panel-details > summary::before,
+            .sao-panel-details > summary::after,
+            .sao-panel-details > div {
+                text-shadow: none !important;
+            }
+
+            /* 详情折叠容器 */
+            .sao-panel-details {
+                border: none;
+                margin: 0;
+                padding: 0;
+                color: inherit;
+            }
+
+            /* 摘要基础 */
+            .sao-panel-details > summary {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                cursor: pointer;
+                list-style: none;
+                outline: none;
+                image-rendering: auto;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                transition: all 0.2s ease;
+                position: relative;
+                top: 0;
+                left: 0;
+                box-sizing: border-box;
+                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+                font-weight: 700;
+                letter-spacing: 0.6px;
+                text-transform: uppercase;
+            }
+
+            /* 移除默认标记 */
+            .sao-panel-details > summary::-webkit-details-marker,
+            .sao-panel-details > summary::marker {
+                display: none;
+                content: '';
+            }
+
+            /* 闭合态：深色按钮条 + 左侧 cyan 竖线 + ▸ 箭头 */
+            .sao-panel-details:not([open]) > summary {
+                padding: 6px 10px;
+                font-size: 15px;
+                line-height: 1.3;
+                margin: 5px 0 0 0;
+                background: rgba(15,21,34,0.85);
+                border: 1px solid rgba(0,210,255,0.22);
+                border-left: 3px solid var(--primary);
+                border-radius: 5px;
+                color: var(--text-secondary);
+                justify-content: flex-start;
+                box-shadow: -2px 0 6px rgba(0,210,255,0.18), 0 1px 4px rgba(0,0,0,0.25);
+            }
+            .sao-panel-details:not([open]) > summary::before {
+                content: '▸';
+                display: inline-block;
+                color: var(--primary);
+                margin-right: 8px;
+                font-size: 12px;
+                transition: transform 0.2s ease;
+            }
+            .sao-panel-details:not([open]) > summary:hover {
+                color: var(--primary-bright);
+                background: rgba(22,30,46,0.92);
+                border-color: rgba(0,210,255,0.45);
+                box-shadow: -2px 0 10px rgba(0,210,255,0.28), 0 0 10px rgba(0,210,255,0.12);
+            }
+
+            /* 展开态：标题 cyan + 竖线发光 + 下方渐变分隔线 */
+            .sao-panel-details[open] > summary {
+                padding: 10px 8px;
+                font-size: 17px;
+                line-height: 1.3;
+                margin: 5px 0 8px 0;
+                background: transparent;
+                border: none;
+                border-left: 3px solid var(--primary);
+                border-radius: 0;
+                color: var(--primary);
+                justify-content: flex-start;
+                box-shadow: -2px 0 10px rgba(0,210,255,0.35);
+                text-shadow: 0 0 10px rgba(0,210,255,0.35) !important;
+            }
+            .sao-panel-details[open] > summary::before {
+                content: '▾';
+                display: inline-block;
+                color: var(--primary);
+                margin-right: 8px;
+                font-size: 12px;
+            }
+            .sao-panel-details[open] > summary::after {
+                content: "";
+                position: absolute;
+                bottom: -4px;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, var(--primary), transparent);
+                opacity: 0.6;
+            }
+
+            /* 内容区：HUD glass 卡片 */
+            .sao-panel-details > div {
+                padding: 10px;
+                margin: 0 0 5px 0;
+                font-size: 14.5px;
+                line-height: 1.55;
+                background: var(--bg-glass);
+                color: var(--text-primary);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                font-weight: 400;
+                white-space: pre-wrap;
+                word-break: break-word;
+                backdrop-filter: blur(4px);
+            }
+`;
 
 /**
  * 白名单清洗内联 HTML，仅保留 SAO 卡中常见的安全标签与属性。
@@ -1596,17 +1629,11 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
-            ${SHARED_STARDEW_CSS}
-            ${stardewDetailsSharedCSS('details-character-bar')}
-                    .stardew-text-wrapper {
-                        --stardew-icon: '🎒';
-                        --stardew-icon-closed-color: var(--stardew-header-text);
-                        --stardew-icon-open-color: var(--stardew-pressed-text);
-                    }
+            ${SHARED_SAO_PANEL_CSS}
         </style>
-        <div class="stardew-text-wrapper">
-            <details class="details-character-bar" open>
-                <summary>新装备</summary>
+        <div class="sao-panel-wrapper">
+            <details class="sao-panel-details" open>
+                <summary>🎒 新装备</summary>
                 <div>${itemsHtml}</div>
             </details>
         </div>
@@ -1628,18 +1655,11 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
-            ${SHARED_STARDEW_CSS}
-            ${stardewDetailsSharedCSS('details-affinity-button')}
-                    .stardew-text-wrapper {
-                        --stardew-icon: '✨';
-                        --stardew-icon-closed-color: var(--stardew-heart-icon-color);
-                        --stardew-icon-open-color: var(--stardew-heart-icon-color);
-                        --stardew-heart-icon-color: #ff6b6b;
-                    }
+            ${SHARED_SAO_PANEL_CSS}
         </style>
-        <div class="stardew-text-wrapper">
-            <details class="details-affinity-button" open>
-                <summary>新剑技</summary>
+        <div class="sao-panel-wrapper">
+            <details class="sao-panel-details" open>
+                <summary>✨ 新剑技</summary>
                 <div>${itemsHtml}</div>
             </details>
         </div>
@@ -1661,172 +1681,11 @@ function renderMap(messageEl, rawText, messageId, refNode) {
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
-            /* 主容器样式 */
-                .map-status-wrapper {
-                  background-color: rgba(235, 225, 210, 0.95); /* 浅米色背景 */
-                  border: 1px solid rgba(165, 145, 120, 0.5);
-                  border-radius: 6px;
-                  max-width: 861px;
-                  margin: 5px auto;
-                  padding: 0 5px 5px 5px;
-                  box-sizing: border-box;
-                  overflow: hidden;
-            
-                  /* 颜色变量 */
-                  --map-text-color: #4b3f34; /* 深灰褐色文本 */
-                  --map-content-border: rgba(165, 145, 120, 0.3);
-                  --map-button-bg: rgba(218, 198, 171, 0.95);
-                  --map-button-border: rgba(165, 145, 120, 0.8);
-                  --map-button-highlight: rgba(228, 208, 181, 0.95);
-                  --map-button-shadow: rgba(175, 155, 130, 0.85);
-                  --map-button-outer-shadow: rgba(150, 130, 105, 0.3);
-                  --map-icon-color: #5b99c9; /* 蓝色图标 */
-                  --map-content-bg: rgba(225, 215, 200, 0.95); /* 内容区背景 */
-                  --map-button-hover: rgba(225, 205, 178, 0.95); /* 悬停颜色 */
-                  --map-button-active: rgba(210, 190, 163, 0.95); /* 点击时颜色 */
-                }
-            
-                /* 定义标准字体栈 */
-                .map-status-wrapper {
-                  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif;
-                  color: var(--map-text-color); /* 应用默认文本颜色 */
-                }
-            
-                /* 全局禁用文本阴影 */
-                .map-status-wrapper,
-                .map-status-wrapper *,
-                .details-map-status,
-                .details-map-status *,
-                .details-map-status > summary,
-                .details-map-status > summary::before,
-                .details-map-status > div {
-                  text-shadow: none !important;
-                }
-            
-                /* 详情按钮样式 (使用新类名) */
-                .details-map-status {
-                  border: none;
-                  margin: 0;
-                  padding: 0;
-                  color: inherit; /* 继承 wrapper 的颜色 */
-                }
-            
-                /* 基础摘要样式 (使用新类名) */
-                .details-map-status > summary {
-                  display: flex;
-                  align-items: center;
-                  width: 100%;
-                  cursor: pointer;
-                  list-style: none;
-                  outline: none;
-                  image-rendering: auto;
-                  -webkit-font-smoothing: antialiased;
-                  -moz-osx-font-smoothing: grayscale;
-                  transition: all 0.1s ease-in-out;
-                  position: relative;
-                  top: 0;
-                  left: 0;
-                  box-sizing: border-box;
-                  font-weight: 600; /* 使用半粗体 (Semi-bold) 作为标题 */
-                  color: var(--map-text-color);
-                }
-            
-                /* 移除默认标记 (使用新类名) */
-                .details-map-status > summary::-webkit-details-marker,
-                .details-map-status > summary::marker {
-                  display: none;
-                  content: '';
-                }
-            
-                /* 基础图标样式 (使用新类名) */
-                .details-map-status > summary::before {
-                  content: '🗺️'; /* <<< 地图状态图标 */
-                  display: inline-block;
-                  line-height: 1;
-                  font-size: 1.1em;
-                  color: var(--map-icon-color);
-                  margin-right: 6px;
-                }
-            
-                /* 关闭时状态 (使用新类名) */
-                .details-map-status:not([open]) > summary {
-                  padding: 4px 8px 5px 8px;
-                  font-size: 16px;
-                  line-height: 1.2;
-                  margin-bottom: 0;
-                  background-color: var(--map-button-bg);
-                  border: 1px solid var(--map-button-border) !important;
-                  border-radius: 5px;
-                  box-shadow: 1px 1px 2px var(--map-button-outer-shadow) !important;
-                  filter: none;
-                  justify-content: flex-start;
-                }
-            
-                /* 鼠标悬停效果 (使用新类名) */
-                .details-map-status:not([open]) > summary:hover {
-                  background-color: var(--map-button-hover);
-                }
-            
-                /* 打开时状态 (使用新类名) */
-                .details-map-status[open] > summary {
-                  padding: 10px 8px;
-                  font-size: 18px;
-                  line-height: initial;
-                  margin-bottom: 5px;
-                  border: 1px solid var(--map-button-border);
-                  border-radius: 5px;
-                  background-color: var(--map-button-active);
-                  justify-content: flex-start;
-                  box-shadow: inset 1px 1px 0px 1px var(--map-button-highlight), inset -1px -1px 0px 1px var(--map-button-shadow);
-                  filter: drop-shadow(1px 1px 0px var(--map-button-outer-shadow));
-                  font-weight: 600; /* 保持半粗体 */
-                }
-            
-                /* 打开时图标样式 (使用新类名) */
-                .details-map-status[open] > summary::before {
-                  margin-right: 8px;
-                }
-            
-                /* 点击时反馈 (使用新类名) */
-                .details-map-status > summary:active {
-                  padding: 10px 8px;
-                  font-size: 18px;
-                  line-height: initial;
-                  background-color: var(--map-button-active);
-                  box-shadow: inset 1px 1px 0px 1px var(--map-button-highlight), inset -1px -1px 0px 1px var(--map-button-shadow);
-                  filter: drop-shadow(1px 1px 0px var(--map-button-outer-shadow));
-                  top: 1px;
-                  left: 1px;
-                  border: 1px solid var(--map-button-border);
-                  border-radius: 5px;
-                  justify-content: flex-start;
-                  margin-bottom: 5px;
-                  font-weight: 600; /* 保持半粗体 */
-                }
-            
-                /* 点击时图标样式 (使用新类名) */
-                .details-map-status > summary:active::before {
-                  margin-right: 8px;
-                }
-            
-                /* 打开时显示的内容 (使用新类名) */
-                .details-map-status > div {
-                  padding: 10px;
-                  margin: 0;
-                  font-size: 15px;
-                  line-height: 1.5;
-                  background-color: var(--map-content-bg);
-                  color: var(--map-text-color);
-                  border: 1px solid var(--map-content-border);
-                  border-radius: 4px;
-                  font-weight: normal; /* 内容使用普通字重 */
-                  white-space: pre-wrap;
-                  word-break: break-word;
-                }
+            ${SHARED_SAO_PANEL_CSS}
         </style>
-        <div class="map-status-wrapper">
-            <details class="details-map-status" open>
-                <summary>地图</summary>
+        <div class="sao-panel-wrapper">
+            <details class="sao-panel-details" open>
+                <summary>🗺️ 地图</summary>
                 <div>${safeContent}</div>
             </details>
         </div>
