@@ -6,7 +6,15 @@ import { getSettings, log, safeJsonParse } from './sao-core.js';
 import { callSpecialist } from './sao-models.js';
 import { getQuestStore, createQuest, updateQuest, completeQuest } from './sao-store-quest.js';
 import { saveStore } from './sao-store-core.js';
-import { getRules } from './sao-rules.js';
+// 规则段落（精简版，从世界书摘取核心规则）
+const RULE_LEVEL = `
+## 等级规则
+- **等级公式:** 升到等级 L 所需总 EXP = 50 * L * (L - 1)。反解: L = floor(0.5 + sqrt(2500 + 200 * 总EXP) / 100)
+- **EXP 获取:** 战斗/任务获得的经验累加到总 EXP 池，每次获取后立即重算等级和属性
+- **核心属性:** STR/AGI/INT/VIT 基础值 = 当前等级（裸装）
+- **基础 HP:** 500 + (5 * 等级 * (等级 + 1))；基础 MP: 300（不受等级影响）
+- **升级叙事:** 升1级"一道升级光芒笼罩"；连升多级"一连串耀眼的升级光芒炸开"，并报告属性提升量
+`;
 
 // ============================================================
 // 导出函数
@@ -80,7 +88,7 @@ ${messageText.substring(0, 2000)}
 请输出 JSON。`;
 
     // 规则按需注入：等级
-    const ruleHints = getRules(['等级'], '任务参考规则');
+    const ruleHints = RULE_LEVEL;
 
     let content;
     try {

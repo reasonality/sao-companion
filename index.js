@@ -52,7 +52,7 @@ import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchMo
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
 import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
-import { invalidateRuleSnippets } from './sao-rules.js';
+// sao-rules.js 已删除（规则段落直接内联到各专家 systemPrompt）
 
 // ============================================================
 // 常量
@@ -540,7 +540,6 @@ function bindEvents() {
         document.body.classList.toggle('sao-card-active', isSaoCard());
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
-            invalidateRuleSnippets();
             stabilizeSaoRegexScripts();
             enableCompatMode();
             injectMemoryAndState();

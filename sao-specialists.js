@@ -7,7 +7,49 @@ import { getStore, saveStore, projectActionLogHint } from './sao-store-core.js';
 import { callSpecialist } from './sao-models.js';
 import { projectStateHint, projectEquipmentSummary, projectSkillSummary, projectNpcHint } from './sao-state-projection.js';
 import { applyWorldUpdates, projectWorldHint } from './sao-store-world.js';
-import { getRules } from './sao-rules.js';
+// 规则段落（精简版，从世界书摘取核心规则，替代原 sao-rules.js 动态提取）
+const RULE_LEVEL = `
+## 等级规则
+- **等级公式:** 升到等级 L 所需总 EXP = 50 * L * (L - 1)。反解: L = floor(0.5 + sqrt(2500 + 200 * 总EXP) / 100)
+- **EXP 获取:** 战斗/任务获得的经验累加到总 EXP 池，每次获取后立即重算等级和属性
+- **核心属性:** STR/AGI/INT/VIT 基础值 = 当前等级（裸装）
+- **基础 HP:** 500 + (5 * 等级 * (等级 + 1))；基础 MP: 300（不受等级影响）
+- **升级叙事:** 升1级"一道升级光芒笼罩"；连升多级"一连串耀眼的升级光芒炸开"，并报告属性提升量
+`;
+
+const RULE_SKILL = `
+## 技能规则
+SAO 技能分三类：
+1. **武器技能** (如«单手直剑»): 提升熟练度，解锁剑技，无直接属性成长
+2. **战斗技能** (如«格挡»«蹲伏»): 学习时不赋予技能本身，而是永久提升一级属性——根据技能名关键词查表：力量/强韧/筋力→STR, 敏捷/反应/速度→AGI, 精神/专注/洞察→INT, 耐力/生存/防御→VIT，每项 +1D3+1。复合关键词同时触发多项
+3. **辅助技能** (炼金/锻造/索敌等): 无属性成长，仅赋予叙事能力，熟练度决定产出品质
+`;
+
+const RULE_SWORDSKILL = `
+## 剑技获取规则
+四种获取路径：
+- **熟练度突破:** 武器熟练度等级提升时，每跨越一个10的整数倍里程碑（Lv.10/20…），分别生成一枚该等级的剑技
+- **战斗掉落:** 战利品骰落在81-98区间时触发，新剑技等级 = 玩家当前该武器熟练度等级
+- **剑意领悟:** 玩家叙事中表达操练/领悟意图，或GM判断叙事创造触发。等级上限 = min(角色等级*10, 武器熟练度等级)
+- **初始武装:** 首次装备新武器类型时，授予2枚等级1的剑技
+遗忘剑技：永久移除，返还熟练度 = 角色等级 * 50
+`;
+
+const RULE_ECONOMY = `
+## 经济规则
+- **货币:** 珂尔 (Cor)，高压生存经济，珂尔与生存直接挂钩
+- **收入:** 击败怪物（主要，与等级正相关）、NPC任务报酬、出售物品/材料、提供服务
+- **支出:** 消耗品（药水/传送水晶）、装备购买/修理/强化、食物料理、情报/住房
+- **物价锚点:** 黑面包1Cor, 旅馆50Cor/晚, 普通修理~100Cor, 低级怪~20-30Cor, 中级怪~180Cor, 小Boss~1000Cor, 层Boss总奖励25000Cor(团队), 回廊水晶250000Cor, 第22层湖边小屋5000000Cor
+`;
+
+const RULE_HOUSING = `
+## 房屋规则
+- **房价:** 1-20层50-80万Cor(公寓), 21-70层300万+(自建别墅), 71-100层1000万+(工会据点)。起始之镇溢价200万/公寓
+- **购房:** 个人完成任务解锁地契；工会会长用"领地旗帜"(层主Boss掉落)宣告所有权。禁止NPC转售，玩家交易征20%税，死亡回收。支持分期(首付30%)
+- **类型:** 自建别墅(需建筑师副职,可定制庭院)、工会据点(战略大厅+附属建筑,最大200人)、公寓(系统模板,1-3房)、工会宿舍(集体居住,共享工坊)
+- **特殊:** 安全区失效+无箭塔→可能被怪物攻破；空间水晶可扩展地下室；稀有家具提供Buff
+`;
 
 // ============================================================
 // P2: 装饰面板专家调用（map/equipment/swordskill）
@@ -77,13 +119,13 @@ export function _parseSpecialistHtml(content, panelType) {
  * @param {string} stateHint - 当前状态摘要
  * @param {number|string} messageId
  * @param {string} narrativeText
- * @param {string[]} [rules] - 按需注入的规则关键词列表
+ * @param {Function} [rules] - 返回规则字符串的函数（按需注入）
  */
 export async function _callPanelSpecialist(panelType, panelName, instruction, stateHint, messageId, narrativeText, rules) {
     const messages = _buildPanelPrompt(panelName, instruction, narrativeText, stateHint);
-    // 规则按需注入
-    if (rules?.length > 0) {
-        const rh = getRules(rules, '面板参考规则');
+    // 规则按需注入（rules 为函数，返回规则字符串）
+    if (rules) {
+        const rh = rules();
         if (rh) messages[0].content += rh;
     }
     let content;
@@ -101,9 +143,9 @@ export async function _callPanelSpecialist(panelType, panelName, instruction, st
 
 /** 装饰面板专家配置（DRY 驱动） */
 export const PANEL_SPECIALIST_CONFIG = [
-    { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '', rules: [] },
-    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => projectEquipmentSummary(), rules: ['技能'] },
-    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => projectSkillSummary(), rules: ['技能', '剑技获取'] },
+    { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '', rules: () => '' },
+    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => projectEquipmentSummary(), rules: () => RULE_SKILL },
+    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => projectSkillSummary(), rules: () => RULE_SKILL + '\n\n' + RULE_SWORDSKILL },
 ];
 
 /**
@@ -259,7 +301,7 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
         : '';
 
     // 规则按需注入：等级、技能
-    const ruleHints = getRules(['等级', '技能'], '状态管理参考规则');
+    const ruleHints = RULE_LEVEL + '\n\n' + RULE_SKILL;
 
     const npcHint = projectNpcHint();
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +
@@ -395,7 +437,7 @@ ${stateHint || '(无)'}
 ${worldHint ? `世界: ${worldHint}` : ''}`;
 
     // 规则按需注入：经济、房屋
-    const ruleHints = getRules(['经济', '房屋'], '世界状态参考规则');
+    const ruleHints = RULE_ECONOMY + '\n\n' + RULE_HOUSING;
 
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`;
 
