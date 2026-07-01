@@ -193,36 +193,197 @@
 
 
 /* ============================================================
-   R2: SAO 卡聊天正文 HUD 美化（仅 SAO 卡生效）
+   R3: SAO 卡完整聊天 HUD 美化（仅 SAO 卡生效）
    ============================================================ */
-body.sao-card-active .mes_text {
+
+/* 变量定义 */
+body.sao-card-active {
+  --sao-chat-bg-1: #0a1322;
+  --sao-chat-bg-2: #060b16;
+  --sao-grid-line: rgba(255,255,255,0.025);
+  --sao-grid-size: 32px;
+  --sao-glow-top: rgba(0, 210, 255, 0.10);
+  --sao-glow-bot: rgba(0, 210, 255, 0.05);
+  --sao-accent-cyan: #00d2ff;
+  --sao-accent-purple: #a855f7;
+  --sao-msg-bg-top: rgba(15, 21, 34, 0.62);
+  --sao-msg-bg-bot: rgba(11, 17, 30, 0.78);
+  --sao-msg-border: rgba(0, 210, 255, 0.22);
+  --sao-msg-glow-outer: rgba(0, 210, 255, 0.08);
+  --sao-msg-edge-hi: rgba(0, 210, 255, 0.40);
+  --sao-msg-edge-lo: rgba(0, 210, 255, 0.08);
+  --sao-corner-size: 12px;
+  --sao-corner-thick: 1px;
+  --sao-bracket-tl-opacity: 0.60;
+  --sao-bracket-br-opacity: 0.45;
+  --sao-font-body: "Rajdhani", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --sao-font-display: "Orbitron", "Noto Sans SC", sans-serif;
+  --sao-font-ui: "Exo 2", "Noto Sans SC", sans-serif;
+}
+
+/* 1. 聊天背景 */
+body.sao-card-active #chat {
   position: relative;
-  padding-left: 14px;
-  border-left: 2px solid rgba(0, 210, 255, 0.18);
-  transition: border-color 0.25s ease;
+  background-color: var(--sao-chat-bg-2) !important;
+  background-image:
+    radial-gradient(ellipse 80% 45% at 50% 0%, var(--sao-glow-top) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 35% at 50% 100%, var(--sao-glow-bot) 0%, transparent 60%),
+    linear-gradient(to right, var(--sao-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--sao-grid-line) 1px, transparent 1px),
+    linear-gradient(180deg, var(--sao-chat-bg-1) 0%, var(--sao-chat-bg-2) 100%) !important;
+  background-size: 100% 100%, 100% 100%, var(--sao-grid-size) var(--sao-grid-size), var(--sao-grid-size) var(--sao-grid-size), 100% 100% !important;
+  background-position: 0 0, 0 0, 0 0, 0 0, 0 0 !important;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, no-repeat !important;
+  background-attachment: local, local, local, local, local !important;
 }
-body.sao-card-active .mes_text::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 2px;
-  height: 100%;
-  background: linear-gradient(180deg, #00d2ff, transparent);
-  opacity: 0.5;
-  pointer-events: none;
+
+/* 2. 消息容器框架 + L角标 */
+body.sao-card-active .mes {
+  position: relative !important;
+  background: linear-gradient(180deg, var(--sao-msg-bg-top) 0%, var(--sao-msg-bg-bot) 100%) !important;
+  border: 1px solid var(--sao-msg-border) !important;
+  border-left: 3px solid var(--sao-accent-cyan) !important;
+  border-radius: 10px !important;
+  padding: 12px 18px 14px 22px !important;
+  margin: 8px 4px !important;
+  color: var(--text-primary, #eaf2ff) !important;
+  --ls-edge: var(--sao-accent-cyan);
+  box-shadow: 0 0 18px var(--sao-msg-glow-outer), inset 0 1px 0 var(--sao-msg-edge-hi), inset 0 -1px 0 var(--sao-msg-edge-lo) !important;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
 }
-body.sao-card-active .mes_text:hover {
-  border-left-color: rgba(0, 210, 255, 0.45);
+body.sao-card-active .mes::before {
+  content: ""; position: absolute !important; top: -1px; left: -1px;
+  width: var(--sao-corner-size); height: var(--sao-corner-size); pointer-events: none !important;
+  background: linear-gradient(var(--ls-edge) 0 0) top left / var(--sao-corner-size) var(--sao-corner-thick) no-repeat, linear-gradient(var(--ls-edge) 0 0) top left / var(--sao-corner-thick) var(--sao-corner-size) no-repeat !important;
+  opacity: var(--sao-bracket-tl-opacity);
 }
-body.sao-card-active .mes_text::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid rgba(0, 210, 255, 0.12);
-  border-bottom: 2px solid rgba(0, 210, 255, 0.12);
-  pointer-events: none;
+body.sao-card-active .mes::after {
+  content: ""; position: absolute !important; bottom: -1px; right: -1px;
+  width: var(--sao-corner-size); height: var(--sao-corner-size); pointer-events: none !important;
+  background: linear-gradient(var(--ls-edge) 0 0) bottom right / var(--sao-corner-size) var(--sao-corner-thick) no-repeat, linear-gradient(var(--ls-edge) 0 0) bottom right / var(--sao-corner-thick) var(--sao-corner-size) no-repeat !important;
+  opacity: var(--sao-bracket-br-opacity);
+}
+body.sao-card-active .mes:hover {
+  box-shadow: 0 0 24px rgba(0, 210, 255, 0.18), inset 0 1px 0 rgba(0, 210, 255, 0.55), inset 0 -1px 0 rgba(0, 210, 255, 0.12) !important;
+  border-color: rgba(0, 210, 255, 0.40) !important;
+}
+
+/* 3. 消息正文 R3 */
+body.sao-card-active .mes_text {
+  position: relative; padding: 10px 14px; margin-top: 8px;
+  border-top: 1px solid rgba(0, 210, 255, 0.35);
+  background: linear-gradient(180deg, rgba(8, 12, 20, 0.32) 0%, rgba(8, 12, 20, 0.12) 100%) !important;
+  border-radius: 0 0 6px 6px;
+  font-family: var(--sao-font-body) !important;
+  font-weight: 400; font-size: 0.96em; line-height: 1.62; letter-spacing: 0.3px;
+  color: var(--text-primary, #eaf2ff) !important;
+  text-shadow: 0 0 6px rgba(120, 200, 255, 0.06);
+}
+body.sao-card-active .mes_text p { margin: 0.5em 0; }
+body.sao-card-active .mes_text code {
+  font-family: var(--sao-font-ui) !important; font-size: 0.92em;
+  background: rgba(0, 210, 255, 0.08) !important; color: var(--primary-bright, #66e8ff) !important;
+  padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(0, 210, 255, 0.18); text-shadow: none;
+}
+body.sao-card-active .mes_text pre {
+  font-family: var(--sao-font-ui) !important;
+  background: rgba(8, 12, 20, 0.7) !important; color: var(--text-primary, #eaf2ff);
+  padding: 12px 14px !important; border: 1px solid var(--sao-msg-border); border-left: 2px solid var(--primary, #00d2ff);
+  border-radius: 6px; overflow-x: auto; text-shadow: none;
+}
+body.sao-card-active .mes_text blockquote {
+  margin: 0.6em 0 !important; padding: 6px 12px !important;
+  background: rgba(0, 210, 255, 0.06) !important; border-left: 3px solid var(--primary, #00d2ff) !important;
+  color: var(--text-secondary, #9fb0cc) !important; border-radius: 0 4px 4px 0; font-style: normal;
+}
+body.sao-card-active .mes_text a {
+  color: var(--primary-bright, #66e8ff) !important; border-bottom: 1px dashed rgba(102, 232, 255, 0.5);
+  text-decoration: none; transition: color 0.2s ease, border-color 0.2s ease;
+}
+body.sao-card-active .mes_text a:hover { color: #ffffff !important; border-bottom-color: rgba(255, 255, 255, 0.8); }
+
+/* 4. 角色名 + 时间戳 */
+body.sao-card-active .mes_title, body.sao-card-active .name {
+  font-family: var(--sao-font-body) !important; font-weight: 700 !important;
+  font-size: 0.95em; letter-spacing: 0.6px; color: var(--primary, #00d2ff) !important;
+  text-transform: none; display: inline-flex; align-items: baseline; gap: 6px;
+  text-shadow: 0 0 8px rgba(0, 210, 255, 0.30); transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+body.sao-card-active .mes_title::before, body.sao-card-active .name::before {
+  content: "▸" !important; color: var(--primary, #00d2ff); font-size: 0.9em; opacity: 0.85;
+  margin-right: 2px; text-shadow: 0 0 6px rgba(0, 210, 255, 0.45);
+}
+body.sao-card-active .timestamp, body.sao-card-active .mes .timestamp {
+  font-family: var(--sao-font-ui) !important; font-weight: 400; font-size: 0.74em !important;
+  color: var(--text-tertiary, #5c6b85) !important; letter-spacing: 0.4px; margin-left: 8px;
+  padding: 1px 6px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 3px; vertical-align: middle; text-shadow: none;
+}
+body.sao-card-active .mes.is_user .mes_title, body.sao-card-active .mes.is_user .name {
+  color: var(--sao-accent-purple) !important; text-shadow: 0 0 8px rgba(168, 85, 247, 0.30);
+}
+body.sao-card-active .mes.is_user .mes_title::before, body.sao-card-active .mes.is_user .name::before {
+  color: var(--sao-accent-purple); text-shadow: 0 0 6px rgba(168, 85, 247, 0.45);
+}
+
+/* 5. 用户vs AI区分 */
+body.sao-card-active .mes.is_user {
+  --ls-edge: var(--sao-accent-purple) !important;
+  background: linear-gradient(180deg, rgba(35, 20, 55, 0.62) 0%, rgba(20, 12, 32, 0.78) 100%) !important;
+  border-color: rgba(168, 85, 247, 0.22) !important; border-left-color: var(--sao-accent-purple) !important;
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.08), inset 0 1px 0 rgba(168, 85, 247, 0.40), inset 0 -1px 0 rgba(168, 85, 247, 0.08) !important;
+}
+body.sao-card-active .mes.is_user:hover {
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.20), inset 0 1px 0 rgba(168, 85, 247, 0.55), inset 0 -1px 0 rgba(168, 85, 247, 0.12) !important;
+  border-color: rgba(168, 85, 247, 0.45) !important;
+}
+
+/* 6. 输入框 */
+body.sao-card-active #send_form {
+  background: linear-gradient(180deg, rgba(8, 12, 20, 0.55), rgba(15, 21, 34, 0.70)) !important;
+  border-top: 1px solid rgba(0, 210, 255, 0.25); position: relative;
+}
+body.sao-card-active #send_textarea {
+  background: rgba(8, 12, 20, 0.75) !important; color: var(--text-primary, #eaf2ff) !important;
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.08)) !important; border-radius: 8px !important;
+  font-family: var(--sao-font-body) !important; font-size: 0.95em !important; line-height: 1.5; letter-spacing: 0.3px;
+  padding: 10px 14px !important; outline: none !important; caret-color: var(--primary, #00d2ff);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+body.sao-card-active #send_textarea::placeholder { color: var(--text-tertiary, #5c6b85) !important; opacity: 1; }
+body.sao-card-active #send_textarea:focus, body.sao-card-active #send_textarea:focus-visible {
+  border-color: var(--primary, #00d2ff) !important; background: rgba(8, 12, 20, 0.88) !important;
+  box-shadow: 0 0 0 1px rgba(0, 210, 255, 0.30), 0 0 18px rgba(0, 210, 255, 0.20) !important;
+}
+body.sao-card-active #send_but {
+  background: linear-gradient(135deg, #00d2ff 0%, #0094b4 100%) !important; color: #061018 !important;
+  border: none !important; border-radius: 8px !important; font-family: var(--sao-font-body) !important;
+  font-weight: 700 !important; letter-spacing: 0.5px; padding: 8px 14px !important;
+  cursor: pointer; transition: box-shadow 0.2s ease, transform 0.2s ease, filter 0.2s ease; text-shadow: none;
+  position: relative; overflow: hidden;
+}
+body.sao-card-active #send_but:hover { box-shadow: 0 0 18px rgba(0, 210, 255, 0.40); filter: brightness(1.10); transform: translateY(-1px); }
+body.sao-card-active #send_but:active { transform: translateY(0); filter: brightness(0.95); }
+body.sao-card-active #send_but::before {
+  content: ""; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.30), transparent);
+  transition: left 0.5s ease; pointer-events: none;
+}
+body.sao-card-active #send_but:hover::before { left: 100%; }
+
+/* 7. 末条消息入场脉冲 + 减少动画 + 窄屏 */
+body.sao-card-active .mes.last_mes { animation: sao-last-mes-fadein 0.6s ease-out; }
+@keyframes sao-last-mes-fadein {
+  from { box-shadow: 0 0 0 rgba(0,210,255,0), inset 0 1px 0 rgba(0,210,255,0.10), inset 0 -1px 0 rgba(0,210,255,0); }
+  to { box-shadow: 0 0 18px var(--sao-msg-glow-outer), inset 0 1px 0 var(--sao-msg-edge-hi), inset 0 -1px 0 var(--sao-msg-edge-lo); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.sao-card-active .mes, body.sao-card-active .mes_text, body.sao-card-active #send_textarea, body.sao-card-active #send_but {
+    transition: none !important; animation: none !important;
+  }
+}
+@media (max-width: 600px) {
+  body.sao-card-active .mes { padding: 10px 12px 12px 16px !important; margin: 6px 2px !important; }
+  body.sao-card-active .mes_text { padding: 8px 10px !important; font-size: 0.94em; }
+  body.sao-card-active #send_textarea { font-size: 0.92em !important; }
 }
