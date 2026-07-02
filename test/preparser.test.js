@@ -16,7 +16,7 @@ vi.mock('../sao-store-core.js', () => ({
 }));
 
 // Import AFTER mocks
-import { runLorebookPreParser, computeEntriesHash } from '../sao-preparser.js';
+import { runLorebookPreParser, computeEntriesHash, parseTimelineEntries, parseWorldRules } from '../sao-preparser.js';
 import { getNpcByName, getNpcById } from '../sao-store-npc.js';
 import { getFloorByNumber, getFloorById } from '../sao-store-floor.js';
 import { log } from '../sao-core.js';
@@ -36,7 +36,7 @@ function makeEmptyStore() {
         calendarStore: { currentDate: null, events: {}, appointments: [] },
         questStore: { byId: {}, activeIds: [], completedIds: [] },
         consumableStore: { byId: {}, nameToId: {} },
-        worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null },
+        worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _rulesHashes: {}, _updatedAt: null },
         actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
         runtime: {},
         panels: {},
@@ -295,6 +295,8 @@ describe('runLorebookPreParser — loreParsed flag', () => {
         expect(mockStore.loreParsed.version).toBe(1);
         expect(mockStore.loreParsed.npcCount).toBe(1);
         expect(mockStore.loreParsed.floorCount).toBe(1);
+        expect(mockStore.loreParsed.timelineCount).toBe(0);
+        expect(mockStore.loreParsed.rulesCount).toBe(0);
         expect(mockStore.loreParsed.entryHash).toBeTruthy();
         expect(mockStore.loreParsed.timestamp).toBeTruthy();
     });
@@ -331,5 +333,342 @@ describe('runLorebookPreParser — loreParsed flag', () => {
         runLorebookPreParser(entries);
         expect(log).toHaveBeenCalledWith(expect.stringContaining('2 NPCs'));
         expect(log).toHaveBeenCalledWith(expect.stringContaining('1 floors'));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 3: Timeline entries → calendarStore.events
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Phase 3: parseTimelineEntries', () => {
+    it('parses timeline entries into calendarStore.events on correct dates', () => {
+        const entries = [
+            {
+                id: 50,
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: [
+                    '### **【世界历史背景：2022年11月】**',
+                    '',
+                    '#### **11月6日 (星期日) - 宣告日**',
+                    '*   SAO正式开服，所有玩家被困。',
+                    '*   桐人教导克莱因基础操作。',
+                    '',
+                    '#### **11月7日 (星期一)**',
+                    '*   情报商阿尔戈找到桐人。',
+                    '*   桐人与克莱因完成任务。',
+                    '',
+                    '#### **11月21日 (星期一)**',
+                    '*   PoH正式登入SAO。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(5); // 2 on 6th, 2 on 7th, 1 on 21st
+
+        const calStore = mockStore.calendarStore;
+        expect(calStore.events['2022-11-06']).toBeTruthy();
+        expect(calStore.events['2022-11-06'].length).toBe(2);
+        expect(calStore.events['2022-11-06'][0].type).toBe('canon');
+        expect(calStore.events['2022-11-06'][0].title).toContain('SAO');
+
+        expect(calStore.events['2022-11-07']).toBeTruthy();
+        expect(calStore.events['2022-11-07'].length).toBe(2);
+
+        expect(calStore.events['2022-11-21']).toBeTruthy();
+        expect(calStore.events['2022-11-21'].length).toBe(1);
+        expect(calStore.events['2022-11-21'][0].title).toContain('PoH');
+    });
+
+    it('strips markdown formatting from event titles', () => {
+        const entries = [
+            {
+                comment: '2023年1月时间线',
+                enabled: true,
+                content: [
+                    '#### **1月15日 (星期日)**',
+                    '*   **[关键事件]:** 桐人与**亚丝娜**在*广场*相遇。',
+                    '*   **情报商**阿尔戈发布《阿尔戈周报》。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(2);
+        const events = mockStore.calendarStore.events['2023-01-15'];
+        expect(events).toBeTruthy();
+        expect(events[0].title).not.toContain('**');
+        expect(events[0].title).toContain('桐人');
+        expect(events[0].title).toContain('亚丝娜');
+        expect(events[1].title).toContain('阿尔戈周报');
+    });
+
+    it('skips sub-bullets (4+ spaces indentation)', () => {
+        const entries = [
+            {
+                comment: '2022年12月时间表',
+                enabled: true,
+                content: [
+                    '#### **12月1日**',
+                    '*   桐人出发前往下一层。',
+                    '    *   他带上了足够的药水。',
+                    '    *   他的装备已经修理完毕。',
+                    '*   亚丝娜留守起始之镇。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(2); // only top-level bullets
+        const events = mockStore.calendarStore.events['2022-12-01'];
+        expect(events.length).toBe(2);
+    });
+
+    it('idempotency: running twice does not duplicate events', () => {
+        const entries = [
+            {
+                comment: '2024年1月时间线',
+                enabled: true,
+                content: [
+                    '#### **1月6日**',
+                    '*   亚丝娜挑战绝剑。',
+                ].join('\n'),
+            },
+        ];
+
+        const count1 = parseTimelineEntries(entries);
+        expect(count1).toBe(1);
+        expect(mockStore.calendarStore.events['2024-01-06'].length).toBe(1);
+
+        const count2 = parseTimelineEntries(entries);
+        expect(count2).toBe(0); // deduped
+        expect(mockStore.calendarStore.events['2024-01-06'].length).toBe(1);
+    });
+
+    it('handles month-only date markers (no specific day)', () => {
+        const entries = [
+            {
+                comment: '2025年2月时间线',
+                enabled: true,
+                content: [
+                    '#### **2月下旬**',
+                    '*   The World Seed正式发布。',
+                ].join('\n'),
+            },
+        ];
+
+        // "2月下旬" has no specific day, so the header regex for "X月X日" won't match.
+        // curDay stays 0, so no events extracted. This is expected.
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(0);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 4: World rules → worldStore.rules
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Phase 4: parseWorldRules', () => {
+    it('parses rule entries into worldStore.rules by topic', () => {
+        const entries = [
+            {
+                comment: 'sao-PK机制',
+                enabled: true,
+                selective: true,
+                content: '<directive name="PK规则">\n### PK基本规则\n* 仅限安全区外。\n</directive>',
+            },
+            {
+                comment: 'sao-经济系统',
+                enabled: true,
+                selective: true,
+                content: '<directive name="经济规则">\n### 核心概念\n* 货币：珂尔。\n</directive>',
+            },
+        ];
+
+        const count = parseWorldRules(entries);
+        expect(count).toBe(2);
+
+        const ws = mockStore.worldStore;
+        expect(ws.rules.pk).toContain('安全区外');
+        expect(ws.rules.economy).toContain('珂尔');
+        expect(ws._rulesHashes.pk).toBeTruthy();
+        expect(ws._rulesHashes.economy).toBeTruthy();
+    });
+
+    it('strips HTML comments from directive content', () => {
+        const entries = [
+            {
+                comment: 'sao-等级',
+                enabled: true,
+                selective: true,
+                content: '<directive name="等级规则">\n<!-- hidden comment -->\n### 等级计算\n* 公式说明。\n</directive>',
+            },
+        ];
+
+        const count = parseWorldRules(entries);
+        expect(count).toBe(1);
+        expect(mockStore.worldStore.rules.leveling).not.toContain('hidden comment');
+        expect(mockStore.worldStore.rules.leveling).toContain('等级计算');
+    });
+
+    it('idempotency: skips unchanged rules on second parse', () => {
+        const entries = [
+            {
+                comment: 'sao-技能',
+                enabled: true,
+                selective: true,
+                content: '<directive name="技能规则">\n### 技能类别\n* 武器技能。\n</directive>',
+            },
+        ];
+
+        const count1 = parseWorldRules(entries);
+        expect(count1).toBe(1);
+
+        const count2 = parseWorldRules(entries);
+        expect(count2).toBe(0); // hash matches, skipped
+        expect(mockStore.worldStore.rules.skills).toContain('武器技能');
+    });
+
+    it('re-parses when rule content changes', () => {
+        const entries1 = [
+            {
+                comment: 'sao-冥想',
+                enabled: true,
+                selective: true,
+                content: '<directive name="冥想规则">\n### 阶段1\n* 潜能。\n</directive>',
+            },
+        ];
+        parseWorldRules(entries1);
+        expect(mockStore.worldStore.rules.meditation).toContain('潜能');
+
+        const entries2 = [
+            {
+                comment: 'sao-冥想',
+                enabled: true,
+                selective: true,
+                content: '<directive name="冥想规则">\n### 阶段1\n* 潜能更新版。\n</directive>',
+            },
+        ];
+        const count = parseWorldRules(entries2);
+        expect(count).toBe(1);
+        expect(mockStore.worldStore.rules.meditation).toContain('潜能更新版');
+    });
+
+    it('skips disabled entries', () => {
+        const entries = [
+            {
+                comment: 'sao-房屋',
+                enabled: false,
+                selective: true,
+                content: '<directive name="房屋规则">\n### 房价\n* 50-80万。\n</directive>',
+            },
+        ];
+
+        const count = parseWorldRules(entries);
+        expect(count).toBe(0);
+        expect(mockStore.worldStore.rules.housing).toBeUndefined();
+    });
+
+    it('skips entries without <directive> tags', () => {
+        const entries = [
+            {
+                comment: 'sao-经济系统',
+                enabled: true,
+                selective: true,
+                content: 'Just plain text, no directive tags.',
+            },
+        ];
+
+        const count = parseWorldRules(entries);
+        expect(count).toBe(0);
+    });
+
+    it('maps all expected topics', () => {
+        const entries = [
+            { comment: 'sao-PK机制', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-经济系统', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-等级', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-技能', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-剑技获取', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-冥想', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-房屋', enabled: true, selective: true, content: '<directive>x</directive>' },
+            { comment: 'sao-NPC档案构建规则', enabled: true, selective: true, content: '<directive>x</directive>' },
+        ];
+
+        const count = parseWorldRules(entries);
+        expect(count).toBe(8);
+        expect(Object.keys(mockStore.worldStore.rules)).toEqual(
+            expect.arrayContaining(['pk', 'economy', 'leveling', 'skills', 'combat', 'meditation', 'housing', 'npc_rules'])
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// runLorebookPreParser — Phase 3+4 integration
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('runLorebookPreParser — Phase 3+4 integration', () => {
+    it('includes timelineCount and rulesCount in result and loreParsed', () => {
+        const entries = [
+            {
+                keys: ['桐人'],
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                keys: ['第1层'],
+                comment: 'sao-第1层',
+                enabled: true,
+                content: '### 第一层\n核心原则：起始之野',
+            },
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: '#### **11月6日**\n*   SAO正式开服。\n#### **11月7日**\n*   桐人探索。',
+            },
+            {
+                comment: 'sao-PK机制',
+                enabled: true,
+                selective: true,
+                content: '<directive name="PK">\n### PK规则\n* 安全区外可PK。\n</directive>',
+            },
+        ];
+
+        const result = runLorebookPreParser(entries);
+
+        expect(result).toBeTruthy();
+        expect(result.npcCount).toBe(1);
+        expect(result.floorCount).toBe(1);
+        expect(result.timelineCount).toBe(2);
+        expect(result.rulesCount).toBe(1);
+
+        expect(mockStore.loreParsed.timelineCount).toBe(2);
+        expect(mockStore.loreParsed.rulesCount).toBe(1);
+
+        // Verify data actually written to stores
+        expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
+        expect(mockStore.worldStore.rules.pk).toBeTruthy();
+    });
+
+    it('logs parse summary with all counts', () => {
+        const entries = [
+            {
+                comment: '2023年3月时间线',
+                enabled: true,
+                content: '#### **3月1日**\n*   事件A。\n#### **3月15日**\n*   事件B。',
+            },
+            {
+                comment: 'sao-房屋',
+                enabled: true,
+                selective: true,
+                content: '<directive>### 房价\n* 50万。</directive>',
+            },
+        ];
+
+        runLorebookPreParser(entries);
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('2 timeline events'));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('1 rules'));
     });
 });
