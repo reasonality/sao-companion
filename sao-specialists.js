@@ -144,9 +144,16 @@ export async function _callPanelSpecialist(panelType, panelName, instruction, st
 /** 装饰面板专家配置（DRY 驱动） */
 export const PANEL_SPECIALIST_CONFIG = [
     { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '', rules: () => '' },
-    { type: 'equipment', name: '装备栏', instruction: '列出各槽位装备（武器/防具/饰品），含名称与简短属性。', hint: () => projectEquipmentSummary(), rules: () => RULE_SKILL },
-    { type: 'swordskill', name: '剑技',  instruction: '列出可用剑技/技能，含名称、等级、CD。', hint: () => projectSkillSummary(), rules: () => RULE_SKILL + '\n\n' + RULE_SWORDSKILL },
+    { type: 'equipment', name: '装备栏', instruction: '仅输出本回合新生成/获得的装备。若本回合无新增装备，返回空内容（不要列出已有装备）。', hint: () => projectEquipmentSummary(), rules: () => RULE_SKILL },
+    { type: 'swordskill', name: '剑技',  instruction: '仅输出本回合新生成/获得的剑技或技能。若本回合无新增，返回空内容（不要列出已有剑技）。', hint: () => projectSkillSummary(), rules: () => RULE_SKILL + '\n\n' + RULE_SWORDSKILL },
 ];
+
+/**
+ * 生成/获取事件触发正则 — 仅匹配装备/剑技/技能的获得语言，
+ * 排除使用语言（使用/挥出/释放/使出）和单纯提及。
+ * @type {RegExp}
+ */
+const GENERATION_TRIGGER_RE = /习得|获得新|获得.*(?:剑技|装备|技能)|新(?:剑技|装备|技能)|掉落|装备了|拾取|开出|解锁.*(?:剑技|技能)|学会|领悟/;
 
 /**
  * 触发所有装饰面板专家（并行）。
@@ -159,6 +166,10 @@ export function fireSpecialistPanels(messageId, narrativeText) {
     if (getSettings().specialistPanels?.enabled === false) return [];
     const promises = [];
     for (const cfg of PANEL_SPECIALIST_CONFIG) {
+        // 装备/剑技专家仅在叙述包含生成/获取事件时触发（避免每轮重复列出）
+        if ((cfg.type === 'equipment' || cfg.type === 'swordskill') && !GENERATION_TRIGGER_RE.test(narrativeText)) {
+            continue;
+        }
         const p = _callPanelSpecialist(cfg.type, cfg.name, cfg.instruction, cfg.hint(), messageId, narrativeText, cfg.rules)
             .catch(e => log(cfg.type + ' 专家失败: ' + e.message, 'warn'));
         promises.push(p);

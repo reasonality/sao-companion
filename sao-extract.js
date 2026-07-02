@@ -310,8 +310,38 @@ export async function extractAll(aiMessage, callModelFn, messageId) {
             // persistSpecialistPanel(messageId, 'status', {state, zdText}) 把对象存入 html 字段
             const panelData = (typeof statusPanel.html === 'string') ? safeJsonParse(statusPanel.html) : statusPanel.html;
             if (panelData && panelData.state) {
-                log('status 专家面板数据命中（跳过标签解析+模型）');
-                return { state: panelData.state };
+                const state = panelData.state;
+                const npcUpdates = panelData.npcUpdates || [];
+
+                // 补充 HP/MP：当专家面板 state 缺少 hp/mp 时，从标签解析补充
+                let supplemented = false;
+                if (state.hp == null || state.max_hp == null || state.mp == null || state.max_mp == null) {
+                    const zdMatch = aiMessage.match(/<zd_status>([\s\S]*?)<\/zd_status>/);
+                    if (zdMatch) {
+                        try {
+                            const zd = parseZdStatus(zdMatch[1]);
+                            if (state.hp == null && zd.player.hp != null) { state.hp = zd.player.hp; supplemented = true; }
+                            if (state.max_hp == null && zd.player.max_hp != null) { state.max_hp = zd.player.max_hp; supplemented = true; }
+                            if (state.mp == null && zd.player.mp != null) { state.mp = zd.player.mp; supplemented = true; }
+                            if (state.max_mp == null && zd.player.max_mp != null) { state.max_mp = zd.player.max_mp; supplemented = true; }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
+                }
+                if (state.hp == null || state.max_hp == null || state.mp == null || state.max_mp == null) {
+                    const usMatch = aiMessage.match(/<user_status>([\s\S]*?)<\/user_status>/);
+                    if (usMatch) {
+                        try {
+                            const us = parseUserStatus(usMatch[1]);
+                            if (state.hp == null && us.hp != null) { state.hp = us.hp; supplemented = true; }
+                            if (state.max_hp == null && us.max_hp != null) { state.max_hp = us.max_hp; supplemented = true; }
+                            if (state.mp == null && us.mp != null) { state.mp = us.mp; supplemented = true; }
+                            if (state.max_mp == null && us.max_mp != null) { state.max_mp = us.max_mp; supplemented = true; }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
+                }
+
+                log(supplemented ? 'status 专家面板数据命中（补充 HP/MP + npcUpdates）' : 'status 专家面板数据命中（跳过标签解析+模型）');
+                return { state, npcUpdates };
             }
         }
     }

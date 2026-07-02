@@ -719,8 +719,9 @@ export function renderInventoryPanel() {
     let cor = 0;
     try { cor = getCurrency() || 0; } catch { /* ignore */ }
     const items = (inv?.items || [])
-        .filter(item => (item.qty ?? 1) > 0)
-        .map(item => {
+        .map((item, rawIndex) => ({ _item: item, _rawIndex: rawIndex }))
+        .filter(({ _item }) => (_item.qty ?? 1) > 0)
+        .map(({ _item: item, _rawIndex: rawIndex }) => {
         // bug-fix: 消耗品条目只有 consumable_id，没有 name
         // 必须从 consumableStore.byId[item.consumable_id].name 取真实名字
         let resolvedName = item.name;
@@ -734,6 +735,7 @@ export function renderInventoryPanel() {
             name: resolvedName || item.item_id || '?',
             qty: item.qty ?? 1,
             type: item.type || 'unknown',
+            rawIndex,
             ...(item.item_id ? { item_id: item.item_id } : {}),
             ...(item.description ? { description: item.description } : {}),
         };
@@ -969,7 +971,7 @@ export function projectStatusPanelHtml() {
                 const useBtn = (item.type === 'consumable' && item.item_id)
                     ? `<button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">✓</button>`
                     : '';
-                return `<span class="sao-tag sao-tag-${item.type}">${esc(item.name)}${qtyText}${useBtn}</span>`;
+                return `<span class="sao-tag sao-tag-${item.type}" data-detail-type="inv" data-detail-index="${item.rawIndex}" style="cursor:pointer;">${esc(item.name)}${qtyText}${useBtn}</span>`;
             });
             let rest = '';
             if (arr.length > cap) rest = `<span class="sao-text-muted">还有${arr.length - cap}个...</span>`;
@@ -1002,7 +1004,7 @@ export function projectStatusPanelHtml() {
     let equipSection = '';
     const equipData = renderEquipmentPanel();
     if (equipData) {
-        const equippedList = equipData.map(e => {
+        const equippedList = equipData.map((e, i) => {
             if (!e.name) {
                 return `<div class="sao-equip-row sao-equip-row-empty">
                     <span class="sao-equip-slot-label">${esc(e.slotDisplay)}</span>
@@ -1011,7 +1013,7 @@ export function projectStatusPanelHtml() {
             }
             return `<div class="sao-equip-row">
                 <span class="sao-equip-slot-label">${esc(e.slotDisplay)}</span>
-                <span class="sao-equip-item">${esc(e.name)}</span>
+                <span class="sao-equip-item" data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(e.name)}</span>
                 ${e.keyStats ? `<span class="sao-equip-stats">${esc(e.keyStats)}</span>` : ''}
                 ${e.equipId ? `<button class="sao-equip-btn" data-sao-action="unequip" data-sao-slot="${e.slot}" title="卸下装备">↓</button>` : ''}
             </div>`;
@@ -1030,8 +1032,8 @@ export function projectStatusPanelHtml() {
     let skillsSection = '';
     const skillData = renderSkillPanel();
     if (skillData) {
-        const skillItems = skillData.slice(0, 4).map(s => {
-            return `<button class="sao-skill-btn" type="button" title="熟练 ${s.proficiency}">
+        const skillItems = skillData.slice(0, 4).map((s, i) => {
+            return `<button class="sao-skill-btn" type="button" title="熟练 ${s.proficiency}" data-detail-type="skill" data-detail-index="${i}" style="cursor:pointer;">
                 <span class="sao-skill-btn-name">${esc(s.name)}</span>
                 <span class="sao-skill-btn-proficiency">熟练 ${s.proficiency}</span>
             </button>`;

@@ -196,7 +196,7 @@ export function registerGetCalendar(ctx) {
             },
             required: [],
         },
-        action: wrapToolAction(async (args) => {
+action: wrapToolAction('get_calendar', async (args) => {
             try {
                 initCalendarIfNeeded();
                 const data = getSaoData();
@@ -299,7 +299,7 @@ export function registerGetCharacterInfo(ctx) {
             },
             required: ['name'],
         },
-        action: wrapToolAction(async (args) => {
+action: wrapToolAction('get_character_info', async (args) => {
             try {
                 const name = args && args.name;
                 if (!name) return '请提供角色名称';
@@ -343,7 +343,7 @@ export function registerGetFloorInfo(ctx) {
             },
             required: ['floor'],
         },
-        action: wrapToolAction(async (args) => {
+action: wrapToolAction('get_floor_info', async (args) => {
             try {
                 const floor = args && args.floor;
                 if (!floor) return '请提供楼层数';
@@ -389,7 +389,7 @@ export function registerGetWorldSetting(ctx) {
             },
             required: ['topic'],
         },
-        action: wrapToolAction(async (args) => {
+        action: wrapToolAction('get_world_setting', async (args) => {
             try {
                 const topic = args && args.topic;
                 if (!topic) return '请提供查询话题（topic）';
@@ -435,7 +435,7 @@ export function registerSearchWorldBook(ctx) {
             },
             required: ['query'],
         },
-        action: wrapToolAction(async (args) => {
+        action: wrapToolAction('search_world_book', async (args) => {
             try {
                 const query = args && args.query;
                 if (!query) return '请提供搜索关键词（query）';
@@ -568,16 +568,18 @@ export function recordToolCall(success) {
 }
 
 /**
- * 工具 action 包装器 — 自动记录调用成功/失败
- * 用法: action: wrapToolAction(async (params) => { ... })
+ * 工具 action 包装器 — 自动记录调用成功/失败，并输出可见日志
+ * 用法: action: wrapToolAction('tool_name', async (params) => { ... })
  */
-export function wrapToolAction(originalAction) {
+export function wrapToolAction(toolName, originalAction) {
     return async (params) => {
         try {
             const result = await originalAction(params);
+            log(`🔧 ${toolName} 调用成功 | 参数: ${JSON.stringify(params).slice(0, 120)} | 返回 ${String(result).length} 字符`, 'info');
             recordToolCall(true);
             return result;
         } catch (e) {
+            log(`🔧 ${toolName} 调用失败: ${e.message}`, 'warn');
             recordToolCall(false);
             throw e;
         }

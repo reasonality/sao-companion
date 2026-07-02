@@ -4,16 +4,18 @@
 import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { DOMPurify } from '../../../../lib.js';
 import { renderBattlePanel } from './battle/battleRenderer.js';
-import { projectStatusPanelHtml, renderNpcPanel } from './sao-state-projection.js';
+import { projectStatusPanelHtml, renderNpcPanel, renderEquipmentPanel, renderSkillPanel } from './sao-state-projection.js';
 import { restoreBattleState } from './battle/battleLogic.js';
 import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
-import { equipItem, unequipItem } from './sao-store-player.js';
+import { equipItem, unequipItem, getPlayerStore } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
+import { getSkillById } from './sao-store-skill.js';
 import { createQuest, completeQuest, abandonQuest, getCompletedQuests } from './sao-store-quest.js';
-import { useConsumable } from './sao-store-consumable.js';
+import { useConsumable, getConsumableById } from './sao-store-consumable.js';
+import { getInventoryStore } from './sao-store-inventory.js';
 import { appendActionLog } from './sao-store-core.js';
 
 // 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
@@ -1590,6 +1592,86 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
     _attachStatusPanelListeners(shadow);
 }
 
+// ============================================================
+// 详情弹窗渲染辅助（对齐 index.js renderEquipmentDetail / renderSkillDetail / renderInventoryDetail）
+// ============================================================
+
+/** 稀有度文本 → CSS class */
+function _rarityClass(rarity) {
+    if (!rarity) return '';
+    const r = String(rarity).toLowerCase();
+    if (r.includes('橙') || r.includes('传说') || r.includes('legendary') || r.includes('orange')) return 'sao-rarity-legendary';
+    if (r.includes('紫') || r.includes('史诗') || r.includes('epic') || r.includes('purple')) return 'sao-rarity-epic';
+    if (r.includes('蓝') || r.includes('稀有') || r.includes('rare') || r.includes('blue')) return 'sao-rarity-rare';
+    if (r.includes('绿') || r.includes('优质') || r.includes('uncommon') || r.includes('green')) return 'sao-rarity-uncommon';
+    return 'sao-rarity-common';
+}
+
+function _detailRow(label, value, valueClass) {
+    return `<div class="sao-detail-row"><span class="sao-detail-label">${label}</span><span class="sao-detail-value${valueClass ? ' ' + valueClass : ''}">${value}</span></div>`;
+}
+
+function _renderDetailEquip(item) {
+    const rows = [];
+    if (item.name) rows.push(_detailRow('名称', esc(item.name)));
+    if (item.slot) rows.push(_detailRow('槽位', esc(item.slot)));
+    if (item.rarity) rows.push(_detailRow('稀有度', esc(item.rarity), _rarityClass(item.rarity)));
+    if (item.item_level != null) rows.push(_detailRow('物品等级', esc(item.item_level)));
+    if (item.stats) {
+        const labels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT', atk: '⚔️ ATK', hit: '🎯 HIT', crit: '💥 CRIT' };
+        for (const [k, v] of Object.entries(item.stats)) {
+            if (v > 0) rows.push(_detailRow(labels[k] || esc(k.toUpperCase()), '+' + esc(v)));
+        }
+    }
+    if (item.affixes?.length) {
+        rows.push(_detailRow('附魔', item.affixes.map(a => `<span class="sao-tag sao-tag-affix">${esc(a)}</span>`).join(' ')));
+    }
+    if (item.description) rows.push(_detailRow('描述', esc(item.description)));
+    return rows.join('');
+}
+
+const _CORE_CODE_LABEL = { A1: '伤害输出', A2: '生命恢复', A3: '法力恢复', A4: '牺牲增益', A5: '终结技' };
+
+function _renderDetailSkill(sk) {
+    const rows = [];
+    if (sk.weapon_type) rows.push(_detailRow('武器类型', esc(sk.weapon_type)));
+    if (sk.proficiency != null) rows.push(_detailRow('技能等级', 'Lv' + esc(sk.proficiency)));
+    if (sk.rarity) rows.push(_detailRow('稀有度', esc(sk.rarity), _rarityClass(sk.rarity)));
+    const c = sk.combat || {};
+    if (c.atk != null) rows.push(_detailRow('基础伤害', esc(c.atk)));
+    if (c.hit != null) rows.push(_detailRow('命中率', esc(c.hit) + '%'));
+    if (c.crit != null) rows.push(_detailRow('暴击率', esc(c.crit) + '%'));
+    if (c.mpCost != null) rows.push(_detailRow('MP消耗', esc(c.mpCost)));
+    if (c.cd != null) rows.push(_detailRow('冷却', esc(c.cd) + '回合'));
+    if (c.apt != null) rows.push(_detailRow('连击数', esc(c.apt)));
+    if (c.tpa != null) rows.push(_detailRow('目标数', esc(c.tpa)));
+    if (sk.effects?.wn) rows.push(_detailRow('核心功能', esc(_CORE_CODE_LABEL[sk.effects.wn] || sk.effects.wn)));
+    if (sk.effects?.en?.length) {
+        rows.push(_detailRow('词条', sk.effects.en.map(e => `<span class="sao-tag sao-tag-affix">${esc(e)}</span>`).join(' ')));
+    }
+    if (sk.description) rows.push(_detailRow('描述', esc(sk.description)));
+    return rows.join('');
+}
+
+function _renderDetailInv(item) {
+    const rows = [];
+    const TYPE_LABELS = { equipment: '装备', consumable: '消耗品', material: '材料', quest_item: '任务物品' };
+    if (item.type === 'equipment' && item.equipment_id) {
+        const eq = getEquipmentById(item.equipment_id);
+        if (eq) return _renderDetailEquip(eq);
+    }
+    if (item.name) rows.push(_detailRow('名称', esc(item.name)));
+    if (item.qty != null) rows.push(_detailRow('数量', esc(item.qty)));
+    if (item.type) rows.push(_detailRow('类型', esc(TYPE_LABELS[item.type] || item.type)));
+    if (item.rarity) rows.push(_detailRow('稀有度', esc(item.rarity), _rarityClass(item.rarity)));
+    if (item.item_level != null) rows.push(_detailRow('物品等级', '⭐' + esc(item.item_level)));
+    if (item.effects?.length) {
+        rows.push(_detailRow('效果', item.effects.map(e => esc(typeof e === 'string' ? e : e.name || JSON.stringify(e))).join(', ')));
+    }
+    if (item.description) rows.push(_detailRow('描述', esc(item.description)));
+    return rows.join('');
+}
+
 /**
  * C3/C5.5: 为状态面板交互按钮附加事件监听。
  * 装备穿戴/卸下、任务添加/完成后重新投影渲染面板内容。
@@ -1740,6 +1822,54 @@ function _attachStatusPanelListeners(shadow) {
             _showShadowModal(shadow, '已完成任务', `<div style="max-height:300px;overflow-y:auto;">${rows}</div>`);
         });
     });
+
+    // D4: 装备/技能/物品详情弹窗（点击 data-detail-type 元素触发）
+    // 使用标记防止重复绑定（refresh 会多次调用 _attachStatusPanelListeners）
+    if (!shadow._saoDetailDelegated) {
+    shadow._saoDetailDelegated = true;
+    shadow.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-detail-type]');
+        if (!target) return;
+        const type = target.getAttribute('data-detail-type');
+        const index = parseInt(target.getAttribute('data-detail-index'), 10);
+        if (isNaN(index)) return;
+        let title = '';
+        let html = '';
+        try {
+            if (type === 'equip') {
+                const equipData = renderEquipmentPanel();
+                const entry = equipData?.[index];
+                if (entry?.equipId) {
+                    const item = getEquipmentById(entry.equipId);
+                    if (item) {
+                        title = `${entry.slotDisplay || ''}: ${item.name || '未知'}`;
+                        html = _renderDetailEquip(item);
+                    }
+                }
+            } else if (type === 'skill') {
+                const player = getPlayerStore();
+                const ps = player?.skills?.[index];
+                if (ps) {
+                    const def = getSkillById(ps.skill_id);
+                    title = `${def?.name || ps.name || '技能'}${ps.proficiency != null ? ' Lv' + ps.proficiency : ''}`;
+                    html = _renderDetailSkill({ ...(def || {}), proficiency: ps.proficiency, name: def?.name || ps.name });
+                }
+            } else if (type === 'inv') {
+                const inv = getInventoryStore();
+                const item = inv?.items?.[index];
+                if (item) {
+                    title = item.name || '物品';
+                    html = _renderDetailInv(item);
+                }
+            }
+        } catch (err) {
+            log(`详情解析失败: ${err.message}`, 'warn');
+        }
+        if (title && html) {
+            _showShadowModal(shadow, title, `<div style="max-height:60vh;overflow-y:auto;">${html}</div>`);
+        }
+    });
+    }
 }
 
 /**
