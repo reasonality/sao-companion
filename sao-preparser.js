@@ -32,12 +32,14 @@ export function computeEntriesHash(entries) {
     if (!entries || !Array.isArray(entries) || entries.length === 0) return 'e0';
 
     let hash = 0;
-    let enabledCount = 0;
+    let totalCount = 0;
 
     for (const entry of entries) {
-        if (entry.enabled === false) continue;
+        // Hash ALL entries regardless of enabled state — disabling is an in-memory
+        // plugin action that does not change card content. The hash must detect
+        // actual card-content changes, not plugin disable state.
         const content = entry.content || '';
-        enabledCount++;
+        totalCount++;
 
         // Sample from beginning, middle, and end of content
         const len = content.length;
@@ -52,8 +54,8 @@ export function computeEntriesHash(entries) {
         }
     }
 
-    // Mix in enabled count
-    hash = ((hash << 5) - hash) + enabledCount;
+    // Mix in total count
+    hash = ((hash << 5) - hash) + totalCount;
     hash = hash & hash;
 
     return 'lp' + Math.abs(hash).toString(36);
@@ -419,7 +421,10 @@ export function runLorebookPreParser(entries, arc) {
     const parseResults = { npcCount, floorCount, timelineCount, rulesCount };
     const disabledCount = disableParsedEntries(entries, parseResults);
 
-    // Compute hash and set loreParsed flag
+    // Compute hash and set loreParsed flag.
+    // Note: computeEntriesHash hashes content regardless of enabled state, so
+    // disabling entries here does not affect the hash (correct: disable is a
+    // plugin in-memory action, not a card-content change).
     const entryHash = computeEntriesHash(entries);
 
     store.loreParsed = {

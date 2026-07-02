@@ -71,10 +71,15 @@ describe('computeEntriesHash', () => {
         expect(computeEntriesHash(e1)).not.toBe(computeEntriesHash(e2));
     });
 
-    it('skips disabled entries', () => {
+    it('hashes content regardless of enabled state (disable is in-memory, not card change)', () => {
+        // e1 and e2 have DIFFERENT content sets → different hashes
         const e1 = [{ content: 'abc', enabled: true }];
-        const e2 = [{ content: 'abc', enabled: true }, { content: 'disabled', enabled: false }];
-        expect(computeEntriesHash(e1)).toBe(computeEntriesHash(e2));
+        const e2 = [{ content: 'abc', enabled: true }, { content: 'disabled-entry', enabled: false }];
+        expect(computeEntriesHash(e1)).not.toBe(computeEntriesHash(e2));
+        // Same content set, different enabled states → SAME hash (content is what matters)
+        const a = [{ content: 'abc', enabled: true }];
+        const b = [{ content: 'abc', enabled: false }];
+        expect(computeEntriesHash(a)).toBe(computeEntriesHash(b));
     });
 
     it('returns deterministic value for empty/null', () => {
@@ -265,6 +270,41 @@ describe('runLorebookPreParser — Idempotency', () => {
         expect(result2).toBeTruthy();
         expect(getNpcByName('桐人').canon.basicInfo?.age).toBe('16');
         expect(log).toHaveBeenCalledWith(expect.stringContaining('card content changed'));
+    });
+
+    it('skips re-parse after page reload (entries re-enabled from card)', () => {
+        const entries = [
+            {
+                keys: ['桐人'],
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                keys: ['第1层'],
+                comment: 'sao-第1层',
+                enabled: true,
+                content: '#### 第1层\n主题: 起始之镇',
+            },
+        ];
+
+        // First run — parses + disables
+        const result1 = runLorebookPreParser(entries);
+        expect(result1).toBeTruthy();
+        // Phase 5 disables the npc + floor entries in-memory
+        expect(entries[0].enabled).toBe(false);
+        expect(entries[1].enabled).toBe(false);
+
+        // Simulate page reload: ST re-reads card from disk → entries re-enabled
+        entries[0].enabled = true;
+        entries[1].enabled = true;
+
+        vi.mocked(log).mockClear();
+        // Second run — hash was computed on FRESH entries (before disable),
+        // so it should match and skip (no re-parse despite re-enabled entries)
+        const result2 = runLorebookPreParser(entries);
+        expect(result2).toBeNull();
+        expect(log).toHaveBeenCalledWith('Lore pre-parser: already parsed, skipping');
     });
 });
 
