@@ -807,10 +807,11 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 margin: 5px auto;
                 padding: 0 4px 4px 4px;
                 box-sizing: border-box;
-                overflow-x: hidden;
-                overflow-y: auto;
+                overflow: hidden;
                 max-height: 60vh;
                 position: relative;
+                display: flex;
+                flex-direction: column;
                 box-shadow: 0 0 18px rgba(0,210,255,0.12), 0 8px 24px rgba(0,0,0,0.45);
                 font-family: "Exo 2", "Noto Sans SC", "Rajdhani", "Microsoft YaHei", sans-serif;
                 color: var(--text-primary);
@@ -935,7 +936,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 word-break: break-word;
                 backdrop-filter: blur(4px);
             }
-            .sao-status-content { display: block; }
+            .sao-status-content { display: block; overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; min-height: 0; }
             .sao-status-content > .sao-hud-card { white-space: normal; }
 
             /* === 双行 × 双列布局 (左 55% / 右 45%) === */
