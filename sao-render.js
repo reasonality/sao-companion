@@ -1070,27 +1070,30 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-cursor-red    { color: #ff7d8a; background: rgba(255,46,74,0.18); border: 1px solid rgba(255,125,138,0.45); }
 
             /* === HP / MP 进度条 (6px 高 — 压缩紧凑) === */
-            .sao-bar-row { margin-bottom: 0; }
-            .sao-bar-row:last-child { margin-bottom: 0; }
+            .sao-bar-row { margin: 0; padding: 0; line-height: 0; font-size: 0; }
+            .sao-bar-row:last-child { margin: 0; }
             .sao-bar-labels {
                 display: flex;
                 justify-content: space-between;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-                font-size: 0.72em;
-                margin-bottom: 0;
-                line-height: 1;
+                font-size: 11px;
+                line-height: 1.2;
+                margin: 0;
+                padding: 0;
                 color: var(--text-secondary);
                 letter-spacing: 0.4px;
             }
             .sao-bar-container {
                 height: 6px;
-                margin-top: 1px;
+                margin: 1px 0 0 0;
+                padding: 0;
                 background: rgba(0,0,0,0.45);
                 border-radius: 3px;
                 overflow: hidden;
                 box-shadow: inset 0 1px 1px rgba(0,0,0,0.5);
                 position: relative;
                 border: none;
+                line-height: 0;
             }
             .sao-bar {
                 height: 100%;
