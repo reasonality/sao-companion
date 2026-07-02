@@ -742,7 +742,7 @@ export function renderInventoryPanel() {
         return {
             name: resolvedName || item.item_id || '?',
             qty: item.qty ?? 1,
-            type: item.type || 'unknown',
+            type: item.type || (item.equipment_id ? 'equipment' : (item.consumable_id ? 'consumable' : 'unknown')),
             rawIndex,
             ...(item.item_id ? { item_id: item.item_id } : {}),
             ...(item.description ? { description: item.description } : {}),
@@ -968,7 +968,7 @@ export function projectStatusPanelHtml() {
         for (const item of invData.items) {
             const t = item.type;
             if (buckets[t]) buckets[t].push(item);
-            else buckets.consumable.push(item); // unknown fallback
+            else buckets.equipment.push(item); // unknown fallback → most likely legacy equipment
         }
 
         const renderTab = (key, arr) => {
@@ -988,10 +988,10 @@ export function projectStatusPanelHtml() {
 
         const tabsHtml = `
             <div class="sao-inv-tabs">
-                <span class="sao-inv-tab active" data-action="switchInvTab" data-tab="consumable">消耗品</span>
-                <span class="sao-inv-tab" data-action="switchInvTab" data-tab="quest_item">任务物品</span>
-                <span class="sao-inv-tab" data-action="switchInvTab" data-tab="material">材料</span>
-                <span class="sao-inv-tab" data-action="switchInvTab" data-tab="equipment">背包装备</span>
+                <span class="sao-inv-tab active" data-sao-action="switchInvTab" data-tab="consumable">消耗品</span>
+                <span class="sao-inv-tab" data-sao-action="switchInvTab" data-tab="quest_item">任务物品</span>
+                <span class="sao-inv-tab" data-sao-action="switchInvTab" data-tab="material">材料</span>
+                <span class="sao-inv-tab" data-sao-action="switchInvTab" data-tab="equipment">背包装备</span>
             </div>
             ${renderTab('consumable', buckets.consumable)}
             ${renderTab('quest_item', buckets.quest_item)}
