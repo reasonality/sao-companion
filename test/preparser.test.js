@@ -16,7 +16,7 @@ vi.mock('../sao-store-core.js', () => ({
 }));
 
 // Import AFTER mocks
-import { runLorebookPreParser, computeEntriesHash, parseTimelineEntries, parseWorldRules } from '../sao-preparser.js';
+import { runLorebookPreParser, computeEntriesHash, parseTimelineEntries, parseWorldRules, disableParsedEntries } from '../sao-preparser.js';
 import { getNpcByName, getNpcById } from '../sao-store-npc.js';
 import { getFloorByNumber, getFloorById } from '../sao-store-floor.js';
 import { log } from '../sao-core.js';
@@ -670,5 +670,352 @@ describe('runLorebookPreParser — Phase 3+4 integration', () => {
         runLorebookPreParser(entries);
         expect(log).toHaveBeenCalledWith(expect.stringContaining('2 timeline events'));
         expect(log).toHaveBeenCalledWith(expect.stringContaining('1 rules'));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 5: Disable parsed entries in lorebook
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Phase 5: disableParsedEntries', () => {
+    it('disables character profile entries when npcCount > 0', () => {
+        const entries = [
+            {
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                comment: 'sao-亚丝娜',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"亚丝娜"}}\n```',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 2, floorCount: 0, timelineCount: 0, rulesCount: 0 });
+        expect(count).toBe(2);
+        expect(entries[0].enabled).toBe(false);
+        expect(entries[1].enabled).toBe(false);
+    });
+
+    it('disables floor entries when floorCount > 0', () => {
+        const entries = [
+            {
+                comment: 'sao-第1层',
+                enabled: true,
+                content: '### 第一层设定',
+            },
+            {
+                comment: 'sao-第50层',
+                enabled: true,
+                content: '### 第五十层设定',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 2, timelineCount: 0, rulesCount: 0 });
+        expect(count).toBe(2);
+        expect(entries[0].enabled).toBe(false);
+        expect(entries[1].enabled).toBe(false);
+    });
+
+    it('disables timeline entries when timelineCount > 0', () => {
+        const entries = [
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: '#### 11月6日\n* 事件。',
+            },
+            {
+                comment: '2023年1月时间线',
+                enabled: true,
+                content: '#### 1月15日\n* 事件。',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 10, rulesCount: 0 });
+        expect(count).toBe(2);
+        expect(entries[0].enabled).toBe(false);
+        expect(entries[1].enabled).toBe(false);
+    });
+
+    it('disables specific rule entries (剑技获取, 冥想, 房屋) when rulesCount > 0', () => {
+        const entries = [
+            {
+                comment: 'sao-剑技获取',
+                enabled: true,
+                selective: true,
+                content: '<directive>剑技规则</directive>',
+            },
+            {
+                comment: 'sao-冥想',
+                enabled: true,
+                selective: true,
+                content: '<directive>冥想规则</directive>',
+            },
+            {
+                comment: 'sao-房屋',
+                enabled: true,
+                selective: true,
+                content: '<directive>房屋规则</directive>',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 0, rulesCount: 3 });
+        expect(count).toBe(3);
+        expect(entries[0].enabled).toBe(false);
+        expect(entries[1].enabled).toBe(false);
+        expect(entries[2].enabled).toBe(false);
+    });
+
+    it('does NOT disable const entries (constant === true)', () => {
+        const entries = [
+            {
+                comment: 'sao-世界设定',
+                enabled: true,
+                constant: true,
+                content: '世界规则',
+            },
+            {
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 1, floorCount: 0, timelineCount: 0, rulesCount: 0 });
+        expect(count).toBe(1);
+        expect(entries[0].enabled).toBe(true);   // const — not disabled
+        expect(entries[1].enabled).toBe(false);   // profile — disabled
+    });
+
+    it('does NOT disable already-disabled entries (count does not inflate)', () => {
+        const entries = [
+            {
+                comment: 'sao-桐人',
+                enabled: false,  // already disabled
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                comment: 'sao-亚丝娜',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"亚丝娜"}}\n```',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 2, floorCount: 0, timelineCount: 0, rulesCount: 0 });
+        expect(count).toBe(1);  // only亚丝娜, not 桐人 (already disabled)
+        expect(entries[0].enabled).toBe(false);  // unchanged
+        expect(entries[1].enabled).toBe(false);  // newly disabled
+    });
+
+    it('does NOT disable when parseResults is null (parsing failed)', () => {
+        const entries = [
+            {
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, null);
+        expect(count).toBe(0);
+        expect(entries[0].enabled).toBe(true);
+    });
+
+    it('does NOT disable when all parse counts are 0', () => {
+        const entries = [
+            {
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 0, rulesCount: 0 });
+        expect(count).toBe(0);
+        expect(entries[0].enabled).toBe(true);
+    });
+
+    it('does NOT disable KEEP_ENABLED whitelist entries even if they match patterns', () => {
+        const entries = [
+            {
+                comment: 'sao-格式',
+                enabled: true,
+                content: '格式说明（包含characterProfile的edge case）',  // edge case: content has characterProfile string
+            },
+            {
+                comment: 'sao-注意事项（可能的错误）',
+                enabled: true,
+                content: '注意事项',
+            },
+            {
+                comment: 'sao-数值由系统计算(插件接管)',
+                enabled: true,
+                content: '数值规则',
+            },
+            {
+                comment: 'sao-标签输出与数值委托协议(插件)',
+                enabled: true,
+                content: '标签协议',
+            },
+            {
+                comment: 'sao-NPC档案构建规则',
+                enabled: true,
+                content: 'NPC档案构建规则',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 5, floorCount: 99, timelineCount: 44, rulesCount: 8 });
+        expect(count).toBe(0);
+        for (const e of entries) {
+            expect(e.enabled).toBe(true);
+        }
+    });
+
+    it('does NOT disable tentative-keep rule entries (PK, 经济, 等级)', () => {
+        const entries = [
+            {
+                comment: 'sao-PK机制',
+                enabled: true,
+                selective: true,
+                content: '<directive>PK规则</directive>',
+            },
+            {
+                comment: 'sao-经济系统',
+                enabled: true,
+                selective: true,
+                content: '<directive>经济规则</directive>',
+            },
+            {
+                comment: 'sao-等级',
+                enabled: true,
+                selective: true,
+                content: '<directive>等级规则</directive>',
+            },
+            {
+                comment: 'sao-技能',
+                enabled: true,
+                selective: true,
+                content: '<directive>技能规则</directive>',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 0, rulesCount: 4 });
+        expect(count).toBe(0);  // none disabled — PK/经济/等级 kept, 技能 not in RULES_TO_DISABLE
+        for (const e of entries) {
+            expect(e.enabled).toBe(true);
+        }
+    });
+
+    it('returns 0 for null/empty entries', () => {
+        expect(disableParsedEntries(null, { npcCount: 1, floorCount: 0, timelineCount: 0, rulesCount: 0 })).toBe(0);
+        expect(disableParsedEntries([], { npcCount: 1, floorCount: 0, timelineCount: 0, rulesCount: 0 })).toBe(0);
+        expect(disableParsedEntries(undefined, { npcCount: 1, floorCount: 0, timelineCount: 0, rulesCount: 0 })).toBe(0);
+    });
+
+    it('logs disabled count with per-category breakdown', () => {
+        const entries = [
+            {
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                comment: 'sao-第1层',
+                enabled: true,
+                content: '### 第一层',
+            },
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: '#### 11月6日\n* 事件。',
+            },
+            {
+                comment: 'sao-剑技获取',
+                enabled: true,
+                selective: true,
+                content: '<directive>剑技</directive>',
+            },
+        ];
+
+        const count = disableParsedEntries(entries, { npcCount: 1, floorCount: 1, timelineCount: 1, rulesCount: 1 });
+        expect(count).toBe(4);
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('disabled 4 data entries'));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('npc=1'));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('floor=1'));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('timeline=1'));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('rules=1'));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// runLorebookPreParser — Phase 5 integration
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('runLorebookPreParser — Phase 5 integration (disable entries)', () => {
+    it('disables data entries after successful parsing', () => {
+        const entries = [
+            {
+                keys: ['桐人'],
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                keys: ['第1层'],
+                comment: 'sao-第1层',
+                enabled: true,
+                content: '### 第一层\n核心原则：起始之野',
+            },
+            {
+                comment: 'sao-世界设定',
+                enabled: true,
+                constant: true,
+                content: '世界基本规则',
+            },
+        ];
+
+        const result = runLorebookPreParser(entries);
+
+        expect(result).toBeTruthy();
+        expect(result.disabledCount).toBe(2);  // NPC + floor, not const
+        expect(entries[0].enabled).toBe(false);  // NPC disabled
+        expect(entries[1].enabled).toBe(false);  // floor disabled
+        expect(entries[2].enabled).toBe(true);   // const kept
+
+        expect(mockStore.loreParsed.disabledCount).toBe(2);
+    });
+
+    it('returns disabledCount in result object', () => {
+        const entries = [
+            {
+                comment: 'sao-桐人',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
+            },
+            {
+                comment: 'sao-亚丝娜',
+                enabled: true,
+                content: '```json\n{"characterProfile":{"characterName":"亚丝娜"}}\n```',
+            },
+        ];
+
+        const result = runLorebookPreParser(entries);
+        expect(result.disabledCount).toBe(2);
+    });
+
+    it('does not disable entries when all counts are 0', () => {
+        const entries = [
+            {
+                comment: 'sao-世界设定',
+                enabled: true,
+                constant: true,
+                content: '世界规则（不含characterProfile）',
+            },
+        ];
+
+        const result = runLorebookPreParser(entries);
+        expect(result.disabledCount).toBe(0);
+        expect(entries[0].enabled).toBe(true);
     });
 });

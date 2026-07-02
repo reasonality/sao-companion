@@ -240,6 +240,139 @@ export function parseWorldRules(entries) {
 }
 
 // ============================================================
+// Phase 5: Disable parsed entries in lorebook
+// ============================================================
+
+/**
+ * Whitelist of entry comments that must NEVER be disabled.
+ * These are format instructions, action rules, plugin protocols, and hybrid entries
+ * that the LLM needs in its prompt context (cannot be retrieved via tool calls).
+ * @type {Set<string>}
+ */
+const KEEP_ENABLED = new Set([
+    'sao-格式',
+    'sao-注意事项（可能的错误）',
+    'sao-数值由系统计算(插件接管)',
+    'sao-标签输出与数值委托协议(插件)',
+    'sao-NPC档案构建规则',
+]);
+
+/**
+ * Rule comments to tentatively keep enabled (small, frequently referenced).
+ * These are parsed into worldStore.rules but remain injected for latency.
+ * @type {Set<string>}
+ */
+const RULES_KEEP_ENABLED = new Set([
+    'sao-PK机制',
+    'sao-经济系统',
+    'sao-等级',
+]);
+
+/**
+ * Rule comments whose data entries should be DISABLED (larger, less frequently needed).
+ * Data is now in worldStore.rules, retrieved via get_world_setting tool.
+ * @type {Set<string>}
+ */
+const RULES_TO_DISABLE = new Set([
+    'sao-剑技获取',
+    'sao-冥想',
+    'sao-房屋',
+]);
+
+/**
+ * Decide whether an entry should be disabled after successful parsing.
+ * Mirrors shouldDisableEntry logic from design doc §6.3.
+ *
+ * @param {Object} entry - lorebook entry object
+ * @param {{ npcCount: number, floorCount: number, timelineCount: number, rulesCount: number }} parseResults - parse counts
+ * @returns {boolean}
+ */
+function shouldDisableEntry(entry, parseResults) {
+    // Never disable const entries (always injected by ST)
+    if (entry.constant === true) return false;
+
+    // Never disable already-disabled entries (don't inflate counts)
+    if (entry.enabled === false) return false;
+
+    const comment = (entry.comment || '').trim();
+    const content = entry.content || '';
+
+    // Never disable entries in the KEEP_ENABLED whitelist
+    if (KEEP_ENABLED.has(comment)) return false;
+
+    // Never disable the tentative-keep rule entries
+    if (RULES_KEEP_ENABLED.has(comment)) return false;
+
+    // Disable character profile entries (NPC data now in npcStore)
+    if (parseResults.npcCount > 0 && content.includes('characterProfile')) return true;
+
+    // Disable floor entries (data now in floorStore)
+    if (parseResults.floorCount > 0 && /第\d+层/.test(comment)) return true;
+
+    // Disable timeline entries (data now in calendarStore)
+    if (parseResults.timelineCount > 0 && /^\d{4}年\d{1,2}月/.test(comment)) return true;
+
+    // Disable specific rule entries (data now in worldStore.rules)
+    if (parseResults.rulesCount > 0 && RULES_TO_DISABLE.has(comment)) return true;
+
+    return false;
+}
+
+/**
+ * Disable parsed lorebook entries in-memory so ST no longer injects them.
+ * LLM retrieves data via tool calls instead.
+ *
+ * SAFETY: Only mutates in-memory entry objects (entry.enabled = false).
+ * Same pattern as enableCardRegex (index.js:388-443) which disables MIGRATED_SCRIPTS.
+ * Card file (.json) is NOT modified — reversible on plugin deactivation or card switch.
+ *
+ * @param {Array} entries - character_book.entries
+ * @param {{ npcCount: number, floorCount: number, timelineCount: number, rulesCount: number } | null} parseResults
+ * @returns {number} count of entries disabled
+ */
+export function disableParsedEntries(entries, parseResults) {
+    if (!entries || !Array.isArray(entries) || !parseResults) return 0;
+
+    // Safety guard: if all counts are 0, nothing was parsed — skip disabling
+    if (parseResults.npcCount === 0 && parseResults.floorCount === 0
+        && parseResults.timelineCount === 0 && parseResults.rulesCount === 0) {
+        return 0;
+    }
+
+    let disabledCount = 0;
+    let npcDisabled = 0;
+    let floorDisabled = 0;
+    let timelineDisabled = 0;
+    let rulesDisabled = 0;
+
+    for (const entry of entries) {
+        if (!shouldDisableEntry(entry, parseResults)) continue;
+
+        entry.enabled = false;
+        disabledCount++;
+
+        // Track per-category for logging
+        const comment = (entry.comment || '').trim();
+        const content = entry.content || '';
+        if (content.includes('characterProfile')) {
+            npcDisabled++;
+        } else if (/第\d+层/.test(comment)) {
+            floorDisabled++;
+        } else if (/^\d{4}年\d{1,2}月/.test(comment)) {
+            timelineDisabled++;
+        } else if (RULES_TO_DISABLE.has(comment)) {
+            rulesDisabled++;
+        }
+    }
+
+    if (disabledCount > 0) {
+        log(`Lore pre-parser: disabled ${disabledCount} data entries (npc=${npcDisabled}, floor=${floorDisabled}, timeline=${timelineDisabled}, rules=${rulesDisabled})`);
+    }
+
+    return disabledCount;
+}
+
+// ============================================================
 // Main orchestrator
 // ============================================================
 
@@ -253,7 +386,7 @@ export function parseWorldRules(entries) {
  * Idempotent: skips if already parsed with matching entry hash.
  * @param {Array} entries - character_book.entries
  * @param {string} [arc] - current arc key (default 'sao')
- * @returns {{ npcCount: number, floorCount: number, stubCount: number, timelineCount: number, rulesCount: number } | null}
+ * @returns {{ npcCount: number, floorCount: number, stubCount: number, timelineCount: number, rulesCount: number, disabledCount: number } | null}
  */
 export function runLorebookPreParser(entries, arc) {
     const store = getStore();
@@ -282,6 +415,10 @@ export function runLorebookPreParser(entries, arc) {
     // Phase 4: World rules → worldStore.rules
     const rulesCount = parseWorldRules(entries);
 
+    // Phase 5: Disable parsed entries in lorebook
+    const parseResults = { npcCount, floorCount, timelineCount, rulesCount };
+    const disabledCount = disableParsedEntries(entries, parseResults);
+
     // Compute hash and set loreParsed flag
     const entryHash = computeEntriesHash(entries);
 
@@ -293,9 +430,10 @@ export function runLorebookPreParser(entries, arc) {
         floorCount,
         timelineCount,
         rulesCount,
+        disabledCount,
     };
 
     log(`Lore pre-parser: parsed ${npcCount} NPCs, ${floorCount} floors, ${stubCount} stubs, ${timelineCount} timeline events, ${rulesCount} rules`);
 
-    return { npcCount, floorCount, stubCount, timelineCount, rulesCount };
+    return { npcCount, floorCount, stubCount, timelineCount, rulesCount, disabledCount };
 }
