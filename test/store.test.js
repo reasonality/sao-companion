@@ -53,6 +53,8 @@ import {
     updatePlayerVitals,
     addPlayerSkill,
     updatePlayerAttributes,
+    recalcStatsFromEquipment,
+    unequipItem,
 } from '../sao-store-player.js';
 import {
     getInventoryStore,
@@ -1077,5 +1079,109 @@ describe('useConsumable', () => {
         expect(player.buffs).toHaveLength(1);
         expect(player.buffs[0].stat).toBe('str');
         expect(player.buffs[0].remaining).toBe(3);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUG #5: recalcStatsFromEquipment re-derives baseAttributes on every equip
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('BUG #5: recalcStatsFromEquipment re-derives base when oldBonuses provided', () => {
+    it('extract writes attributes between two equip actions — base re-derived correctly', async () => {
+        // Setup: player base str=50, equip gear with +5 str
+        const swordA = findOrCreateEquipment({ name: '旧剑', slot: 'weapon', stats: { atk: 10, str: 5 } });
+        const swordB = findOrCreateEquipment({ name: '新剑', slot: 'weapon', stats: { atk: 20, str: 10 } });
+        await addEquipmentItem(swordA);
+        await addEquipmentItem(swordB);
+
+        const player = getPlayerStore();
+
+        // Initialize baseAttributes via first equip (triggers recalcStatsFromEquipment)
+        // Set raw attributes first, then equip to establish baseAttributes
+        player.attributes.str = 50;
+        await equipItem('weapon', swordA);
+        // After equip: baseAttributes.str = 50 - 0 (oldBonuses.str=0, no prior gear) = 50
+        // attributes.str = 50 + 5 (swordA) = 55
+        expect(player.baseAttributes.str).toBe(50);
+        expect(player.attributes.str).toBe(55);
+
+        // Simulate extract: specialist writes attributes.str = 60 (includes gear +5)
+        // updatePlayerAttributes syncs: base = 60 - 5 = 55
+        await updatePlayerAttributes({ str: 60 });
+        expect(player.attributes.str).toBe(60);
+        expect(player.baseAttributes.str).toBe(55); // base re-synced by updatePlayerAttributes
+
+        // Equip swordB (+10 str, replacing swordA +5 str)
+        // oldBonuses = {str:5,...} (swordA was equipped)
+        // BUG #5 fix: recalc re-derives base = 60 - 5(oldBonuses) = 55
+        // Then attributes = 55 + 10(newBonuses) = 65
+        await equipItem('weapon', swordB);
+        expect(player.baseAttributes.str).toBe(55); // correctly re-derived from 60 - 5
+        expect(player.attributes.str).toBe(65);     // 55 + 10
+    });
+
+    it('extract writes attributes then unequip — base re-derived correctly', async () => {
+        const armor = findOrCreateEquipment({ name: '铁甲', slot: 'chest', stats: { vit: 15 } });
+        await addEquipmentItem(armor);
+
+        const player = getPlayerStore();
+
+        // Initialize baseAttributes: set vit=30 and equip armor
+        player.attributes.vit = 30;
+        await equipItem('chest', armor);
+        expect(player.baseAttributes.vit).toBe(30);
+        expect(player.attributes.vit).toBe(45); // 30 + 15
+
+        // Simulate extract writes attributes.vit = 50 (includes gear +15)
+        // updatePlayerAttributes syncs: base = 50 - 15 = 35
+        await updatePlayerAttributes({ vit: 50 });
+        expect(player.baseAttributes.vit).toBe(35);
+
+        // Unequip armor: oldBonuses = {vit:15,...}
+        // BUG #5 fix: recalc re-derives base = 50 - 15 = 35
+        // Then attributes.vit = 35 + 0 (no gear) = 35
+        await unequipItem('chest');
+        expect(player.baseAttributes.vit).toBe(35); // correctly re-derived
+        expect(player.attributes.vit).toBe(35);     // 35 + 0
+    });
+
+    it('consecutive equips without extract — base stays correct (idempotent)', async () => {
+        const swordA = findOrCreateEquipment({ name: '剑A', slot: 'weapon', stats: { str: 5 } });
+        const swordB = findOrCreateEquipment({ name: '剑B', slot: 'weapon', stats: { str: 10 } });
+        await addEquipmentItem(swordA);
+        await addEquipmentItem(swordB);
+
+        const player = getPlayerStore();
+
+        // Initialize baseAttributes via first equip
+        player.attributes.str = 40;
+        await equipItem('weapon', swordA);
+        expect(player.baseAttributes.str).toBe(40);
+        expect(player.attributes.str).toBe(45); // 40 + 5
+
+        // Equip B (swap): oldBonuses={str:5}, recalc re-derives base = 45 - 5 = 40, attrs = 40 + 10 = 50
+        await equipItem('weapon', swordB);
+        expect(player.baseAttributes.str).toBe(40); // base preserved
+        expect(player.attributes.str).toBe(50);     // 40 + 10
+    });
+
+    it('recalcStatsFromEquipment without oldBonuses uses cached base', async () => {
+        const player = getPlayerStore();
+
+        // Initialize baseAttributes first
+        player.attributes.str = 30;
+        player.attributes.agi = 20;
+        recalcStatsFromEquipment(true); // no oldBonuses, baseAttributes not set → init from current
+        expect(player.baseAttributes.str).toBe(30);
+        expect(player.baseAttributes.agi).toBe(20);
+        expect(player.attributes.str).toBe(30); // no gear bonuses
+        expect(player.attributes.agi).toBe(20);
+
+        // Manual recalc without oldBonuses — should use cached base
+        recalcStatsFromEquipment(true);
+        expect(player.baseAttributes.str).toBe(30);
+        expect(player.baseAttributes.agi).toBe(20);
+        expect(player.attributes.str).toBe(30);
+        expect(player.attributes.agi).toBe(20);
     });
 });

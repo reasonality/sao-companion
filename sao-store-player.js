@@ -93,23 +93,39 @@ function _getEquipmentBonuses() {
  * - attributes = baseAttributes + 当前装备加成（显示值）
  * - _baseVitals = 固有 maxHp/maxMp，同理
  * 
+ * BUG #5 修复：当 oldBonuses 被提供时（equip/unequip 路径），始终从当前
+ * attributes 减去 oldBonuses 重新推导 baseAttributes/_baseVitals。
+ * 这确保即使 extract（updatePlayerAttributes）在两次装备操作之间写入了
+ * 新的属性值，base 也能正确反映真实固有属性，不会出现属性漂移。
+ * 
  * @param {boolean} [skipSave] - 是否跳过 saveStore
- * @param {object}  [oldBonuses] - 装备变更前的加成快照（用于首次初始化 baseAttributes）
+ * @param {object}  [oldBonuses] - 装备变更前的加成快照（equip/unequip 始终提供）
  */
 export function recalcStatsFromEquipment(skipSave, oldBonuses) {
     const playerStore = ensurePlayerStore();
     const newBonuses = _getEquipmentBonuses();
 
-    // 首次调用：从当前 attributes 减去旧加成得到固有属性
-    if (!playerStore.baseAttributes) {
-        const ob = oldBonuses || { str: 0, agi: 0, int: 0, vit: 0 };
+    // BUG #5: 当 oldBonuses 提供时（equip/unequip 路径），始终重新推导 base，
+    // 以防 extract 在上次 recalc 和本次之间写入了新的属性值。
+    // 无 oldBonuses 且 baseAttributes 已存在时保留缓存 base（手动 recalc 调用）。
+    if (oldBonuses) {
+        // equip/unequip 路径：始终从当前 attributes 减去变更前加成得到固有属性
         playerStore.baseAttributes = {
-            str: (playerStore.attributes?.str ?? 0) - ob.str,
-            agi: (playerStore.attributes?.agi ?? 0) - ob.agi,
-            int: (playerStore.attributes?.int ?? 0) - ob.int,
-            vit: (playerStore.attributes?.vit ?? 0) - ob.vit,
+            str: (playerStore.attributes?.str ?? 0) - (oldBonuses.str || 0),
+            agi: (playerStore.attributes?.agi ?? 0) - (oldBonuses.agi || 0),
+            int: (playerStore.attributes?.int ?? 0) - (oldBonuses.int || 0),
+            vit: (playerStore.attributes?.vit ?? 0) - (oldBonuses.vit || 0),
+        };
+    } else if (!playerStore.baseAttributes) {
+        // 首次调用，无 oldBonuses 上下文：从当前 attributes 初始化 base
+        playerStore.baseAttributes = {
+            str: (playerStore.attributes?.str ?? 0),
+            agi: (playerStore.attributes?.agi ?? 0),
+            int: (playerStore.attributes?.int ?? 0),
+            vit: (playerStore.attributes?.vit ?? 0),
         };
     }
+    // else: oldBonuses 未提供且 baseAttributes 已存在 — 使用缓存 base（手动 recalc 调用无装备上下文）
 
     // 计算总属性 = 固有 + 装备加成
     const base = playerStore.baseAttributes;
@@ -120,12 +136,16 @@ export function recalcStatsFromEquipment(skipSave, oldBonuses) {
         vit: (base.vit ?? 0) + newBonuses.vit,
     };
 
-    // maxHp / maxMp：同理
-    if (!playerStore._baseVitals) {
-        const ob = oldBonuses || { maxHp: 0, maxMp: 0 };
+    // maxHp / maxMp：同理（BUG #5 同步修复）
+    if (oldBonuses) {
         playerStore._baseVitals = {
-            maxHp: (playerStore.vitals?.maxHp ?? 100) - ob.maxHp,
-            maxMp: (playerStore.vitals?.maxMp ?? 20) - ob.maxMp,
+            maxHp: (playerStore.vitals?.maxHp ?? 100) - (oldBonuses.maxHp || 0),
+            maxMp: (playerStore.vitals?.maxMp ?? 20) - (oldBonuses.maxMp || 0),
+        };
+    } else if (!playerStore._baseVitals) {
+        playerStore._baseVitals = {
+            maxHp: (playerStore.vitals?.maxHp ?? 100),
+            maxMp: (playerStore.vitals?.maxMp ?? 20),
         };
     }
     const bv = playerStore._baseVitals;

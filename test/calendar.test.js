@@ -91,6 +91,42 @@ describe('parseDate', () => {
     it('returns null for garbage string', () => {
         expect(parseDate('not-a-date')).toBeNull();
     });
+
+    it('returns null for invalid month (>12)', () => {
+        expect(parseDate('2022-13-45')).toBeNull();
+    });
+
+    it('returns null for invalid day (>31)', () => {
+        expect(parseDate('2022-02-32')).toBeNull();
+    });
+
+    it('returns null for Feb 30 (auto-corrected by Date)', () => {
+        expect(parseDate('2022-02-30')).toBeNull();
+    });
+
+    it('returns null for Apr 31 (auto-corrected by Date)', () => {
+        expect(parseDate('2022-04-31')).toBeNull();
+    });
+
+    it('returns null for Feb 29 on non-leap year', () => {
+        expect(parseDate('2022-02-29')).toBeNull();
+    });
+
+    it('accepts Feb 29 on leap year', () => {
+        const d = parseDate('2024-02-29');
+        expect(d).toBeInstanceOf(Date);
+        expect(d.getFullYear()).toBe(2024);
+        expect(d.getMonth()).toBe(1);
+        expect(d.getDate()).toBe(29);
+    });
+
+    it('returns null for month 0', () => {
+        expect(parseDate('2022-00-15')).toBeNull();
+    });
+
+    it('returns null for day 0', () => {
+        expect(parseDate('2022-01-00')).toBeNull();
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

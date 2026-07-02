@@ -47,10 +47,26 @@ export function toCalendarStoreEvent(legacyEvent, date, index) {
 export function parseDate(dateStr) {
     if (!dateStr) return null;
     const m = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    if (m) {
+        const year = parseInt(m[1]);
+        const month = parseInt(m[2]);
+        const day = parseInt(m[3]);
+        // Basic range check before constructing Date
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        const d = new Date(year, month - 1, day);
+        // Round-trip check: Date auto-corrects invalid dates (e.g. Feb 30 → Mar 2)
+        if (d.getMonth() + 1 !== month || d.getDate() !== day) return null;
+        return d;
+    }
     // fallback: try Date constructor
     const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? null : d;
+    if (isNaN(d.getTime())) return null;
+    // Round-trip check for fallback path: verify parsed date components match input
+    const parts = dateStr.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+    if (parts) {
+        if (d.getMonth() + 1 !== parseInt(parts[2]) || d.getDate() !== parseInt(parts[3])) return null;
+    }
+    return d;
 }
 
 /**

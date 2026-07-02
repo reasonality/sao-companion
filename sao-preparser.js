@@ -89,6 +89,32 @@ export function parseTimelineEntries(entries) {
     if (!calStore) return 0;
     if (!calStore.events) calStore.events = {};
 
+    // Build set of enabled entry comments for stale data removal
+    const enabledComments = new Set();
+    for (const e of entries) {
+        if (e.enabled !== false) {
+            enabledComments.add((e.comment || '').trim());
+        }
+    }
+
+    // Remove canon events whose source entry is now disabled or no longer exists.
+    // Non-canon events (appointments, custom, etc.) are preserved.
+    for (const [dateStr, evArr] of Object.entries(calStore.events)) {
+        if (!Array.isArray(evArr)) continue;
+        const filtered = evArr.filter(ev => {
+            if (ev.type !== 'canon') return true;
+            if (!ev.sourceEntryId) return true; // legacy data without source tracking — keep
+            return enabledComments.has(ev.sourceEntryId);
+        });
+        if (filtered.length !== evArr.length) {
+            if (filtered.length === 0) {
+                delete calStore.events[dateStr];
+            } else {
+                calStore.events[dateStr] = filtered;
+            }
+        }
+    }
+
     // Filter timeline entries
     const timelineEntries = entries.filter(e =>
         e.enabled !== false && /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
@@ -120,11 +146,13 @@ export function parseTimelineEntries(entries) {
                     const dup = calStore.events[dateStr].some(e => _dedupKey(e.title) === evKey);
                     if (dup) continue;
 
-                    calStore.events[dateStr].push(toCalendarStoreEvent({
+                    const evt = toCalendarStoreEvent({
                         type: 'canon',
                         title: txt,
                         description: txt,
-                    }, dateStr, calStore.events[dateStr].length));
+                    }, dateStr, calStore.events[dateStr].length);
+                    evt.sourceEntryId = comment;
+                    calStore.events[dateStr].push(evt);
                     totalCount++;
                 }
             }
@@ -203,6 +231,25 @@ export function parseWorldRules(entries) {
     ];
 
     if (!ws._rulesHashes) ws._rulesHashes = {};
+    if (!ws._ruleSources) ws._ruleSources = {};
+
+    // Build set of enabled entry comments for stale data removal
+    const enabledComments = new Set();
+    for (const e of entries) {
+        if (e.enabled !== false) {
+            enabledComments.add((e.comment || '').trim());
+        }
+    }
+
+    // Remove rules whose source entry is now disabled or no longer exists
+    for (const [topic, sourceComment] of Object.entries(ws._ruleSources)) {
+        if (!enabledComments.has(sourceComment)) {
+            delete ws.rules[topic];
+            delete ws._rulesHashes[topic];
+            delete ws._ruleSources[topic];
+        }
+    }
+
     let count = 0;
 
     for (const entry of entries) {
@@ -235,6 +282,7 @@ export function parseWorldRules(entries) {
 
         ws.rules[matchedTopic] = cleaned;
         ws._rulesHashes[matchedTopic] = hash;
+        ws._ruleSources[matchedTopic] = comment;
         count++;
     }
 

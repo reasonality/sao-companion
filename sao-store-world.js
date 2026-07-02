@@ -18,7 +18,7 @@ import { log } from './sao-core.js';
 function ensureWorldStore() {
     const store = getStore();
     if (!store.worldStore) {
-        store.worldStore = { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _rulesHashes: {}, _updatedAt: null };
+        store.worldStore = { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _rulesHashes: {}, _ruleSources: {}, _updatedAt: null };
     }
     if (!Array.isArray(store.worldStore.worldEvents)) {
         store.worldStore.worldEvents = [];
@@ -28,6 +28,9 @@ function ensureWorldStore() {
     }
     if (!store.worldStore._rulesHashes || typeof store.worldStore._rulesHashes !== 'object') {
         store.worldStore._rulesHashes = {};
+    }
+    if (!store.worldStore._ruleSources || typeof store.worldStore._ruleSources !== 'object') {
+        store.worldStore._ruleSources = {};
     }
     return store.worldStore;
 }

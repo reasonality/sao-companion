@@ -36,7 +36,7 @@ function makeEmptyStore() {
         calendarStore: { currentDate: null, events: {}, appointments: [] },
         questStore: { byId: {}, activeIds: [], completedIds: [] },
         consumableStore: { byId: {}, nameToId: {} },
-        worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _rulesHashes: {}, _updatedAt: null },
+        worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _rulesHashes: {}, _ruleSources: {}, _updatedAt: null },
         actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
         runtime: {},
         panels: {},
@@ -1096,5 +1096,217 @@ describe('runLorebookPreParser — Phase 5 integration (disable entries)', () =>
         const result = runLorebookPreParser(entries);
         expect(result.disabledCount).toBe(0);
         expect(entries[0].enabled).toBe(true);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Stale data removal: disabled entries' canon data cleaned on re-parse
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Stale data removal — timeline events from disabled entries', () => {
+    it('removes canon events from entries that become disabled on re-parse', () => {
+        const entries = [
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: [
+                    '#### **11月6日 (星期日) - 宣告日**',
+                    '*   SAO正式开服，所有玩家被困。',
+                ].join('\n'),
+            },
+        ];
+
+        // First parse — populates events
+        const count1 = parseTimelineEntries(entries);
+        expect(count1).toBe(1);
+        expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
+        expect(mockStore.calendarStore.events['2022-11-06'][0].sourceEntryId).toBe('2022年11月时间表');
+
+        // Disable entry
+        entries[0].enabled = false;
+
+        // Re-parse — stale events removed
+        const count2 = parseTimelineEntries(entries);
+        expect(count2).toBe(0);
+        // Date removed entirely (no events left)
+        expect(mockStore.calendarStore.events['2022-11-06']).toBeFalsy();
+    });
+
+    it('preserves non-canon events when removing stale canon events from disabled entries', () => {
+        const entries = [
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: [
+                    '#### **11月6日**',
+                    '*   SAO正式开服。',
+                ].join('\n'),
+            },
+        ];
+
+        // First parse
+        parseTimelineEntries(entries);
+        expect(mockStore.calendarStore.events['2022-11-06'].length).toBe(1);
+
+        // Add appointment on the same date (simulates runtime appointment)
+        mockStore.calendarStore.events['2022-11-06'].push({
+            event_id: 'evt_20221106_apt',
+            type: 'appointment',
+            title: 'Meet Asuna',
+            description: 'Meet Asuna',
+        });
+        expect(mockStore.calendarStore.events['2022-11-06'].length).toBe(2);
+
+        // Disable entry
+        entries[0].enabled = false;
+
+        // Re-parse
+        parseTimelineEntries(entries);
+
+        // Appointment survives, canon event removed
+        const events = mockStore.calendarStore.events['2022-11-06'];
+        expect(events).toBeTruthy();
+        expect(events.length).toBe(1);
+        expect(events[0].type).toBe('appointment');
+        expect(events[0].title).toBe('Meet Asuna');
+    });
+
+    it('keeps canon events from still-enabled entries on re-parse (idempotent stale check)', () => {
+        const entries = [
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: [
+                    '#### **11月6日**',
+                    '*   SAO正式开服。',
+                ].join('\n'),
+            },
+            {
+                comment: '2022年12月时间表',
+                enabled: true,
+                content: [
+                    '#### **12月1日**',
+                    '*   攻略会议召开。',
+                ].join('\n'),
+            },
+        ];
+
+        // First parse
+        parseTimelineEntries(entries);
+        expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
+        expect(mockStore.calendarStore.events['2022-12-01']).toBeTruthy();
+
+        // Disable only the November entry
+        entries[0].enabled = false;
+
+        // Re-parse
+        parseTimelineEntries(entries);
+
+        // November events removed, December kept
+        expect(mockStore.calendarStore.events['2022-11-06']).toBeFalsy();
+        expect(mockStore.calendarStore.events['2022-12-01']).toBeTruthy();
+        expect(mockStore.calendarStore.events['2022-12-01'][0].title).toContain('攻略');
+    });
+
+    it('adds sourceEntryId to all newly parsed canon events', () => {
+        const entries = [
+            {
+                comment: '2023年3月时间线',
+                enabled: true,
+                content: [
+                    '#### **3月10日**',
+                    '*   事件A。',
+                    '*   事件B。',
+                    '#### **3月20日**',
+                    '*   事件C。',
+                ].join('\n'),
+            },
+        ];
+
+        parseTimelineEntries(entries);
+
+        for (const dateStr of ['2023-03-10', '2023-03-20']) {
+            for (const evt of mockStore.calendarStore.events[dateStr]) {
+                expect(evt.sourceEntryId).toBe('2023年3月时间线');
+            }
+        }
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Stale data removal: disabled entries' world rules cleaned on re-parse
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Stale data removal — world rules from disabled entries', () => {
+    it('removes rules from entries that become disabled on re-parse', () => {
+        const entries = [
+            {
+                comment: 'sao-PK机制',
+                enabled: true,
+                selective: true,
+                content: '<directive name="PK规则">\n### PK基本规则\n* 仅限安全区外。\n</directive>',
+            },
+        ];
+
+        // First parse
+        const count1 = parseWorldRules(entries);
+        expect(count1).toBe(1);
+        expect(mockStore.worldStore.rules.pk).toContain('安全区外');
+
+        // Disable entry
+        entries[0].enabled = false;
+
+        // Re-parse
+        const count2 = parseWorldRules(entries);
+        expect(count2).toBe(0);
+        expect(mockStore.worldStore.rules.pk).toBeUndefined();
+        expect(mockStore.worldStore._rulesHashes.pk).toBeUndefined();
+        expect(mockStore.worldStore._ruleSources.pk).toBeUndefined();
+    });
+
+    it('preserves rules from still-enabled entries while removing stale ones', () => {
+        const entries = [
+            {
+                comment: 'sao-PK机制',
+                enabled: true,
+                selective: true,
+                content: '<directive name="PK规则">\n### PK基本规则\n* 仅限安全区外。\n</directive>',
+            },
+            {
+                comment: 'sao-经济系统',
+                enabled: true,
+                selective: true,
+                content: '<directive name="经济规则">\n### 核心概念\n* 货币：珂尔。\n</directive>',
+            },
+        ];
+
+        // First parse
+        parseWorldRules(entries);
+        expect(mockStore.worldStore.rules.pk).toBeTruthy();
+        expect(mockStore.worldStore.rules.economy).toBeTruthy();
+
+        // Disable only PK entry
+        entries[0].enabled = false;
+
+        // Re-parse
+        parseWorldRules(entries);
+
+        // PK removed, economy kept
+        expect(mockStore.worldStore.rules.pk).toBeUndefined();
+        expect(mockStore.worldStore.rules.economy).toContain('珂尔');
+    });
+
+    it('stores _ruleSources mapping for each parsed rule', () => {
+        const entries = [
+            {
+                comment: 'sao-剑技获取',
+                enabled: true,
+                selective: true,
+                content: '<directive name="剑技">\n### 剑技获取\n* 通过实战。\n</directive>',
+            },
+        ];
+
+        parseWorldRules(entries);
+        expect(mockStore.worldStore._ruleSources.combat).toBe('sao-剑技获取');
     });
 });
