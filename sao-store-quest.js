@@ -5,7 +5,7 @@
 import { getStore, saveStore } from './sao-store-core.js';
 import { log } from './sao-core.js';
 
-const QUEST_STATUS_ENUM = ['active', 'completed', 'failed', 'cancelled', 'archived'];
+const QUEST_STATUS_ENUM = ['active', 'completed', 'failed', 'cancelled', 'archived', 'abandoned'];
 const QUEST_KIND_ENUM = ['main', 'side', 'daily', 'hidden'];
 
 // ============================================================
@@ -190,6 +190,27 @@ function _moveToCompleted(store, quest_id) {
  * @param {string} id
  * @returns {object|null}
  */
+/**
+ * 放弃任务（从活跃列表移除，状态改为 abandoned）。
+ * @param {string} quest_id
+ * @param {boolean} [skipSave]
+ * @returns {boolean}
+ */
+export function abandonQuest(quest_id, skipSave) {
+    const store = ensureQuestStore();
+    const quest = store.byId[quest_id];
+    if (!quest) {
+        log(`abandonQuest: 任务 ${quest_id} 不存在`, 'warn');
+        return false;
+    }
+    quest.status = 'abandoned';
+    const idx = store.activeIds.indexOf(quest_id);
+    if (idx >= 0) store.activeIds.splice(idx, 1);
+    if (skipSave !== true) saveStore();
+    log(`任务放弃: ${quest.title}`);
+    return true;
+}
+
 export function getQuestById(id) {
     const store = ensureQuestStore();
     return store.byId[id] || null;

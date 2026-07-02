@@ -44,6 +44,7 @@ import { initNpcFromWorldBook } from './sao-store-npc.js';
 import { initFloorFromWorldBook, getFloorStore, ensureAllFloorsExist } from './sao-store-floor.js';
 import { getWorldStore } from './sao-store-world.js';
 import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
+import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
 import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
@@ -2216,6 +2217,25 @@ function initPanelLogic() {
                     if (slot) window.SaoPanel.unequip(slot);
                     break;
                 }
+                case 'abandonQuest': {
+                    const questId = target.getAttribute('data-quest-id');
+                    if (questId) {
+                        abandonQuest(questId);
+                        refreshStatus();
+                    }
+                    break;
+                }
+                case 'showCompletedQuests': {
+                    const completed = getCompletedQuests();
+                    const rows = completed.length
+                        ? completed.map(q => {
+                            const reward = q.reward_hint || '-';
+                            return `<div class="sao-detail-row"><span class="sao-detail-label">${esc(q.title)}</span><span class="sao-detail-value">${esc(reward)}</span></div>`;
+                        }).join('')
+                        : '<div style="font-size:0.88em;color:var(--text-tertiary);font-style:italic;padding:12px 0;text-align:center;">无已完成任务</div>';
+                    showDetailModal('已完成任务', rows);
+                    break;
+                }
             }
         });
     }
@@ -2559,6 +2579,26 @@ function refreshStatus() {
         } else {
             skillEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
             if (_saoCurrentData) _saoCurrentData.skills = [];
+        }
+    }
+
+    // 任务列表 - read from questStore
+    const questEl = document.getElementById('sao_quest_list');
+    if (questEl) {
+        const activeQuests = getActiveQuests();
+        if (activeQuests.length > 0) {
+            questEl.innerHTML = activeQuests.map(q => {
+                const reward = q.reward_hint ? `<div style="font-size:0.78em;color:var(--text-secondary);margin-top:2px;">报酬: ${esc(q.reward_hint)}</div>` : '';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;background:rgba(22,30,46,0.6);border:1px solid var(--border-subtle);border-radius:6px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:0.88em;color:var(--text-primary);font-weight:600;">${esc(q.title)}</div>
+                        ${reward}
+                    </div>
+                    <button class="sao-btn sao-btn-sm" data-action="abandonQuest" data-quest-id="${q.quest_id}" title="放弃任务" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;padding:2px 4px;opacity:0.5;">✕</button>
+                </div>`;
+            }).join('');
+        } else {
+            questEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无活跃任务</span>';
         }
     }
 

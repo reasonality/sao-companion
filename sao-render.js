@@ -1,4 +1,4 @@
-﻿// SAO Companion - 渲染模块（Shadow DOM 渲染 + 标签提取 + DOMPurify 钩子）
+// SAO Companion - 渲染模块（Shadow DOM 渲染 + 标签提取 + DOMPurify 钩子）
 // 从 index.js 拆分而来
 
 import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
@@ -12,7 +12,7 @@ import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
 import { equipItem, unequipItem } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
-import { createQuest, completeQuest } from './sao-store-quest.js';
+import { createQuest, completeQuest, abandonQuest, getCompletedQuests } from './sao-store-quest.js';
 import { useConsumable } from './sao-store-consumable.js';
 import { appendActionLog } from './sao-store-core.js';
 
@@ -1264,6 +1264,50 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-quest-completed { margin-top: 6px; }
 
+            /* === 任务列表项（新布局：标题+报酬+放弃按钮） === */
+            .sao-quest-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                margin-bottom: 4px;
+                background: rgba(22,30,46,0.6);
+                border: 1px solid var(--border-subtle);
+                border-radius: 6px;
+                transition: background 0.2s ease, border-color 0.2s ease;
+            }
+            .sao-quest-item:last-child { margin-bottom: 0; }
+            .sao-quest-item:hover {
+                background: rgba(30,40,58,0.75);
+                border-color: var(--border-accent);
+            }
+            .sao-quest-item-main { flex: 1; min-width: 0; }
+            .sao-quest-name { font-size: 0.88em; color: var(--text-primary); font-weight: 600; }
+            .sao-quest-reward { font-size: 0.78em; color: var(--text-secondary); margin-top: 2px; }
+            .sao-quest-abandon {
+                background: none;
+                border: none;
+                color: var(--danger);
+                cursor: pointer;
+                font-size: 12px;
+                padding: 2px 4px;
+                opacity: 0.5;
+                transition: opacity 0.2s;
+                flex-shrink: 0;
+            }
+            .sao-quest-abandon:hover { opacity: 1; }
+            .sao-quest-completed-btn {
+                background: none;
+                border: 1px solid var(--border-subtle);
+                border-radius: 4px;
+                padding: 2px 6px;
+                cursor: pointer;
+                font-size: 11px;
+                opacity: 0.7;
+                transition: opacity 0.2s, border-color 0.2s;
+            }
+            .sao-quest-completed-btn:hover { opacity: 1; border-color: var(--primary); }
+
             /* === 物品区: 4-tab + 胶囊标签 (照图3) === */
             .sao-inv-tabs {
                 display: flex;
@@ -1662,6 +1706,40 @@ function _attachStatusPanelListeners(shadow) {
             }
         });
     });
+
+    // 放弃任务
+    shadow.querySelectorAll('[data-sao-action="abandon-quest"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const questId = btn.dataset.saoQuestId;
+            try {
+                abandonQuest(questId);
+                _refreshStatusPanelContent(shadow);
+            } catch (err) {
+                log(`放弃任务失败: ${err.message}`, 'warn');
+            }
+        });
+    });
+
+    // 显示已完成任务弹窗
+    shadow.querySelectorAll('[data-sao-action="show-completed-quests"]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const completed = getCompletedQuests();
+            const rows = completed.length
+                ? completed.map(q => {
+                    const reward = q.reward_hint || '-';
+                    return `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.05);gap:12px;">
+                        <span style="opacity:0.85;font-size:0.85em;color:var(--text-secondary);flex:1;">${esc(q.title)}</span>
+                        <span style="font-weight:700;color:var(--text-primary);text-align:right;font-size:0.85em;">${esc(reward)}</span>
+                    </div>`;
+                }).join('')
+                : '<div style="font-size:0.88em;color:var(--text-tertiary);font-style:italic;padding:12px 0;text-align:center;">无已完成任务</div>';
+            _showShadowModal(shadow, '已完成任务', `<div style="max-height:300px;overflow-y:auto;">${rows}</div>`);
+        });
+    });
 }
 
 /**
@@ -1700,6 +1778,41 @@ function _refreshStatusPanelContent(shadow) {
     } catch (e) {
         log(`刷新状态面板失败: ${e.message}`, 'warn');
     }
+}
+
+/**
+ * 在 Shadow DOM 内弹出临时模态框（已完成任务列表等）。
+ * 点击 overlay 背景或关闭按钮关闭。
+ * @param {ShadowRoot} shadow
+ * @param {string} title
+ * @param {string} html
+ */
+function _showShadowModal(shadow, title, html) {
+    // 移除旧弹窗
+    const old = shadow.querySelector('.sao-shadow-modal');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sao-shadow-modal';
+    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(8,12,20,0.75);z-index:100;display:flex;justify-content:center;align-items:center;padding:20px;backdrop-filter:blur(4px);';
+    overlay.innerHTML = `
+        <div style="position:relative;max-width:460px;width:90%;max-height:70vh;overflow-y:auto;background:rgba(20,28,44,0.95);border:1px solid rgba(0,210,255,0.35);border-radius:14px;box-shadow:0 0 18px rgba(0,210,255,0.25),0 8px 32px rgba(0,0,0,0.45);color:#eaf2ff;font-family:'Exo 2','Noto Sans SC',sans-serif;animation:sao-scale-in 0.25s ease-out;">
+            <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent 0%,#00d2ff 20%,#66e8ff 50%,#00d2ff 80%,transparent 100%);pointer-events:none;border-radius:14px 14px 0 0;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.08);">
+                <span style="font-family:'Rajdhani','Noto Sans SC',sans-serif;font-weight:700;font-size:1.1em;color:#00d2ff;letter-spacing:0.5px;">${esc(title)}</span>
+                <button class="sao-shadow-modal-close" style="background:transparent;border:1px solid rgba(255,255,255,0.08);color:#9fb0cc;font-size:1.5em;line-height:1;cursor:pointer;width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;">&times;</button>
+            </div>
+            <div style="padding:18px 22px;">${html}</div>
+        </div>
+    `;
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay || e.target.closest('.sao-shadow-modal-close')) {
+            overlay.remove();
+        }
+    });
+
+    shadow.appendChild(overlay);
 }
 
 function renderNpcStatus(messageEl, rawText, messageId, refNode) {

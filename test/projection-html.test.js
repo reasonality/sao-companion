@@ -177,8 +177,8 @@ describe('projectStatusPanelHtml', () => {
         expect(html).not.toContain('s2');
 
         // 投影输出是 inner content；外层 <details>/<summary> 由 sao-render.js 包裹（本测试仅测投影）
-        // 因此这里不强求 <details>，但确认任务 section 存在
-        expect(html).toContain('sao-status-section-standalone');
+        // 因此这里不强求 <details>，但确认任务 section 存在（在 Row2 中与技能并列）
+        expect(html).toContain('data-sao-section="quests"');
     });
 
     it('contains all six section labels', () => {
@@ -245,28 +245,25 @@ describe('projectStatusPanelHtml', () => {
         expect(idxRow1).toBeGreaterThan(-1);
         expect(idxRow2).toBeGreaterThan(idxRow1);
 
-        // 列容器与右列堆叠类
+        // 列容器
         expect(html).toContain('sao-status-col');
-        expect(html).toContain('sao-status-right-stack');
 
         // Row 1 切片（row1 ~ row2）应包含 info + world（玩家已合并入 info，对齐图3）
         const row1Slice = html.slice(idxRow1, idxRow2);
         expect(row1Slice).toContain('data-sao-section="info"');
         expect(row1Slice).toContain('data-sao-section="world"');
 
-        // 任务已脱离 Row 2，移到 row1 与 row2 之间（整行宽 sao-status-section-standalone）
-        expect(html).toContain('sao-status-section-standalone');
-        const questBlock = html.match(/<div class="sao-status-section sao-status-section-standalone"[\s\S]*?<\/div>\s*\n\s*<div class="sao-status-row sao-status-row2">/);
-        expect(questBlock).not.toBeNull();
-        expect(questBlock[0]).toContain('data-sao-section="quests"');
-
-        // Row 2（在 row2 标记之后）应包含 inventory、equip、skills
-        const row2Slice = html.slice(idxRow2);
-        expect(row2Slice).toContain('data-sao-section="inventory"');
-        expect(row2Slice).toContain('data-sao-section="equip"');
+        // Row 2（row2 ~ row3）应包含 skills + quests
+        const idxRow3 = html.indexOf('sao-status-row3');
+        expect(idxRow3).toBeGreaterThan(idxRow2);
+        const row2Slice = html.slice(idxRow2, idxRow3);
         expect(row2Slice).toContain('data-sao-section="skills"');
-        // 任务已不在 row2 内（已上移为独立 section）
-        expect(row2Slice).not.toContain('data-sao-section="quests"');
+        expect(row2Slice).toContain('data-sao-section="quests"');
+
+        // Row 3 应包含 inventory + equip
+        const row3Slice = html.slice(idxRow3);
+        expect(row3Slice).toContain('data-sao-section="inventory"');
+        expect(row3Slice).toContain('data-sao-section="equip"');
     });
 
     it('renders world rows with location/weather/area/clearing/events (always 5 rows)', () => {
@@ -389,9 +386,9 @@ describe('projectStatusPanelHtml', () => {
         // 双栏布局（与侧边面板 panel.html:48-104 同语言）
         expect(html).toContain('sao-status-row1');
         expect(html).toContain('sao-status-row2');
+        expect(html).toContain('sao-status-row3');
         expect(html).toContain('sao-status-row ');
         expect(html).toContain('sao-status-col');
-        expect(html).toContain('sao-status-right-stack');
         // 世界行卡（5 行：位置/天气/区域/攻略/事件）
         expect(html).toContain('sao-world-row');
         expect(html).toContain('sao-world-label');
@@ -411,7 +408,7 @@ describe('projectStatusPanelHtml', () => {
         // 技能已从 details 折叠改为按钮网格（sao-skill-btn / sao-skill-grid）
         expect(html).toContain('sao-skill-btn');
         expect(html).toContain('sao-skill-grid');
-        expect(html).toContain('sao-quest-card');
+        expect(html).toContain('sao-quest-item');
         expect(html).toContain('sao-inv-tags');
         expect(html).toContain('sao-cor-row');
 
@@ -420,11 +417,8 @@ describe('projectStatusPanelHtml', () => {
         // equip-from-backpack dropped from dialog HUD（背包装备改到物品 tab）
         expect(html).not.toContain('data-sao-action="equip"');
         expect(html).toContain('data-sao-action="use-consumable"');
-        expect(html).toContain('data-sao-action="complete-quest"');
-        expect(html).toContain('data-sao-action="add-quest"');
-
-        // 任务 standalone section
-        expect(html).toContain('sao-status-section-standalone');
+        expect(html).toContain('data-sao-action="abandon-quest"');
+        expect(html).toContain('data-sao-action="show-completed-quests"');
     });
 
     it('uses combat HP during active combat (soft-guard)', () => {

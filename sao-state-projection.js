@@ -1,4 +1,4 @@
-﻿// sao-state-projection.js — Store → 可读文本投影层
+// sao-state-projection.js — Store → 可读文本投影层
 // 将 playerStore / equipmentStore / skillStore / inventoryStore 投影为
 // 主 LLM prompt 注入所需的 compact / full / summary 文本格式。
 // 纯函数，无副作用，不写 store。
@@ -754,6 +754,7 @@ export function renderQuestPanel() {
         title: q.title || '未知任务',
         summary: q.summary || '',
         status: q.status,
+        reward_hint: q.reward_hint || '',
         objectives: (q.objectives || []).map(o => ({
             text: o.text || o.description || '',
             done: !!o.done,
@@ -833,9 +834,9 @@ export function renderWorldPanel() {
  * 内部调用 C1 结构化数据函数，再转换为 HTML。
  *
  * 布局（照图3精确实现；与侧边面板 panel.html:48-104 同语言）：
- *   Row 1：玩家状态（左 55%）| 世界状态（右 45%）
- *   任务：单独一栏，夹在 Row 1 与 Row 2 之间，整行宽
- *   Row 2：物品（左 55%）| 装备 + 技能（右 45% stack）
+     *   Row 1：玩家状态（左 55%）| 世界状态（右 45%）
+     *   Row 2：技能（左 55%）| 任务（右 45%）
+     *   Row 3：物品（左 55%）| 装备（右 45%）
  *
  * @returns {string|null} HTML 字符串，store 不可用时返回 null（让 renderUserStatus 回退）
  */
@@ -922,44 +923,28 @@ export function projectStatusPanelHtml() {
         </div>`;
 
     // ============================================================
-    // ---- 3. 任务（单独一栏，整行宽） ----
-    // 任务独立 section，与 物品 不混排，符合用户"任务应该单独一栏"。
+    // ---- 3. 任务（Row2 右列，与技能并列） ----
     // ============================================================
     const questPanel = renderQuestPanel();
     let questContent = '';
     if (questPanel?.active?.length) {
         questContent = questPanel.active.map(q => {
-            const summary = q.summary ? `<div class="sao-text-secondary">${esc(q.summary)}</div>` : '';
-            const objectives = q.objectives?.length
-                ? `<ul class="sao-quest-objectives">${q.objectives.map(o =>
-                    `<li>${o.done ? '☑' : '☐'} ${esc(o.text)}</li>`
-                ).join('')}</ul>`
-                : '';
-            return `<div class="sao-quest-card">
-                <div class="sao-quest-header">
-                    <b>${esc(q.title)}</b>
-                    <button class="sao-quest-btn" data-sao-action="complete-quest" data-sao-quest-id="${q.quest_id}" title="完成任务">✓</button>
+            const rewardHtml = q.reward_hint ? `<div class="sao-quest-reward">报酬: ${esc(q.reward_hint)}</div>` : '';
+            return `<div class="sao-quest-item">
+                <div class="sao-quest-item-main">
+                    <div class="sao-quest-name">${esc(q.title)}</div>
+                    ${rewardHtml}
                 </div>
-                ${summary}
-                ${objectives}
+                <button class="sao-quest-abandon" data-sao-action="abandon-quest" data-sao-quest-id="${q.quest_id}" title="放弃任务">✕</button>
             </div>`;
         }).join('');
     }
     if (!questContent) {
         questContent = '<div class="sao-empty">暂无活跃任务</div>';
     }
-    const addQuestForm = `<div class="sao-quest-add"><input type="text" data-sao-quest-input placeholder="输入任务标题..." /> <button class="sao-quest-btn" data-sao-action="add-quest" title="添加任务">+</button></div>`;
-    const completed = questPanel?.completed || [];
-    const completedHtml = completed.length
-        ? `<details class="sao-quest-completed"><summary>已完成任务 (${completed.length})</summary><div class="sao-text-secondary">${completed.map(q => `<div>${esc(q.title)}</div>`).join('')}</div></details>`
-        : '';
-    const questSection = `<div class="sao-status-section sao-status-section-standalone" data-sao-section="quests">
-            <div class="sao-status-section-title">任务</div>
-            <div class="sao-hud-card">
-                ${questContent}
-                ${addQuestForm}
-                ${completedHtml}
-            </div>
+    const questSection = `<div class="sao-status-section" data-sao-section="quests">
+            <div class="sao-status-section-title">任务 <button class="sao-quest-completed-btn" data-sao-action="show-completed-quests" title="已完成任务">📋</button></div>
+            <div class="sao-hud-card">${questContent}</div>
         </div>`;
 
     // ============================================================
@@ -1060,20 +1045,22 @@ export function projectStatusPanelHtml() {
             </div>`;
     }
 
-    // ---- 装配：照图3布局 ----
+    // ---- 装配：新布局 ----
     // Row 1：玩家状态 (左 55%) | 世界状态 (右 45%)
-    // 任务   单独一栏 (整行宽)
-    // Row 2：物品 (左 55%) | 装备 + 技能 (右 stack)
+    // Row 2：技能 (左 55%) | 任务 (右 45%)
+    // Row 3：物品 (左 55%) | 装备 (右 45%)
     return [
         `<div class="sao-status-row sao-status-row1">`,
             `<div class="sao-status-col sao-status-col-player">${playerSection}</div>`,
             `<div class="sao-status-col sao-status-col-world">${worldSection}</div>`,
         `</div>`,
-        // 任务：单独一栏
-        questSection,
         `<div class="sao-status-row sao-status-row2">`,
+            `<div class="sao-status-col">${skillsSection || ''}</div>`,
+            `<div class="sao-status-col">${questSection}</div>`,
+        `</div>`,
+        `<div class="sao-status-row sao-status-row3">`,
             `<div class="sao-status-col sao-status-col-inventory">${inventorySection}</div>`,
-            `<div class="sao-status-col sao-status-right-stack">${equipSection}${skillsSection}</div>`,
+            `<div class="sao-status-col">${equipSection || ''}</div>`,
         `</div>`,
     ].join('\n');
 }
