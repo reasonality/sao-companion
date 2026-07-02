@@ -310,7 +310,7 @@ export async function extractAll(aiMessage, callModelFn, messageId) {
             // persistSpecialistPanel(messageId, 'status', {state, zdText}) 把对象存入 html 字段
             const panelData = (typeof statusPanel.html === 'string') ? safeJsonParse(statusPanel.html) : statusPanel.html;
             if (panelData && panelData.state) {
-                const state = panelData.state;
+                const state = { ...panelData.state }; // shallow copy: don't mutate stored panel data during HP/MP supplementation
                 const npcUpdates = panelData.npcUpdates || [];
 
                 // 补充 HP/MP：当专家面板 state 缺少 hp/mp 时，从标签解析补充

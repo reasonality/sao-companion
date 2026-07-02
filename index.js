@@ -550,7 +550,7 @@ function bindEvents() {
             const char = getCurrentCharacter();
             if (char?.data?.character_book?.entries) {
                 const entries = char.data.character_book.entries;
-                const result = runLorebookPreParser(entries, settings.currentArc || 'sao');
+                const result = runLorebookPreParser(entries, getSettings().currentArc || 'sao');
                 if (result) {
                     saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
                 }
