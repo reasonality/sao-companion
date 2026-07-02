@@ -989,7 +989,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 background: linear-gradient(180deg, rgba(22,30,46,0.92) 0%, rgba(15,21,34,0.92) 100%);
                 border: 1px solid var(--border-accent);
                 border-radius: 8px;
-                padding: 10px 12px;
+                padding: 8px 10px;
                 margin: 0;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.30), 0 0 12px rgba(0,210,255,0.08);
                 position: relative;
@@ -1007,11 +1007,11 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
 
             /* === 玩家状态 HUD 头部 (紧凑) === */
-            .sao-hud-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+            .sao-hud-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; }
             .sao-hud-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
             .sao-hud-name {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
-                font-size: 16px;            /* 用户要求: 16px */
+                font-size: 14px;            /* 压缩紧凑 */
                 font-weight: 700;
                 color: var(--text-primary);
                 letter-spacing: 0.4px;
@@ -1027,7 +1027,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-hud-lv {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
-                font-size: 14px;            /* 用户要求: 14px */
+                font-size: 12px;            /* 压缩紧凑 */
                 font-weight: 700;
                 color: var(--primary);
                 text-shadow: 0 0 6px rgba(0,210,255,0.35);
@@ -1069,20 +1069,20 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-cursor-orange { color: #ffa766; background: rgba(255,138,61,0.16); border: 1px solid rgba(255,167,102,0.42); }
             .sao-cursor-red    { color: #ff7d8a; background: rgba(255,46,74,0.18); border: 1px solid rgba(255,125,138,0.45); }
 
-            /* === HP / MP 进度条 (8px 高 — 用户要求) === */
-            .sao-bar-row { margin-bottom: 2px; }
+            /* === HP / MP 进度条 (6px 高 — 压缩紧凑) === */
+            .sao-bar-row { margin-bottom: 1px; }
             .sao-bar-row:last-child { margin-bottom: 0; }
             .sao-bar-labels {
                 display: flex;
                 justify-content: space-between;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
                 font-size: 0.78em;
-                margin-bottom: 2px;
+                margin-bottom: 1px;
                 color: var(--text-secondary);
                 letter-spacing: 0.5px;
             }
             .sao-bar-container {
-                height: 8px;
+                height: 6px;
                 background: rgba(0,0,0,0.45);
                 border-radius: 4px;
                 overflow: hidden;
@@ -1116,18 +1116,18 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 50% { filter: brightness(1.25); box-shadow: 0 0 10px rgba(255,46,74,0.55); }
             }
 
-            /* === 属性卡片 (70x70, 数字 24px — 用户要求) === */
+            /* === 属性卡片 (56px高, 数字 18px — 压缩紧凑) === */
             .sao-stat-grid {
                 display: grid;
                 grid-template-columns: repeat(4, 1fr);
-                gap: 6px;
-                margin-top: 6px;
+                gap: 8px;
+                margin-top: 4px;
             }
             .sao-stat-item {
                 width: 100%;
-                height: 70px;            /* 用户要求: 70px */
-                min-height: 70px;
-                max-height: 70px;
+                height: 56px;            /* 压缩紧凑 */
+                min-height: 56px;
+                max-height: 56px;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
@@ -1136,7 +1136,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 background: rgba(22,30,46,0.80);
                 border: 1px solid var(--border-subtle);
                 border-radius: 6px;
-                padding: 4px 2px;
+                padding: 8px 6px;
                 text-align: center;
                 box-sizing: border-box;
                 position: relative;
@@ -1166,7 +1166,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-stat-value {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
-                font-size: 24px;            /* 用户要求: 24px */
+                font-size: 18px;            /* 压缩紧凑 */
                 line-height: 1;
                 font-weight: 700;
                 color: var(--primary);
@@ -1174,7 +1174,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-stat-label {
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-                font-size: 11px;            /* 用户要求: 11px */
+                font-size: 0.70em;          /* 压缩紧凑 */
                 color: var(--text-secondary);
                 letter-spacing: 0.4px;
                 line-height: 1;
@@ -1184,7 +1184,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             @media (max-width: 600px) {
                 .sao-stat-grid { grid-template-columns: repeat(2, 1fr); }
                 .sao-stat-item { height: 56px; min-height: 56px; max-height: 56px; }
-                .sao-stat-value { font-size: 20px; }
+                .sao-stat-value { font-size: 16px; }
             }
 
             /* === 世界状态行 (5 行紧凑, 32px 高) === */

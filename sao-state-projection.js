@@ -869,7 +869,7 @@ export function projectStatusPanelHtml() {
     if (levelPanel.floorId != null) locationParts.push(`${levelPanel.floorId}F`);
     const locationText = locationParts.join(' / ');
 
-    // 属性卡片 — 70x70，数字 24px（≈1.5em of 16px base），标签 11px
+    // 属性卡片 — 56px高，数字 18px，标签 0.70em
     const attrList = [
         { label: 'STR', val: levelPanel.str },
         { label: 'AGI', val: levelPanel.agi },
