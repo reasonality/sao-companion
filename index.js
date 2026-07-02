@@ -600,17 +600,47 @@ function bindEvents() {
                         renderAllTags(histEl, msg.mes || '', idx);
                     }
                 });
-                // 延迟轮询未渲染的消息（DOM 可能尚未就绪）
-                // 关键修复：histEl 为 null 时也要启动轮询，否则 DOM 就绪后也不会渲染
-                chatCtx.chat.forEach((msg, idx) => {
-                    if (!msg || msg.is_user) return;
-                    // 同样跳过最后一条 AI 消息
-                    if (idx === lastAiIdx) return;
-                    const histEl = getMessageElement(idx);
-                    if (!histEl || !histEl.querySelector('.sao-render-host')) {
-                        renderMessageWhenReady(idx, msg.mes || '');
+                // Batching fix: 用单个轮询循环替代 N 条消息各自独立 setTimeout 链
+                // 之前每条消息启动 renderMessageWhenReady (20×80ms)，100条消息 = 100个并发定时器链 → 酒馆卡顿/崩溃
+                // 现在用单个定时器统一检查所有待渲染消息，每轮最多渲染 5 条，最多 30 轮
+                {
+                    const pendingMsgs = [];
+                    chatCtx.chat.forEach((msg, idx) => {
+                        if (!msg || msg.is_user) return;
+                        if (idx === lastAiIdx) return;
+                        const histEl = getMessageElement(idx);
+                        if (!histEl || !histEl.querySelector('.sao-render-host')) {
+                            pendingMsgs.push({ idx, text: msg.mes || '' });
+                        }
+                    });
+                    if (pendingMsgs.length > 0) {
+                        let batchAttempts = 0;
+                        const batchPoll = () => {
+                            const remaining = [];
+                            let rendered = 0;
+                            for (const { idx, text } of pendingMsgs) {
+                                const el = getMessageElement(idx);
+                                if (el && el.querySelector('.mes_text') && !el.querySelector('.sao-render-host')) {
+                                    const msg = chatCtx.chat?.[idx];
+                                    if (msg && !msg.is_user) {
+                                        renderAllTags(el, text, idx);
+                                        rendered++;
+                                    }
+                                } else if (!el || !el.querySelector('.mes_text')) {
+                                    remaining.push({ idx, text });
+                                }
+                            }
+                            // 更新 pending 列表（移除已渲染的，保留 DOM 仍未就绪的）
+                            pendingMsgs.length = 0;
+                            pendingMsgs.push(...remaining);
+                            batchAttempts++;
+                            if (pendingMsgs.length > 0 && batchAttempts < 30) {
+                                setTimeout(batchPoll, 150);
+                            }
+                        };
+                        setTimeout(batchPoll, 100);
                     }
-                });
+                }
             }
         } else {
             // 切出 SAO 卡，恢复设置（destroyBattleSideEffects 已移到上面）

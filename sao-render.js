@@ -1069,14 +1069,14 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-cursor-red    { color: #ff7d8a; background: rgba(255,46,74,0.18); border: 1px solid rgba(255,125,138,0.45); }
 
             /* === HP / MP 进度条 (8px 高 — 用户要求) === */
-            .sao-bar-row { margin-bottom: 3px; }
+            .sao-bar-row { margin-bottom: 2px; }
             .sao-bar-row:last-child { margin-bottom: 0; }
             .sao-bar-labels {
                 display: flex;
                 justify-content: space-between;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
                 font-size: 0.78em;
-                margin-bottom: 3px;
+                margin-bottom: 2px;
                 color: var(--text-secondary);
                 letter-spacing: 0.5px;
             }
@@ -1519,8 +1519,6 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 padding: 6px 0;
             }
         </style>
-'@
-
         <div class="character-status-wrapper">
             <details class="details-character-status"${_wasOpen ? ' open' : ''}>
                 <summary>角色状态栏</summary>
