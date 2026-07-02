@@ -987,11 +987,11 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             /* === HUD 卡片基座 === */
             .sao-hud-card {
                 background: linear-gradient(180deg, rgba(22,30,46,0.92) 0%, rgba(15,21,34,0.92) 100%);
-                border: 1px solid var(--border-subtle);
+                border: 1px solid var(--border-accent);
                 border-radius: 8px;
                 padding: 10px 12px;
                 margin: 0;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.30);
+                box-shadow: 0 2px 8px rgba(0,0,0,0.30), 0 0 12px rgba(0,210,255,0.08);
                 position: relative;
             }
             .sao-hud-card::before {
@@ -1007,8 +1007,8 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
 
             /* === 玩家状态 HUD 头部 (紧凑) === */
-            .sao-hud-header { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
-            .sao-hud-name-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            .sao-hud-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+            .sao-hud-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
             .sao-hud-name {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
                 font-size: 16px;            /* 用户要求: 16px */
@@ -1017,12 +1017,13 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 letter-spacing: 0.4px;
                 line-height: 1.2;
             }
-            .sao-hud-sub-wrap {
-                display: flex;
-                align-items: baseline;
-                gap: 10px;
-                flex-wrap: wrap;
-                font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+            .sao-hud-location {
+                font-size: 12px;
+                color: var(--text-secondary);
+                letter-spacing: 0.4px;
+                font-weight: 400;
+                white-space: nowrap;
+                flex-shrink: 0;
             }
             .sao-hud-lv {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
@@ -1120,7 +1121,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 display: grid;
                 grid-template-columns: repeat(4, 1fr);
                 gap: 6px;
-                margin-top: 10px;
+                margin-top: 6px;
             }
             .sao-stat-item {
                 width: 100%;
@@ -1151,6 +1152,17 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 height: 2px;
                 background: var(--primary);
                 opacity: 0.6;
+            }
+            .sao-stat-item::after {
+                content: '';
+                position: absolute;
+                bottom: 4px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 30%;
+                height: 1px;
+                background: var(--primary);
+                opacity: 0.4;
             }
             .sao-stat-value {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;

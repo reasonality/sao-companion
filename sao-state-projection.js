@@ -865,8 +865,8 @@ export function projectStatusPanelHtml() {
     const hpLowClass = hpPct < 25 ? 'sao-bar-hp-low' : '';
 
     const locationParts = [];
-    if (levelPanel.floorId != null) locationParts.push(`${levelPanel.floorId}F`);
     if (levelPanel.location) locationParts.push(levelPanel.location);
+    if (levelPanel.floorId != null) locationParts.push(`${levelPanel.floorId}F`);
     const locationText = locationParts.join(' / ');
 
     // 属性卡片 — 70x70，数字 24px（≈1.5em of 16px base），标签 11px
@@ -883,14 +883,12 @@ export function projectStatusPanelHtml() {
         : '';
 
     const playerInfoHtml = `<div class="sao-hud-header">
-            <div class="sao-hud-name-wrap">
+            <div class="sao-hud-left">
                 <span class="sao-hud-name">${esc(playerPanel.name || '未知')}</span>
                 <span class="sao-cursor-badge ${cursorClass}"><span class="sao-cursor-dot"></span><span class="sao-cursor-text">${esc(cursorLabel)}</span></span>
-            </div>
-            <div class="sao-hud-sub-wrap">
                 ${levelPanel.level != null ? `<span class="sao-hud-lv">Lv.${levelPanel.level}</span>` : ''}
-                ${locationText ? `<span class="sao-hud-sub">${esc(locationText)}</span>` : ''}
             </div>
+            ${locationText ? `<span class="sao-hud-location">${esc(locationText)}</span>` : ''}
         </div>
         <div class="sao-bar-row">
             <div class="sao-bar-labels"><span>HP</span><span>${hp}/${maxHp}</span></div>
