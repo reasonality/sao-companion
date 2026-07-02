@@ -1911,6 +1911,23 @@ function _refreshStatusPanelContent(shadow) {
 }
 
 /**
+ * BUG #5: 刷新最新聊天消息的状态面板（供插件侧边栏调用）。
+ * 查找 DOM 中最后一个 user_status Shadow DOM host，重新投影内容。
+ */
+export function refreshLatestChatStatusPanel() {
+    try {
+        const hosts = document.querySelectorAll('.sao-render-host[data-sao-tag="user_status"]');
+        if (hosts.length === 0) return;
+        const lastHost = hosts[hosts.length - 1];
+        if (lastHost?.shadowRoot) {
+            _refreshStatusPanelContent(lastHost.shadowRoot);
+        }
+    } catch (e) {
+        log(`refreshLatestChatStatusPanel 失败: ${e.message}`, 'warn');
+    }
+}
+
+/**
  * 在 Shadow DOM 内弹出临时模态框（已完成任务列表等）。
  * 点击 overlay 背景或关闭按钮关闭。
  * @param {ShadowRoot} shadow

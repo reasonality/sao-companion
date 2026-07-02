@@ -731,6 +731,14 @@ export function renderInventoryPanel() {
                 resolvedName = def?.name;
             } catch { /* keep undefined */ }
         }
+        // BUG #7a fix: 装备条目只有 equipment_id，没有 name
+        // 从 equipmentStore 取真实名字，避免显示 inv_003 等原始 ID
+        if (!resolvedName && item.type === 'equipment' && item.equipment_id) {
+            try {
+                const eq = safe(() => getEquipmentById(item.equipment_id), `getEquipmentById(${item.equipment_id})`);
+                resolvedName = eq?.name;
+            } catch { /* keep undefined */ }
+        }
         return {
             name: resolvedName || item.item_id || '?',
             qty: item.qty ?? 1,

@@ -5,7 +5,7 @@
 import { getStore, saveStore } from './sao-store-core.js';
 import { log, getSaoData } from './sao-core.js';
 import { getFloorByNumber } from './sao-store-floor.js';
-import { getEquipmentStore, SLOT_ENUM } from './sao-store-equipment.js';
+import { getEquipmentStore, getEquipmentById, SLOT_ENUM } from './sao-store-equipment.js';
 import { getInventoryStore, generateItemId } from './sao-store-inventory.js';
 import { getSkillById } from './sao-store-skill.js';
 
@@ -55,6 +55,87 @@ function ensurePlayerStore() {
 }
 
 // ============================================================
+// 装备属性加成计算（BUG #4 修复）
+// ============================================================
+
+/** 属性加成字段（与 playerStore.attributes / vitals 对齐） */
+const BONUS_ATTR_FIELDS = ['str', 'agi', 'int', 'vit'];
+const BONUS_VITAL_FIELDS = ['maxHp', 'maxMp'];
+
+/**
+ * 汇总当前穿戴装备的属性加成。
+ * @returns {{ str: number, agi: number, int: number, vit: number, maxHp: number, maxMp: number }}
+ */
+function _getEquipmentBonuses() {
+    const playerStore = ensurePlayerStore();
+    const equipStore = getEquipmentStore();
+    const bonuses = { str: 0, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0 };
+    for (const slot of SLOT_ENUM) {
+        const eqId = playerStore.equipment?.[slot];
+        if (!eqId) continue;
+        const eq = equipStore.byId[eqId];
+        if (!eq?.stats) continue;
+        for (const f of BONUS_ATTR_FIELDS) {
+            if (eq.stats[f] != null) bonuses[f] += eq.stats[f];
+        }
+        for (const f of BONUS_VITAL_FIELDS) {
+            if (eq.stats[f] != null) bonuses[f] += eq.stats[f];
+        }
+    }
+    return bonuses;
+}
+
+/**
+ * 重新计算装备属性加成并更新 playerStore。
+ * 
+ * 原理：
+ * - baseAttributes = 角色固有属性（不含装备加成），由 extract 更新时自动同步
+ * - attributes = baseAttributes + 当前装备加成（显示值）
+ * - _baseVitals = 固有 maxHp/maxMp，同理
+ * 
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
+ * @param {object}  [oldBonuses] - 装备变更前的加成快照（用于首次初始化 baseAttributes）
+ */
+export function recalcStatsFromEquipment(skipSave, oldBonuses) {
+    const playerStore = ensurePlayerStore();
+    const newBonuses = _getEquipmentBonuses();
+
+    // 首次调用：从当前 attributes 减去旧加成得到固有属性
+    if (!playerStore.baseAttributes) {
+        const ob = oldBonuses || { str: 0, agi: 0, int: 0, vit: 0 };
+        playerStore.baseAttributes = {
+            str: (playerStore.attributes?.str ?? 0) - ob.str,
+            agi: (playerStore.attributes?.agi ?? 0) - ob.agi,
+            int: (playerStore.attributes?.int ?? 0) - ob.int,
+            vit: (playerStore.attributes?.vit ?? 0) - ob.vit,
+        };
+    }
+
+    // 计算总属性 = 固有 + 装备加成
+    const base = playerStore.baseAttributes;
+    playerStore.attributes = {
+        str: (base.str ?? 0) + newBonuses.str,
+        agi: (base.agi ?? 0) + newBonuses.agi,
+        int: (base.int ?? 0) + newBonuses.int,
+        vit: (base.vit ?? 0) + newBonuses.vit,
+    };
+
+    // maxHp / maxMp：同理
+    if (!playerStore._baseVitals) {
+        const ob = oldBonuses || { maxHp: 0, maxMp: 0 };
+        playerStore._baseVitals = {
+            maxHp: (playerStore.vitals?.maxHp ?? 100) - ob.maxHp,
+            maxMp: (playerStore.vitals?.maxMp ?? 20) - ob.maxMp,
+        };
+    }
+    const bv = playerStore._baseVitals;
+    playerStore.vitals.maxHp = (bv.maxHp ?? 100) + newBonuses.maxHp;
+    playerStore.vitals.maxMp = (bv.maxMp ?? 20) + newBonuses.maxMp;
+
+    if (skipSave !== true) saveStore();
+}
+
+// ============================================================
 // 导出函数
 // ============================================================
 
@@ -92,6 +173,9 @@ export async function equipItem(slot, equipmentId, skipSave) {
     const playerStore = ensurePlayerStore();
     const invStore = getInventoryStore();
 
+    // 捕获变更前加成快照（用于 baseAttributes 首次初始化）
+    const oldBonuses = _getEquipmentBonuses();
+
     // 步骤 1: 当前 slot 有装备 → 回背包
     const currentId = playerStore.equipment[slot];
     if (currentId) {
@@ -118,6 +202,9 @@ export async function equipItem(slot, equipmentId, skipSave) {
     // 步骤 3: 写入 playerStore
     playerStore.equipment[slot] = equipmentId;
 
+    // 步骤 4: 重算属性加成（BUG #4）
+    recalcStatsFromEquipment(true, oldBonuses);
+
     if (skipSave !== true) await saveStore();
     log(`装备穿戴: ${equipmentId} → ${slot}`);
 }
@@ -132,6 +219,14 @@ export async function updatePlayerVitals(vitals, skipSave) {
     if (vitals.maxHp != null) playerStore.vitals.maxHp = vitals.maxHp;
     if (vitals.mp != null) playerStore.vitals.mp = vitals.mp;
     if (vitals.maxMp != null) playerStore.vitals.maxMp = vitals.maxMp;
+
+    // 同步 _baseVitals：新 maxHp/maxMp = 总值（含装备），需减去当前装备加成得到固有值
+    if (playerStore._baseVitals) {
+        const bonuses = _getEquipmentBonuses();
+        if (vitals.maxHp != null) playerStore._baseVitals.maxHp = vitals.maxHp - bonuses.maxHp;
+        if (vitals.maxMp != null) playerStore._baseVitals.maxMp = vitals.maxMp - bonuses.maxMp;
+    }
+
     if (skipSave !== true) await saveStore();
 }
 
@@ -145,6 +240,18 @@ export async function updatePlayerAttributes(attrs, skipSave) {
     if (attrs.agi != null) playerStore.attributes.agi = attrs.agi;
     if (attrs.int != null) playerStore.attributes.int = attrs.int;
     if (attrs.vit != null) playerStore.attributes.vit = attrs.vit;
+
+    // 同步 baseAttributes：新属性 = 总值（含装备），需减去当前装备加成得到固有值
+    if (playerStore.baseAttributes) {
+        const bonuses = _getEquipmentBonuses();
+        playerStore.baseAttributes = {
+            str: (playerStore.attributes.str ?? 0) - bonuses.str,
+            agi: (playerStore.attributes.agi ?? 0) - bonuses.agi,
+            int: (playerStore.attributes.int ?? 0) - bonuses.int,
+            vit: (playerStore.attributes.vit ?? 0) - bonuses.vit,
+        };
+    }
+
     if (skipSave !== true) await saveStore();
 }
 
@@ -271,6 +378,9 @@ export async function unequipItem(slot, skipSave) {
         return null;
     }
 
+    // 捕获变更前加成快照（用于 baseAttributes 首次初始化）
+    const oldBonuses = _getEquipmentBonuses();
+
     // 装备回背包
     const invStore = getInventoryStore();
     const itemId = generateItemId();
@@ -283,6 +393,9 @@ export async function unequipItem(slot, skipSave) {
 
     // 清空槽位
     playerStore.equipment[slot] = null;
+
+    // 重算属性加成（BUG #4）
+    recalcStatsFromEquipment(true, oldBonuses);
 
     if (skipSave !== true) await saveStore();
     log(`装备卸下: ${currentId} (slot: ${slot}) → 回背包`);

@@ -47,7 +47,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags } from './sao-render.js';
+import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
@@ -2608,6 +2608,9 @@ function refreshStatus() {
     document.querySelectorAll('.sao-chapter-card').forEach(c => {
         c.classList.toggle('sao-chapter-active', c.dataset.arc === settings.currentArc);
     });
+
+    // BUG #5: 同步更新聊天消息中的状态面板（插件侧边栏修改后自动刷新）
+    refreshLatestChatStatusPanel();
 }
 
 // ============================================================
