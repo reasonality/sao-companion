@@ -463,6 +463,45 @@ describe('Phase 3: parseTimelineEntries', () => {
         const count = parseTimelineEntries(entries);
         expect(count).toBe(0);
     });
+
+    it('preserves pre-existing non-canon events when adding canon events', () => {
+        // Pre-populate with a non-canon appointment on the same date
+        mockStore.calendarStore.events['2022-11-06'] = [
+            {
+                event_id: 'evt_20221106_0',
+                type: 'appointment',
+                title: 'Meet Asuna',
+                description: 'Meet Asuna',
+                date: '2022-11-06',
+            },
+        ];
+
+        const entries = [
+            {
+                comment: '2022年11月时间表',
+                enabled: true,
+                content: [
+                    '#### **11月6日 (星期日) - 宣告日**',
+                    '*   SAO正式开服，所有玩家被困。',
+                    '*   桐人教导克莱因基础操作。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(2); // 2 new canon events added
+
+        const events = mockStore.calendarStore.events['2022-11-06'];
+        expect(events.length).toBe(3); // 1 appointment + 2 canon
+        // Appointment survives as the first event
+        expect(events[0].type).toBe('appointment');
+        expect(events[0].title).toBe('Meet Asuna');
+        // Canon events follow
+        expect(events[1].type).toBe('canon');
+        expect(events[1].title).toContain('SAO');
+        expect(events[2].type).toBe('canon');
+        expect(events[2].title).toContain('桐人');
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

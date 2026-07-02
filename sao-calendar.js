@@ -357,7 +357,7 @@ function _filterTimelineEntries(currentDate, options = {}) {
             }
             if (curDay > 0) {
                 // 子弹点：* **[关键事件]:** ... 或 * 情报商...
-                const bulM = trimmed.match(/^\s*[*\-+]\s+(.+)$/);
+                const bulM = line.match(/^\s{0,3}[*\-+]\s+(.+)$/);
                 if (bulM) {
                     let txt = bulM[1]
                         .replace(/\*\*([^*]+)\*\*/g, '$1')   // 去 **bold**
@@ -601,6 +601,15 @@ export function initCalendarIfNeeded() {
                 log('日历初始化：从 first_mes <calendar> 预填 ' + fmCount + ' 个原作事件');
             }
             break; // 只处理第一条非用户消息（greeting）
+        }
+
+        // Guard: skip world book timeline extraction if pre-parser already handled it
+        const loreParsed = getStore()?.loreParsed;
+        if (loreParsed?.timelineCount > 0) {
+            data.calendar.lastCalUpdateDate = calStore.currentDate;
+            data.calendar.canonDataVersion = CANON_DATA_VERSION;
+            log('日历初始化：pre-parser 已提取 ' + loreParsed.timelineCount + ' 个时间线条目，跳过世界书提取');
+            return;
         }
 
         // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
