@@ -2,7 +2,7 @@
 // Extracted from index.js: function calling tools, effect code table
 
 import { getSaoData, getCurrentCharacter, isSaoCard, log, getContext, bindSaoEvent } from './sao-core.js';
-import { initCalendarIfNeeded, queryTimeline } from './sao-calendar.js';
+import { initCalendarIfNeeded, queryTimeline, parseDate, formatDate } from './sao-calendar.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getStore } from './sao-store-core.js';
@@ -191,7 +191,7 @@ export function registerGetCalendar(ctx) {
             properties: {
                 date: { type: 'string', description: '查询单日 (YYYY-MM-DD)，如 2022-11-06' },
                 month: { type: 'string', description: '查询整月 (YYYY-MM)，如 2022-12' },
-                range_days: { type: 'integer', description: '从 date 起查询 N 天范围，默认 7' },
+                range_days: { type: 'integer', description: '从 date 起正负 N 天范围，默认 ±3 天' },
                 max: { type: 'integer', description: '最多返回事件数，默认 40，上限 120' },
             },
             required: [],
@@ -202,22 +202,34 @@ action: wrapToolAction('get_calendar', async (args) => {
                 const data = getSaoData();
                 const cal = data && data.calendar;
 
-                // 1. Canon timeline from queryTimeline (world book, real-time)
-                const query = {};
-                if (args?.date) query.date = args.date;
-                if (args?.month) {
-                    // Parse month to start_date + end_date for queryTimeline
+                // 1. Compute date window for filtering all event types
+                let winStart = null; // YYYY-MM-DD inclusive
+                let winEnd = null;
+
+                if (args?.date) {
+                    const explicitRange = Number.isFinite(Number(args?.range_days));
+                    const days = explicitRange ? Number(args.range_days) : 3;
+                    const d = parseDate(args.date);
+                    if (d) {
+                        const s = new Date(d); s.setDate(s.getDate() - days);
+                        const e = new Date(d); e.setDate(e.getDate() + days);
+                        winStart = formatDate(s);
+                        winEnd = formatDate(e);
+                    }
+                } else if (args?.month) {
                     const [y, m] = args.month.split('-');
                     const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
-                    query.start_date = `${args.month}-01`;
-                    query.end_date = `${args.month}-${String(lastDay).padStart(2, '0')}`;
+                    winStart = `${args.month}-01`;
+                    winEnd = `${args.month}-${String(lastDay).padStart(2, '0')}`;
                 }
-                if (args?.range_days && args?.date) {
-                    // queryTimeline doesn't have range_days, but we can compute start_date
-                    query.start_date = args.date;
-                    const d = new Date(args.date);
-                    d.setDate(d.getDate() + args.range_days);
-                    query.end_date = d.toISOString().split('T')[0];
+
+                // 1b. Canon timeline from queryTimeline (world book, real-time)
+                const query = {};
+                if (winStart && winEnd) {
+                    query.start_date = winStart;
+                    query.end_date = winEnd;
+                } else if (args?.date) {
+                    query.date = args.date;
                 }
                 if (args?.max) query.max = args.max;
 
@@ -237,7 +249,11 @@ action: wrapToolAction('get_calendar', async (args) => {
                 for (const apt of (cal?.appointments || [])) {
                     if (apt.id && !seenIds.has(apt.id)) { seenIds.add(apt.id); allAppointments.push(apt); }
                 }
-                gameEvents = allAppointments.map(apt => ({
+                // Filter appointments by date window
+                const windowedAppointments = winStart && winEnd
+                    ? allAppointments.filter(apt => apt.date && apt.date >= winStart && apt.date <= winEnd)
+                    : allAppointments;
+                gameEvents = windowedAppointments.map(apt => ({
                     date: apt.date || '',
                     type: '[约定]',
                     title: apt.title || apt.description || '',
@@ -246,6 +262,8 @@ action: wrapToolAction('get_calendar', async (args) => {
                 // 2b. calendarStore events (custom events from events map)
                 if (calStore?.events && typeof calStore.events === 'object') {
                     for (const [dateKey, events] of Object.entries(calStore.events)) {
+                        // Filter by date window
+                        if (winStart && winEnd && (dateKey < winStart || dateKey > winEnd)) continue;
                         if (!Array.isArray(events)) continue;
                         for (const ev of events) {
                             gameEvents.push({
