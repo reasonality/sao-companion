@@ -2625,7 +2625,7 @@ export function init() {
         console.error('[SAO Companion] SillyTavern API 不可用，需要 ST 1.17.0+');
         return;
     }
-    console.log('[SAO Companion] v0.6.45 初始化中... (slightly taller chat calendar cells)');
+    console.log('[SAO Companion] v1.5.0 初始化中... (batchPoll crash fix + HP/MP spacing + @ fix)');
     registerSaoDompurifyHook();
     loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);
