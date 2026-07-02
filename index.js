@@ -40,8 +40,8 @@ import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
 } from './sao-tools.js';
-import { initNpcFromWorldBook } from './sao-store-npc.js';
-import { initFloorFromWorldBook, getFloorStore, ensureAllFloorsExist } from './sao-store-floor.js';
+import { getFloorStore } from './sao-store-floor.js';
+import { runLorebookPreParser } from './sao-preparser.js';
 import { getWorldStore } from './sao-store-world.js';
 import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
@@ -546,32 +546,15 @@ function bindEvents() {
             injectMemoryAndState();
             initCalendarIfNeeded();
 
-            // B3: Initialize stores from world book (预分类一次，避免各 store init 重复扫描全部 entries)
+            // B3 + Pre-parser: Initialize stores from world book (Phase 1: NPCs, Phase 2: Floors)
             const char = getCurrentCharacter();
             if (char?.data?.character_book?.entries) {
                 const entries = char.data.character_book.entries;
-                const entryCount = entries.length;
-                // B3: 预分类 entries，initNpcFromWorldBook / initFloorFromWorldBook 各自只需遍历子集
-                const npcEntries = [];
-                const floorEntries = [];
-                for (const entry of entries) {
-                    const content = entry.content || '';
-                    const comment = (entry.comment || entry.name || '').trim();
-                    const keys = (entry.keys || []).map(k => k.toLowerCase());
-                    const allText = (comment + ' ' + keys.join(' ')).toLowerCase();
-                    if (content.includes('characterProfile')) {
-                        npcEntries.push(entry);
-                    } else if (/层|floor|f\b/.test(allText)) {
-                        floorEntries.push(entry);
-                    }
-                }
-                const npcCount = initNpcFromWorldBook(npcEntries);
-                const floorCount = initFloorFromWorldBook(floorEntries);
-                const stubCount = ensureAllFloorsExist(settings.currentArc || 'sao');
-                if (npcCount > 0 || floorCount > 0 || stubCount > 0) {
+                const result = runLorebookPreParser(entries, settings.currentArc || 'sao');
+                if (result) {
                     saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
                 }
-                log(`Phase B 初始化: ${npcCount} NPC, ${floorCount} 楼层, ${stubCount} stub (${settings.currentArc || 'sao'}), 索引 ${entryCount} 条目，预分类 NPC=${npcEntries.length} 楼层=${floorEntries.length})`);
+                log(`Pre-parser 完成: ${entries.length} 条目`);
             }
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {

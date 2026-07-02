@@ -41,6 +41,7 @@ const DEFAULT_STORE = {
     questStore: { byId: {}, activeIds: [], completedIds: [] },
     worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null },
     consumableStore: { byId: {}, nameToId: {} },
+    loreParsed: null,
     actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
     runtime: {},
     panels: {},
