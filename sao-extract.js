@@ -8,7 +8,7 @@ import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlaye
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
-import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
+import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
 
@@ -612,7 +612,7 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                         description: item.description || '',
                         source: 'llm'
                     });
-                    if (consumableId) await addConsumableItem(consumableId, qty, true);
+                    if (consumableId) await setConsumableQty(consumableId, qty, true);
                 }
             }
         }

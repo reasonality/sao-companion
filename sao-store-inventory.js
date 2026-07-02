@@ -185,6 +185,35 @@ export async function addConsumableItem(consumableId, qty, skipSave) {
 }
 
 /**
+ * 设置消耗品数量（覆盖而非累加）。
+ * 用于 AI 输出"当前状态"场景（如"初级治疗药水 x20"），避免每次 extractAll 叠加。
+ * @param {string} consumableId
+ * @param {number} qty - 目标数量
+ * @param {boolean} [skipSave] - true 则不立即保存（批量更新用）
+ * @returns {Promise<string|null>} item_id 或 null
+ */
+export async function setConsumableQty(consumableId, qty, skipSave) {
+    if (!consumableId) return null;
+    const store = ensureInventoryStore();
+    const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
+    const existing = store.items.find(
+        item => item.type === 'consumable' && item.consumable_id === consumableId
+    );
+    if (existing) {
+        existing.qty = safeQty;  // 设置而非累加
+        if (skipSave !== true) await saveStore();
+        log(`消耗品设置: ${consumableId} → ${safeQty}`);
+        return existing.item_id;
+    }
+    if (safeQty < 1) return null;
+    const itemId = generateItemId();
+    store.items.push({ item_id: itemId, type: 'consumable', consumable_id: consumableId, qty: safeQty });
+    if (skipSave !== true) await saveStore();
+    log(`消耗品新建: ${consumableId} x${safeQty}`);
+    return itemId;
+}
+
+/**
  * 添加材料。同名已存在则累加数量，否则创建新条目。
  * @param {string} name
  * @param {number} qty
