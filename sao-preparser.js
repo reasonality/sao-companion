@@ -297,37 +297,43 @@ export function parseWorldRules(entries) {
  * Whitelist of entry comments that must NEVER be disabled.
  * These are format instructions, action rules, plugin protocols, and hybrid entries
  * that the LLM needs in its prompt context (cannot be retrieved via tool calls).
- * @type {Set<string>}
+ * @type {string[]}  (prefix-matched: entries with trailing parentheticals
+ * like "sao-格式（去掉…）" are still protected)
  */
-const KEEP_ENABLED = new Set([
+const KEEP_ENABLED = [
     'sao-格式',
     'sao-注意事项（可能的错误）',
     'sao-数值由系统计算(插件接管)',
     'sao-标签输出与数值委托协议(插件)',
     'sao-NPC档案构建规则',
-]);
+];
 
 /**
  * Rule comments to tentatively keep enabled (small, frequently referenced).
  * These are parsed into worldStore.rules but remain injected for latency.
- * @type {Set<string>}
+ * @type {string[]}  (prefix-matched)
  */
-const RULES_KEEP_ENABLED = new Set([
+const RULES_KEEP_ENABLED = [
     'sao-PK机制',
     'sao-经济系统',
     'sao-等级',
-]);
+];
 
 /**
  * Rule comments whose data entries should be DISABLED (larger, less frequently needed).
  * Data is now in worldStore.rules, retrieved via get_world_setting tool.
- * @type {Set<string>}
+ * @type {string[]}  (prefix-matched)
  */
-const RULES_TO_DISABLE = new Set([
+const RULES_TO_DISABLE = [
     'sao-剑技获取',
     'sao-冥想',
     'sao-房屋',
-]);
+];
+
+/** Check if comment starts with any prefix in a list (prefix match, not exact). */
+function matchesPrefix(comment, prefixes) {
+    return prefixes.some(p => comment.startsWith(p));
+}
 
 /**
  * Decide whether an entry should be disabled after successful parsing.
@@ -348,10 +354,10 @@ function shouldDisableEntry(entry, parseResults) {
     const content = entry.content || '';
 
     // Never disable entries in the KEEP_ENABLED whitelist
-    if (KEEP_ENABLED.has(comment)) return false;
+    if (matchesPrefix(comment, KEEP_ENABLED)) return false;
 
     // Never disable the tentative-keep rule entries
-    if (RULES_KEEP_ENABLED.has(comment)) return false;
+    if (matchesPrefix(comment, RULES_KEEP_ENABLED)) return false;
 
     // Disable character profile entries (NPC data now in npcStore)
     if (parseResults.npcCount > 0 && content.includes('characterProfile')) return true;
@@ -363,7 +369,7 @@ function shouldDisableEntry(entry, parseResults) {
     if (parseResults.timelineCount > 0 && /^\d{4}年\d{1,2}月/.test(comment)) return true;
 
     // Disable specific rule entries (data now in worldStore.rules)
-    if (parseResults.rulesCount > 0 && RULES_TO_DISABLE.has(comment)) return true;
+    if (parseResults.rulesCount > 0 && matchesPrefix(comment, RULES_TO_DISABLE)) return true;
 
     return false;
 }
@@ -410,7 +416,7 @@ export function disableParsedEntries(entries, parseResults) {
             floorDisabled++;
         } else if (/^\d{4}年\d{1,2}月/.test(comment)) {
             timelineDisabled++;
-        } else if (RULES_TO_DISABLE.has(comment)) {
+        } else if (matchesPrefix(comment, RULES_TO_DISABLE)) {
             rulesDisabled++;
         }
     }

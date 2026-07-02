@@ -951,6 +951,19 @@ describe('Phase 5: disableParsedEntries', () => {
         }
     });
 
+    it('does NOT disable KEEP_ENABLED entries with trailing parentheticals (prefix match)', () => {
+        // Regression: entry #233 comment is "sao-格式（去掉<map><npc_thoughts><guild>）"
+        // which did NOT exact-match "sao-格式" in old Set.has() → was wrongly disabled
+        const entries = [
+            { comment: 'sao-格式（去掉<map><npc_thoughts><guild>）', enabled: true, selective: true, content: '<directive>格式</directive>' },
+            { comment: 'sao-NPC档案构建规则 （sao）', enabled: true, selective: true, content: '<directive>NPC规则</directive>' },
+        ];
+        const count = disableParsedEntries(entries, { npcCount: 5, floorCount: 99, timelineCount: 44, rulesCount: 8 });
+        expect(count).toBe(0);
+        expect(entries[0].enabled).toBe(true);
+        expect(entries[1].enabled).toBe(true);
+    });
+
     it('does NOT disable tentative-keep rule entries (PK, 经济, 等级)', () => {
         const entries = [
             {
