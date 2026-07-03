@@ -337,8 +337,7 @@ export function projectFullState() {
                 equipLines.push(`${SLOT_DISPLAY[slot]}: 无`);
                 continue;
             }
-            const ks = keyStats(detail, slot, 3);
-            equipLines.push(`${SLOT_DISPLAY[slot]}: ${detail.name}${ks ? `(${ks})` : ''}`);
+            equipLines.push(`${SLOT_DISPLAY[slot]}: ${detail.name}`);
         }
     }
     if (equipLines.length) {
@@ -348,16 +347,12 @@ export function projectFullState() {
     // ---- 4. 技能 ----
     const skills = player.skills;
     if (skills?.length) {
-        const cap = 10;
-        const skillTexts = skills.slice(0, cap).map(s => {
+        const skillTexts = skills.map(s => {
             const detail = safe(() => getSkillById(s.skill_id), `getSkillById(${s.skill_id})`);
             const skName = detail?.name || s.name || '?';
             const prof = s.proficiency ?? '?';
             return `${skName}(熟练${prof})`;
         });
-        if (skills.length > cap) {
-            skillTexts.push(`还有${skills.length - cap}个...`);
-        }
         sections.push({ label: '技能', text: skillTexts.join(' | '), priority: 4 });
     }
 
@@ -369,14 +364,10 @@ export function projectFullState() {
     const invParts = [];
     const inv = safe(() => getInventoryStore(), 'getInventoryStore');
     if (inv?.items?.length) {
-        const cap = 15;
-        const items = inv.items.slice(0, cap).map(item => {
+        const items = inv.items.map(item => {
             const itemName = item.name || item.item_id || '?';
             return item.qty > 1 ? `${itemName}x${item.qty}` : itemName;
         });
-        if (inv.items.length > cap) {
-            items.push(`还有${inv.items.length - cap}个...`);
-        }
         invParts.push(`物品: ${items.join(', ')}`);
     }
     try {
@@ -389,29 +380,6 @@ export function projectFullState() {
 
     // ---- 组装 ----
     let result = sections.map(s => `【${s.label}】${s.text}`).join('\n');
-
-    // ---- 超长折叠（上限 1000 字符） ----
-    const MAX_LEN = 1000;
-    if (result.length > MAX_LEN) {
-        // 从最低优先级开始裁剪（背包 → 任务 → 技能），装备永不裁剪
-        const foldable = sections
-            .filter(s => s.priority >= 4)
-            .sort((a, b) => b.priority - a.priority);
-
-        let foldedCount = 0;
-        for (const sec of foldable) {
-            if (result.length <= MAX_LEN) break;
-            const header = `【${sec.label}】`;
-            // 移除该区块（带换行或不带）
-            result = result.replace(`${header}${sec.text}\n`, '');
-            result = result.replace(`\n${header}${sec.text}`, '');
-            result = result.replace(`${header}${sec.text}`, '');
-            foldedCount++;
-        }
-        if (foldedCount > 0) {
-            result += `\n已折叠${foldedCount}项`;
-        }
-    }
 
     return stripIds(result);
 }

@@ -92,10 +92,8 @@ export function injectMemoryAndState() {
     // toolSupported 判断（提前到函数顶部，避免重复求值）
     const toolSupported = typeof ctx.isToolCallingSupported === 'function' && ctx.isToolCallingSupported();
 
-    // Core State（toolSupported 时用 full state 替代 compact；full 是 compact 超集）
-    // TODO: 未来工具全面接管后，compactState 可精简（详细数据通过 tool call 按需获取）
-    const compactState = formatCompactState(data.state);
-    const stateText = toolSupported ? (projectFullState() || compactState) : compactState;
+    // Core State — 全量状态，始终注入（不依赖 tool call）
+    const stateText = projectFullState();
     if (stateText) {
         parts.push(stateText);
     }

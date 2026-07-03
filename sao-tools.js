@@ -118,7 +118,7 @@ export function getCharacterInfoFromSources(name, aspect) {
                 const entryName = (e.comment || e.name || '').toLowerCase();
                 const keys = (e.keys || []).map(k => k.toLowerCase());
                 if (entryName.includes(nameLower) || keys.some(k => k.includes(nameLower))) {
-                    let content = (e.content || '').substring(0, 500);
+                    let content = e.content || '';
                     results.push('[世界书] ' + content);
                     break;
                 }
@@ -127,7 +127,7 @@ export function getCharacterInfoFromSources(name, aspect) {
 
         // 2. 角色卡描述（fallback）
         if (results.length === 0 && char && char.data && char.data.description) {
-            const desc = char.data.description.substring(0, 500);
+            const desc = char.data.description;
             results.push('[角色卡描述] ' + desc);
         }
 
@@ -163,7 +163,7 @@ export function getFloorInfo(floor, topic) {
                     continue;
                 }
             }
-            results.push(content.substring(0, 500));
+            results.push(content);
             if (results.length >= 3) break;
         }
 
@@ -184,17 +184,16 @@ export function registerGetCalendar(ctx) {
         name: 'get_calendar',
         displayName: 'Get Calendar',
         formatMessage: () => '查询日历/时间线...',
-        description: '查询游戏日历与原作时间线。可查单日、整月或日期范围。返回原作事件(canon) + 游戏约定(appointments)。不要凭空猜测原作时间线。',
+        description: '查询游戏日历与原作时间线。必须传 date 参数（YYYY-MM-DD），默认返回该日期前后 3 天的事件（可用 range_days 调整）。返回的是原作时间线上该日期附近会发生的事件，实际情况由于玩家介入可能发生改变。不要凭空猜测原作时间线。',
         parameters: {
             '$schema': 'http://json-schema.org/draft-04/schema#',
             type: 'object',
             properties: {
                 date: { type: 'string', description: '查询单日 (YYYY-MM-DD)，如 2022-11-06' },
-                month: { type: 'string', description: '查询整月 (YYYY-MM)，如 2022-12' },
                 range_days: { type: 'integer', description: '从 date 起正负 N 天范围，默认 ±3 天' },
                 max: { type: 'integer', description: '最多返回事件数，默认 40，上限 120' },
             },
-            required: [],
+            required: ['date'],
         },
 action: wrapToolAction('get_calendar', async (args) => {
             try {
@@ -216,11 +215,6 @@ action: wrapToolAction('get_calendar', async (args) => {
                         winStart = formatDate(s);
                         winEnd = formatDate(e);
                     }
-                } else if (args?.month) {
-                    const [y, m] = args.month.split('-');
-                    const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
-                    winStart = `${args.month}-01`;
-                    winEnd = `${args.month}-${String(lastDay).padStart(2, '0')}`;
                 }
 
                 // 1b. Canon timeline from queryTimeline (world book, real-time)
@@ -288,7 +282,7 @@ action: wrapToolAction('get_calendar', async (args) => {
                 allEvents.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
                 if (!allEvents.length) {
-                    return '未找到匹配的日历/时间线事件。可使用 date（单日）、month（整月）或 date+range_days（范围）查询。';
+                    return '未找到匹配的日历/时间线事件。请使用 date（YYYY-MM-DD）查询，可用 range_days 调整范围（默认 ±3 天）。';
                 }
 
                 return allEvents.map(ev => `${ev.date} ${ev.type} ${ev.title}`).join('\n');
@@ -369,7 +363,7 @@ action: wrapToolAction('get_floor_info', async (args) => {
                 const floorEntry = getFloorByNumber(parseInt(floor));
                 if (floorEntry) {
                     const parts = [`[楼层] ${floorEntry.floor_number}F`];
-                    if (floorEntry.canon?.rawContent) parts.push(`[设定] ${floorEntry.canon.rawContent.substring(0, 500)}`);
+                    if (floorEntry.canon?.rawContent) parts.push(`[设定] ${floorEntry.canon.rawContent}`);
                     if (floorEntry.canon?.mainTown) parts.push(`[城镇] ${floorEntry.canon.mainTown}`);
                     if (floorEntry.canon?.boss) parts.push(`[BOSS] ${floorEntry.canon.boss}`);
                     if (floorEntry.state?.notes?.length) {
