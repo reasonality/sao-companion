@@ -200,7 +200,7 @@ export async function useConsumable(itemId) {
 
     // 1. 从 inventoryStore 找 item
     const invStore = getInventoryStore();
-    const item = invStore.items.find(i => i.item_id === itemId && i.type === 'consumable');
+    const item = invStore.items.find(i => i.item_id === itemId && (i.type === 'consumable' || i.consumable_id));
     if (!item) {
         log(`useConsumable: 物品 ${itemId} 不存在或非消耗品`, 'warn');
         return [];

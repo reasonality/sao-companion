@@ -11,6 +11,7 @@ import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } fro
 import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
+import { extractJsonObject } from './sao-specialists.js';
 
 // === 纯解析函数 ===
 
@@ -485,12 +486,11 @@ ${aiMessage.substring(0, 8000)}`;
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
         ], 1024, { jsonSchema: true });
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-            log('多任务提取: 未找到 JSON', 'warn');
+        const extracted = extractJsonObject(result);
+        if (!extracted) {
+            log('多任务提取: JSON 提取失败 (result 长度=' + (result?.length || 0) + ' 前80字符: ' + (result || '').slice(0, 80) + ')', 'warn');
             return null;
         }
-        const extracted = JSON.parse(jsonMatch[0]);
         log('多任务提取完成 (模型回退)');
         return extracted;
     } catch (e) {

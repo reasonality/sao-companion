@@ -979,7 +979,10 @@ export function projectStatusPanelHtml() {
                 const useBtn = (item.type === 'consumable' && item.item_id)
                     ? `<button class="sao-equip-btn" data-sao-action="use-consumable" data-item-id="${item.item_id}" title="使用">✓</button>`
                     : '';
-                return `<span class="sao-tag sao-tag-${item.type}" data-detail-type="inv" data-detail-index="${item.rawIndex}" style="cursor:pointer;">${esc(item.name)}${qtyText}${useBtn}</span>`;
+                const equipBtn = (item.type === 'equipment' && item.equipment_id)
+                    ? `<button class="sao-equip-btn" data-sao-action="equip" data-sao-equip-id="${item.equipment_id}" title="装备">↑</button>`
+                    : '';
+                return `<span class="sao-tag sao-tag-${item.type}" data-detail-type="inv" data-detail-index="${item.rawIndex}" style="cursor:pointer;">${esc(item.name)}${qtyText}${useBtn}${equipBtn}</span>`;
             });
             let rest = '';
             if (arr.length > cap) rest = `<span class="sao-text-muted">还有${arr.length - cap}个...</span>`;

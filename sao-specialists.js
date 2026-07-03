@@ -52,6 +52,50 @@ const RULE_HOUSING = `
 `;
 
 // ============================================================
+// 通用 JSON 提取工具（处理模型输出中的 prose/markdown 包裹）
+// ============================================================
+
+/**
+ * 从模型输出文本中稳健提取 JSON 对象。
+ * 处理：纯 JSON、markdown 代码块包裹、prose 前后文包裹。
+ * 使用平衡花括号匹配找到实际 JSON 边界。
+ * @param {string} text - 模型原始输出
+ * @returns {object|null} 解析后的对象，或 null（提取失败）
+ */
+export function extractJsonObject(text) {
+    if (!text || typeof text !== 'string') return null;
+    const trimmed = text.trim();
+    // 1. Direct parse
+    try { return JSON.parse(trimmed); } catch {}
+    // 2. Strip markdown fences and surrounding text, then extract first {...} by brace matching
+    let cleaned = trimmed;
+    // Remove ```json ... ``` or ``` ... ``` blocks
+    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch) cleaned = fenceMatch[1].trim();
+    // Balanced brace extraction
+    const start = cleaned.indexOf('{');
+    if (start === -1) return null;
+    let depth = 0, inString = false, escape = false;
+    for (let i = start; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        if (escape) { escape = false; continue; }
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+                const candidate = cleaned.substring(start, i + 1);
+                try { return JSON.parse(candidate); } catch {}
+                // If the first {...} fails, continue searching for the next one
+            }
+        }
+    }
+    return null;
+}
+
+// ============================================================
 // P2: 装饰面板专家调用（map/equipment/swordskill）
 // ============================================================
 
@@ -102,12 +146,11 @@ export function _buildPanelPrompt(panelName, instruction, narrativeText, current
  */
 export function _parseSpecialistHtml(content, panelType) {
     if (!content) return null;
-    const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    const parsed = safeJsonParse(cleaned);
+    const parsed = extractJsonObject(content);
     if (parsed && typeof parsed.html === 'string' && parsed.html.length > 0) {
         return parsed.html;
     }
-    log(`${panelType} 专家 JSON 解析失败或 html 为空`, 'warn');
+    log(`${panelType} 专家 JSON 提取失败 (content 长度=${content.length} 前80字符: ${content.slice(0, 80)})`, 'warn');
     return null;
 }
 
@@ -332,13 +375,29 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
         return null;
     }
     if (!content) return null;
-    try {
-        const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-        const parsed = safeJsonParse(cleaned);
+    let parsed = extractJsonObject(content);
+    if (!_validateStatus(parsed)) {
+        // Retry once with stricter prompt suffix
+        log('status 专家首次输出校验失败，重试一次（严格 JSON 指令）', 'warn');
+        try {
+            const retryMessages = [
+                { role: 'system', content: messages[0].content + '\n\n重要：仅输出纯 JSON 对象，不要包含任何说明文字、问候语或 markdown 代码块标记。直接以 { 开头，以 } 结尾。' },
+                messages[1],
+            ];
+            const retryContent = await callSpecialist('status', retryMessages, 1536, { temperature: 0.4, jsonSchema: true, timeoutMs: 30000 });
+            if (retryContent) {
+                parsed = extractJsonObject(retryContent);
+            }
+        } catch (e) {
+            log('status 专家重试调用失败: ' + e.message, 'warn');
+        }
         if (!_validateStatus(parsed)) {
-            log('status 专家输出校验失败', 'warn');
+            if (!parsed) log('status 专家 JSON 提取失败 (content 长度=' + (content?.length || 0) + ' 前80字符: ' + (content || '').slice(0, 80) + ')', 'warn');
+            else log('status 专家输出校验失败（重试后）', 'warn');
             return null;
         }
+    }
+    try {
         // 写入 chatMetadata.panels[messageId].status（含 state/zdText/userStatusHtml）
         if (messageId != null) {
             persistSpecialistPanel(messageId, 'status', {
@@ -465,10 +524,10 @@ ${worldHint ? `世界: ${worldHint}` : ''}`;
     if (!content) return;
 
     try {
-        const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-        const parsed = safeJsonParse(cleaned);
+        const parsed = extractJsonObject(content);
         if (!_validateWorldOutput(parsed)) {
-            log('worldStatus 专家输出校验失败', 'warn');
+            if (!parsed) log('worldStatus 专家 JSON 提取失败 (content 长度=' + (content?.length || 0) + ' 前80字符: ' + (content || '').slice(0, 80) + ')', 'warn');
+            else log('worldStatus 专家输出校验失败', 'warn');
             return;
         }
         await applyWorldUpdates({

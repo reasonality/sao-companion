@@ -603,11 +603,10 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
                 }
                 // Reset cache if panel data now available but cache was poisoned
                 let vd = _chatCalViewDates.get(messageId);
-                if (freshYear && freshMonth) {
-                    if (!vd || vd.getFullYear() !== freshYear || vd.getMonth() !== freshMonth - 1) {
-                        vd = new Date(freshYear, freshMonth - 1, 1);
-                        _chatCalViewDates.set(messageId, vd);
-                    }
+                // Only initialize from panel data if vd is not set at all
+                if (!vd && freshYear && freshMonth) {
+                    vd = new Date(freshYear, freshMonth - 1, 1);
+                    _chatCalViewDates.set(messageId, vd);
                 } else if (!vd) {
                     vd = new Date();
                 }
@@ -1958,13 +1957,13 @@ function _showShadowModal(shadow, title, html) {
 
     const overlay = document.createElement('div');
     overlay.className = 'sao-shadow-modal';
-    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(8,12,20,0.75);z-index:100;display:flex;justify-content:center;align-items:center;padding:20px;backdrop-filter:blur(4px);';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,0.75);z-index:100001;display:flex;justify-content:center;align-items:center;padding:20px;box-sizing:border-box;backdrop-filter:blur(8px);';
     overlay.innerHTML = `
-        <div style="position:relative;max-width:460px;width:90%;max-height:70vh;overflow-y:auto;background:rgba(20,28,44,0.95);border:1px solid rgba(0,210,255,0.35);border-radius:14px;box-shadow:0 0 18px rgba(0,210,255,0.25),0 8px 32px rgba(0,0,0,0.45);color:#eaf2ff;font-family:'Exo 2','Noto Sans SC',sans-serif;animation:sao-scale-in 0.25s ease-out;">
+        <div style="position:relative;max-width:520px;width:90%;max-height:78vh;overflow-y:auto;background:rgba(20,28,44,0.72);border:1px solid rgba(0,210,255,0.35);border-radius:14px;box-shadow:0 0 18px rgba(0,210,255,0.25),0 8px 32px rgba(0,0,0,0.45);color:#eaf2ff;font-family:'Exo 2','Noto Sans SC',sans-serif;animation:sao-scale-in 0.25s ease-out;backdrop-filter:blur(16px) saturate(120%);">
             <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent 0%,#00d2ff 20%,#66e8ff 50%,#00d2ff 80%,transparent 100%);pointer-events:none;border-radius:14px 14px 0 0;"></div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(8,12,20,0.4);position:relative;">
                 <span style="font-family:'Rajdhani','Noto Sans SC',sans-serif;font-weight:700;font-size:1.1em;color:#00d2ff;letter-spacing:0.5px;">${esc(title)}</span>
-                <button class="sao-shadow-modal-close" style="background:transparent;border:1px solid rgba(255,255,255,0.08);color:#9fb0cc;font-size:1.5em;line-height:1;cursor:pointer;width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;">&times;</button>
+                <button class="sao-shadow-modal-close" style="background:transparent;border:1px solid rgba(255,255,255,0.08);color:#9fb0cc;font-size:1.5em;line-height:1;cursor:pointer;width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:all 0.2s ease;">&times;</button>
             </div>
             <div style="padding:18px 22px;">${html}</div>
         </div>
