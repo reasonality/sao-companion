@@ -1,5 +1,6 @@
 // sao-store-floor.js — 楼层信息权威库
-// 楼层由世界书 Markdown 散文初始化（混合方案：rawContent + regex 提取字段）。
+// 楼层由世界书 Markdown 散文初始化（混合方案：slim canon + regex 提取字段）。
+// rawContent 不再存储（从世界书实时读取），仅保留 theme/mainTown/labyrinth/boss。
 // 游戏过程通过 state.notes 更新探索记录。
 
 import { getStore, saveStore } from './sao-store-core.js';
@@ -89,11 +90,10 @@ function extractBoss(content) {
 /**
  * 构建楼层 canon 对象。
  * @param {string} content - 世界书原始内容
- * @returns {{ rawContent: string, theme: string, mainTown: string, labyrinth: string, boss: string }}
+ * @returns {{ theme: string, mainTown: string, labyrinth: string, boss: string }}
  */
 function _buildCanon(content) {
     return {
-        rawContent: content,
         theme: extractTheme(content),
         mainTown: extractMainTown(content),
         labyrinth: extractLabyrinth(content),
@@ -226,7 +226,6 @@ export function initFloorFromWorldBook(entries) {
                     const fd = floorJson.find(f => f.floor_number === fn);
                     if (fd) {
                         return {
-                            rawContent: content.replace(/```worldbook-data[\s\S]*?```/, '').trim(),
                             theme: fd.theme || '',
                             mainTown: fd.mainTown || '',
                             labyrinth: fd.labyrinth || '',
@@ -250,6 +249,10 @@ export function initFloorFromWorldBook(entries) {
                 // 检查是否已存在
                 if (store.numberToId[String(floorNum)] && store.byId[store.numberToId[String(floorNum)]]) {
                     const existing = store.byId[store.numberToId[String(floorNum)]];
+                    // Migration: strip old rawContent (slimmed canon no longer stores it)
+                    if (existing.canon && 'rawContent' in existing.canon) {
+                        delete existing.canon.rawContent;
+                    }
                     // hash 变化 → 更新 canon
                     if (existing._canonHash !== contentHash) {
                         existing.canon = buildCanonFor(floorNum);
@@ -316,7 +319,6 @@ export function ensureAllFloorsExist(arc) {
             floor_number: i,
             name: `第${i}层`,
             canon: {
-                rawContent: '',
                 theme: ext.theme || '',
                 mainTown: ext.mainTown || '',
                 labyrinth: '',

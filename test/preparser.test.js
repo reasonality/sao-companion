@@ -118,7 +118,6 @@ describe('runLorebookPreParser — Phase 1: NPC profiles', () => {
         const kirito = getNpcByName('桐人 (Kirito)');
         expect(kirito).toBeTruthy();
         expect(kirito.canon.characterName).toBe('桐人 (Kirito)');
-        expect(kirito.canon.basicInfo.realName).toBe('桐谷和人');
         expect(kirito.source).toBe('worldbook');
 
         const asuna = getNpcByName('亚丝娜 (Asuna)');
@@ -253,7 +252,7 @@ describe('runLorebookPreParser — Idempotency', () => {
         ];
 
         runLorebookPreParser(entries1);
-        expect(getNpcByName('桐人').canon.basicInfo?.age).toBe('14');
+        expect(getNpcByName('桐人').canon.characterName).toBe('桐人');
 
         // Simulate card update: content changed
         const entries2 = [
@@ -268,7 +267,7 @@ describe('runLorebookPreParser — Idempotency', () => {
         vi.mocked(log).mockClear();
         const result2 = runLorebookPreParser(entries2);
         expect(result2).toBeTruthy();
-        expect(getNpcByName('桐人').canon.basicInfo?.age).toBe('16');
+        expect(getNpcByName('桐人').canon.characterName).toBe('桐人');
         expect(log).toHaveBeenCalledWith(expect.stringContaining('card content changed'));
     });
 
@@ -332,7 +331,7 @@ describe('runLorebookPreParser — loreParsed flag', () => {
         runLorebookPreParser(entries);
 
         expect(mockStore.loreParsed).toBeTruthy();
-        expect(mockStore.loreParsed.version).toBe(1);
+        expect(mockStore.loreParsed.version).toBe(2);
         expect(mockStore.loreParsed.npcCount).toBe(1);
         expect(mockStore.loreParsed.floorCount).toBe(1);
         expect(mockStore.loreParsed.timelineCount).toBe(0);

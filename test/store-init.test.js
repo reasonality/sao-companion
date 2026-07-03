@@ -143,7 +143,7 @@ describe('initNpcFromWorldBook', () => {
         }];
         initNpcFromWorldBook(entries1);
         const npc1 = getNpcByName('测试NPC');
-        expect(npc1.canon.basicInfo?.age).toBe('20');
+        expect(npc1.canon.characterName).toBe('测试NPC');
 
         // Re-init with updated content
         const entries2 = [{
@@ -154,7 +154,7 @@ describe('initNpcFromWorldBook', () => {
         const count = initNpcFromWorldBook(entries2);
         expect(count).toBe(1);  // counted as existing
         const npc2 = getNpcByName('测试NPC');
-        expect(npc2.canon.basicInfo?.age).toBe('25');  // updated
+        expect(npc2.canon.characterName).toBe('测试NPC');  // still characterName only
     });
 
     it('skips unchanged content on re-init (same hash)', () => {
@@ -271,7 +271,6 @@ describe('initFloorFromWorldBook', () => {
         expect(floor).toBeTruthy();
         expect(floor.floor_number).toBe(1);
         expect(floor.floor_id).toBe('floor_001');
-        expect(floor.canon.rawContent).toContain('第一层');
         expect(floor.canon.theme).toContain('起始之野');
         expect(floor.canon.mainTown).toContain('起始之鎮');
         expect(floor.source).toBe('worldbook');
@@ -332,15 +331,15 @@ describe('initFloorFromWorldBook', () => {
             content: '第一层原始设定',
         }];
         initFloorFromWorldBook(entries1);
-        expect(getFloorByNumber(1).canon.rawContent).toBe('第一层原始设定');
+        expect(getFloorByNumber(1).canon.theme).toBe('');
 
         const entries2 = [{
             keys: ['第1层'],
             comment: 'sao-第1层',
-            content: '第一层更新设定',
+            content: '核心原则：第一层更新主题',
         }];
         initFloorFromWorldBook(entries2);
-        expect(getFloorByNumber(1).canon.rawContent).toBe('第一层更新设定');
+        expect(getFloorByNumber(1).canon.theme).toBe('第一层更新主题');
     });
 
     it('returns 0 for null/empty entries', () => {
@@ -400,9 +399,6 @@ describe('initFloorFromWorldBook', () => {
         expect(floor.canon.labyrinth).toBe('地下迷宫');
         expect(floor.canon.boss).toBe('伊尔方');
         expect(floor.source).toBe('external');
-        // rawContent should NOT contain the fence
-        expect(floor.canon.rawContent).not.toContain('worldbook-data');
-        expect(floor.canon.rawContent).toContain('第一层世界设定');
     });
 
     it('falls back to regex when worldbook-data JSON is invalid', () => {
@@ -519,7 +515,7 @@ describe('Floor Store validation', () => {
             floor_id: 'floor_001',
             floor_number: 1,
             name: '第1层',
-            canon: { rawContent: 'test' },
+            canon: { theme: '起始的原野', mainTown: '起始之镇', boss: '伊尔方' },
             state: { unlocked: true },
             source: 'worldbook',
         });
@@ -603,7 +599,6 @@ describe('ensureAllFloorsExist', () => {
         expect(floor50.source).toBe('stub');
         expect(floor50.state.unlocked).toBe(false);
         expect(floor50.state.cleared).toBe(false);
-        expect(floor50.canon.rawContent).toBe('');
         expect(floor50._canonHash).toBe('');
     });
 

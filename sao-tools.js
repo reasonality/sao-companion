@@ -317,9 +317,15 @@ action: wrapToolAction('get_character_info', async (args) => {
                 if (!name) return '请提供角色名称';
                 // B4: Try npcStore first
                 const npc = getNpcByName(name);
+                // Live canon from world book (full profile) — store only keeps characterName now
+                const liveCanon = getCharacterInfoFromSources(name, (args && args.aspect) || 'full');
                 if (npc) {
                     const parts = [`[角色] ${npc.name}`];
-                    if (npc.canon?.characterName) parts.push(`[设定] ${npc.canon.characterName}`);
+                    if (npc.canon?.characterName) parts.push(`[设定名] ${npc.canon.characterName}`);
+                    // Append full live canon (world book profile) if it returned real content
+                    if (liveCanon && !liveCanon.startsWith('未找到') && liveCanon.length > 10) {
+                        parts.push(`[档案]\n${liveCanon}`);
+                    }
                     if (npc.state?.relationship) parts.push(`[当前关系] ${npc.state.relationship}`);
                     if (npc.observations?.length) {
                         parts.push('[最近观察]');
@@ -327,9 +333,9 @@ action: wrapToolAction('get_character_info', async (args) => {
                     }
                     return parts.join('\n');
                 }
-                // Fallback: world book scan
-                log('get_character_info: npcStore 未命中，回退世界书扫描 name=' + name, 'warn');
-                return getCharacterInfoFromSources(name, (args && args.aspect) || 'full');
+                // Fallback: npcStore miss — return live canon alone
+                log('get_character_info: npcStore 未命中，仅返回世界书扫描 name=' + name, 'warn');
+                return liveCanon;
             } catch (e) {
                 log('get_character_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;
@@ -361,20 +367,25 @@ action: wrapToolAction('get_floor_info', async (args) => {
                 if (!floor) return '请提供楼层数';
                 // B5: Try floorStore first
                 const floorEntry = getFloorByNumber(parseInt(floor));
+                // Live raw content from world book (store no longer holds rawContent)
+                const liveCanon = getFloorInfo(parseInt(floor), args.topic);
                 if (floorEntry) {
                     const parts = [`[楼层] ${floorEntry.floor_number}F`];
-                    if (floorEntry.canon?.rawContent) parts.push(`[设定] ${floorEntry.canon.rawContent}`);
                     if (floorEntry.canon?.mainTown) parts.push(`[城镇] ${floorEntry.canon.mainTown}`);
                     if (floorEntry.canon?.boss) parts.push(`[BOSS] ${floorEntry.canon.boss}`);
+                    // Append full live raw content if it returned real content
+                    if (liveCanon && !liveCanon.startsWith('未找到') && liveCanon.length > 10) {
+                        parts.push(`[设定]\n${liveCanon}`);
+                    }
                     if (floorEntry.state?.notes?.length) {
                         parts.push('[探索记录]');
                         parts.push(...floorEntry.state.notes.slice(-5).map(n => `- ${n}`));
                     }
                     return parts.join('\n');
                 }
-                // Fallback: world book scan
-                log('get_floor_info: floorStore 未命中，回退世界书扫描 floor=' + floor, 'warn');
-                return getFloorInfo(parseInt(floor), args.topic);
+                // Fallback: floorStore miss — return live raw content alone
+                log('get_floor_info: floorStore 未命中，仅返回世界书扫描 floor=' + floor, 'warn');
+                return liveCanon;
             } catch (e) {
                 log('get_floor_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;

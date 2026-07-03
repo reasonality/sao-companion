@@ -73,6 +73,9 @@ export function cleanTimelinePromptText(text) {
 
 /**
  * 格式化紧凑状态文本（用于注入 AI 上下文）
+ *
+ * @deprecated 当前生产代码不再调用（玩家状态已改为始终全量注入 via projectFullState）。
+ * 保留供测试与潜在未来按需压缩使用。不要在生产路径新增调用。
  */
 export function formatCompactState(state) {
     // A0: delegate to store projection layer

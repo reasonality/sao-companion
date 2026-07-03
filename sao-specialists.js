@@ -146,9 +146,40 @@ export function _buildPanelPrompt(panelName, instruction, narrativeText, current
  */
 export function _parseSpecialistHtml(content, panelType) {
     if (!content) return null;
+    // Primary: strict JSON parse
     const parsed = extractJsonObject(content);
     if (parsed && typeof parsed.html === 'string' && parsed.html.length > 0) {
         return parsed.html;
+    }
+    // Fallback: extract html field value directly (tolerates unescaped quotes in HTML)
+    // Models sometimes emit { "html": "<div style="...">..." } where inner double-quotes
+    // break JSON.parse. The html value starts at the opening " after "html": and ends
+    // at the LAST " in the content (the JSON's closing quote, since JSON ends with "}).
+    // Using "last \" in content" is robust against CSS braces (}) and quotes inside HTML.
+    // Truncation (no closing ") degrades gracefully — falls through to warning log.
+    const htmlKeyIdx = content.indexOf('"html"');
+    if (htmlKeyIdx >= 0) {
+        // Find the first " after "html": (opening quote of the html value)
+        const colonIdx = content.indexOf(':', htmlKeyIdx);
+        if (colonIdx >= 0) {
+            let openQuote = -1;
+            for (let i = colonIdx + 1; i < content.length; i++) {
+                if (content[i] === '"') { openQuote = i; break; }
+            }
+            // Find the LAST " in the content (JSON's closing quote of the html value)
+            let endQuote = -1;
+            for (let i = content.length - 1; i > openQuote; i--) {
+                if (content[i] === '"') { endQuote = i; break; }
+            }
+            if (openQuote >= 0 && endQuote > openQuote) {
+                let v = content.substring(openQuote + 1, endQuote);
+                // Unescape \" -> " and \\ -> \
+                v = v.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+                if (v.length > 0) {
+                    return v;
+                }
+            }
+        }
     }
     log(`${panelType} 专家 JSON 提取失败 (content 长度=${content.length} 前80字符: ${content.slice(0, 80)})`, 'warn');
     return null;
@@ -173,7 +204,7 @@ export async function _callPanelSpecialist(panelType, panelName, instruction, st
     }
     let content;
     try {
-        content = await callSpecialist(panelType, messages, 512, { temperature: 0.5, jsonSchema: true });
+        content = await callSpecialist(panelType, messages, 1024, { temperature: 0.5, jsonSchema: true });
     } catch (e) {
         log(`${panelType} 专家调用失败: ` + e.message, 'warn');
         return;

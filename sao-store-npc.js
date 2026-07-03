@@ -1,6 +1,6 @@
 // sao-store-npc.js — NPC 档案与当前状态权威库
 // NPC 由世界书 characterProfile JSON 初始化，游戏过程通过 observations 更新。
-// canon 对齐世界书 characterProfile 完整结构（A0 权威定义）。
+// canon 仅保留 characterName（完整 profile 从世界书实时读取）。
 
 import { getStore, saveStore } from './sao-store-core.js';
 import { log } from './sao-core.js';
@@ -210,6 +210,9 @@ export function initNpcFromWorldBook(entries) {
             const npcName = profile.characterName || entry.comment || entry.name || '';
             if (!npcName) continue;
 
+            // Slim canon: only keep characterName (full profile read live from world book on demand)
+            const slimCanon = { characterName: profile.characterName || npcName };
+
             // 计算 canon hash
             const contentHash = simpleHash(content);
 
@@ -217,9 +220,13 @@ export function initNpcFromWorldBook(entries) {
             const existingId = store.nameToId[npcName];
             if (existingId && store.byId[existingId]) {
                 const existing = store.byId[existingId];
+                // Migration: strip any old fat-canon fields beyond characterName
+                if (existing.canon && (!('characterName' in existing.canon) || Object.keys(existing.canon).length > 1)) {
+                    existing.canon = { characterName: existing.canon.characterName || npcName };
+                }
                 // hash 变化 → 更新 canon
                 if (existing._canonHash !== contentHash) {
-                    existing.canon = profile;
+                    existing.canon = slimCanon;
                     existing._canonHash = contentHash;
                     existing.source = 'worldbook';
                     log(`NPC canon 刷新: ${npcName} (hash 变化)`);
@@ -232,7 +239,7 @@ export function initNpcFromWorldBook(entries) {
             const id = generateNpcId(npcName);
             const keys = (entry.keys || []).map(k => k.trim()).filter(Boolean);
             const aliases = keys.filter(k => k !== npcName);
-            _createNpcEntry(store, id, npcName, aliases, profile, 'worldbook', contentHash);
+            _createNpcEntry(store, id, npcName, aliases, slimCanon, 'worldbook', contentHash);
 
             log(`NPC 初始化: ${npcName} → ${id}`);
             count++;

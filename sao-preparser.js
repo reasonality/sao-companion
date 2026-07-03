@@ -16,7 +16,7 @@ import { log } from './sao-core.js';
 // Constants
 // ============================================================
 
-const CURRENT_LORE_PARSER_VERSION = 1;
+const CURRENT_LORE_PARSER_VERSION = 2;
 
 // ============================================================
 // Hash helper
@@ -149,7 +149,7 @@ export function parseTimelineEntries(entries) {
                     const evt = toCalendarStoreEvent({
                         type: 'canon',
                         title: txt,
-                        description: txt,
+                        description: '',
                     }, dateStr, calStore.events[dateStr].length);
                     evt.sourceEntryId = comment;
                     calStore.events[dateStr].push(evt);
