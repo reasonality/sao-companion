@@ -713,6 +713,8 @@ export function renderInventoryPanel() {
             type: item.type || (item.equipment_id ? 'equipment' : (item.consumable_id ? 'consumable' : 'unknown')),
             rawIndex,
             ...(item.item_id ? { item_id: item.item_id } : {}),
+            ...(item.equipment_id ? { equipment_id: item.equipment_id } : {}),
+            ...(item.consumable_id ? { consumable_id: item.consumable_id } : {}),
             ...(item.description ? { description: item.description } : {}),
         };
     });

@@ -200,7 +200,7 @@ export async function equipItem(slot, equipmentId, skipSave) {
     const currentId = playerStore.equipment[slot];
     if (currentId) {
         const itemId = generateItemId();
-        invStore.items.push({
+        invStore.items.unshift({
             item_id: itemId,
             type: 'equipment',
             equipment_id: currentId,
@@ -404,7 +404,7 @@ export async function unequipItem(slot, skipSave) {
     // 装备回背包
     const invStore = getInventoryStore();
     const itemId = generateItemId();
-    invStore.items.push({
+    invStore.items.unshift({
         item_id: itemId,
         type: 'equipment',
         equipment_id: currentId,

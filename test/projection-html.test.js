@@ -414,8 +414,8 @@ describe('projectStatusPanelHtml', () => {
 
         // action buttons preserved
         expect(html).toContain('data-sao-action="unequip"');
-        // equip-from-backpack dropped from dialog HUD（背包装备改到物品 tab）
-        expect(html).not.toContain('data-sao-action="equip"');
+        // equip-from-backpack now renders in inventory 物品 tab (↑ button for equipment items)
+        expect(html).toContain('data-sao-action="equip"');
         expect(html).toContain('data-sao-action="use-consumable"');
         expect(html).toContain('data-sao-action="abandon-quest"');
         expect(html).toContain('data-sao-action="show-completed-quests"');
