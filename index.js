@@ -2484,12 +2484,6 @@ function initPanelLogic() {
             if (!target) { _dataSetStatus(storeKey, entryId, 'err', '目标对象不存在'); return; }
             const detail = main.querySelector('.sao-store-entry-detail');
             if (detail) _dataApplyEdits(detail, target);
-            // calendar 事件现用字段化编辑(data-field-path)，由 _dataApplyEdits 统一处理。
-            // currentDate 日期选择器需特殊处理：input type=date 的值写入 currentDate 字段。
-            if (storeKey === 'calendar' && detail) {
-                const dateInput = detail.querySelector('[data-action="storeCalViewDateChange"]');
-                // 日期选择器仅用于选查看日期，不写入 currentDate（currentDate 由字段编辑器处理）
-            }
             try {
                 await saveStore();
                 log('[data tab] saved ' + storeKey + (entryId ? ' ' + entryId : ''));
@@ -2505,23 +2499,6 @@ function initPanelLogic() {
             this.renderStoreSection(storeKey);
         },
 
-        async storeCalEventRemove(date, idx) {
-            // 旧方法保留兼容：事件删除现走 storeArrayRemove(path=events|date)
-            const cal = safe(() => getStore().calendarStore);
-            if (!cal || !cal.events) return;
-            const arr = cal.events[date];
-            if (!arr || idx >= arr.length) return;
-            arr.splice(idx, 1);
-            if (arr.length === 0) delete cal.events[date];
-            await saveStore();
-            if (typeof toastr !== 'undefined') toastr.success('已删除 ' + date + ' 第 ' + (idx + 1) + ' 条', 'SAO Companion');
-            this.renderStoreSection('calendar');
-        },
-        storeCalDatesMore() {
-            this._dataPages = this._dataPages || {};
-            this._dataPages.calendarDates = (this._dataPages.calendarDates || this._pageLimit) + this._pageLimit;
-            this.renderStoreSection('calendar');
-        },
         storeCalViewDateChange(dateStr) {
             this._storeCalViewDate = dateStr || '';
             this.renderStoreSection('calendar');
@@ -2541,8 +2518,18 @@ function initPanelLogic() {
             const def = _dataStoreDefs.find(d => d.key === this._activeStoreKey);
             const target = _dataResolveTarget(def, this._activeEntryId);
             if (!target) return;
-            const parent = pathGet(target, path);
-            if (!parent) return;
+            let parent = pathGet(target, path);
+            // 路径不存在时自动初始化（如 events|2022-11-06 不存在 → 创建空数组）
+            if (!parent) {
+                const seg = path.split('|');
+                let cur = target;
+                for (let i = 0; i < seg.length - 1; i++) {
+                    if (cur[seg[i]] == null) cur[seg[i]] = {};
+                    cur = cur[seg[i]];
+                }
+                if (cur != null) { cur[seg[seg.length - 1]] = []; parent = cur[seg[seg.length - 1]]; }
+            }
+            if (!parent || !Array.isArray(parent)) return;
             let defaults = [];
             try { defaults = JSON.parse(defaultsJson || '[]'); } catch (_) { defaults = []; }
             const newItem = Array.isArray(defaults) && defaults.length > 0 ? defaults[0] : '';
@@ -2628,10 +2615,6 @@ function initPanelLogic() {
                     const storeKey = target.getAttribute('data-store-key');
                     const val = target.value;
                     if (storeKey) window.SaoPanel.storeSearchChange(storeKey, val);
-                    break;
-                }
-                case 'storeCalDatesMore': {
-                    window.SaoPanel.storeCalDatesMore();
                     break;
                 }
                 case 'storeArrayAdd': {
