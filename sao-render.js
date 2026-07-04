@@ -365,26 +365,23 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
         // 显示合并后的事件文字（canon + appointment），精确日期 key。
-        // 每格展示当天事件：主标题 + 子事件（多行），最多 N 行后 +M 提示。
+        // 每格展示：主标题 + 第一个子事件正文（最多 3 行截断）+ 子事件数 N 更多提示。
         const displayEvents = allEvents;
         if (displayEvents.length > 0) {
-            const MAX_LINES = 3;
             const lines = [];
-            let shown = 0;
             for (const ev of displayEvents) {
                 const main = typeof ev === 'string' ? ev : (ev.title || ev.description || '');
-                if (shown >= MAX_LINES) break;
                 lines.push('<div class="sao-cal-event-line">' + esc(main) + '</div>');
-                shown++;
                 const subs = (ev && ev.subEvents) || [];
-                for (const st of subs) {
-                    if (shown >= MAX_LINES) break;
-                    lines.push('<div class="sao-cal-event-line sao-cal-event-sub">' + esc(st) + '</div>');
-                    shown++;
+                // 第一个子事件的正文（多行截断为 3 行）
+                if (subs.length > 0) {
+                    const first = subs[0];
+                    const body = first.body || first.label || '';
+                    if (body) lines.push('<div class="sao-cal-event-body">' + esc(body.slice(0, 120)) + '</div>');
                 }
+                if (subs.length > 1) lines.push('<div class="sao-cal-event-more">+' + (subs.length - 1) + ' 子事件</div>');
+                break; // 只显示第一个事件
             }
-            const total = displayEvents.reduce((n, ev) => n + 1 + (((ev && ev.subEvents) || []).length), 0);
-            if (total > MAX_LINES) lines.push('<div class="sao-cal-event-more">+' + (total - MAX_LINES) + '</div>');
             eventHtml = '<div class="sao-cal-event-text">' + lines.join('') + '</div>';
         }
         cells += `<div class="${cls}" data-date="${dateStrFull}" role="button" aria-label="${dateStrFull}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${eventHtml}</div>`;

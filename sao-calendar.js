@@ -396,17 +396,46 @@ function _filterTimelineEntries(currentDate, options = {}) {
                     const firstLine = desc.split('\n')[0] || '';
                     title = firstLine.replace(/^事件标题[:：]\s*/, '').slice(0, 40).trim() || (entryMonth + '月' + curDay + '日');
                 }
-                // 提取子事件标题（供格子多行展示）：正文里 "标签: 内容" 形式的行，标签作子事件名。
-                // 时间格式标签（如 "13:00: 开服"）保留 "13:00" 作标题；含时间范围的标签（如 "13:00 - 14:00 之间 [现实世界]: ..."）
-                // 取最后一个冒号前的全部文本，去 [括号] 后作标题。
+                // 提取子事件（供格子/弹窗拆分展示）：正文里 "标签: 内容" 形式的行，
+                // 标签后的所有后续行（到下一个标签前）作为该子事件正文。
+                // 时间格式标签（如 "13:00: 开服"）保留 "13:00" 作标签；含时间范围的标签
+                // （如 "13:00 - 14:00 之间 [现实世界]: ..."）取最后一个冒号前的全部文本去括号。
                 const subEvents = [];
-                for (const line of desc.split('\n')) {
-                    let m = line.match(/^(\d{1,2}:\d{2})[:：]\s*(.+)$/);
-                    if (!m) m = line.match(/^(.{2,25})[:：]\s*(\S.*)$/);
-                    if (m) {
-                        let st = m[1].replace(/\[[^\]]*\]/g, '').replace(/\*+/g, '').replace(/\s+/g, ' ').trim();
-                        if (st && st.length >= 2 && st.length <= 22) subEvents.push(st);
+                const descLines = desc.split('\n');
+                let i = 0;
+                // 无标签的开场引言（如 "正常游戏开服期。..."）单列为一条。
+                let intro = [];
+                while (i < descLines.length) {
+                    const ln = descLines[i];
+                    let m = ln.match(/^(\d{1,2}:\d{2})[:：]\s*(.+)$/);
+                    if (!m) m = ln.match(/^(.{2,25})[:：]\s*(\S.*)$/);
+                    if (m) break;
+                    if (ln.trim()) intro.push(ln);
+                    i++;
+                }
+                if (intro.length > 0) {
+                    const introText = intro.join('\n').trim();
+                    if (introText) subEvents.push({ label: null, body: introText.slice(0, 800) });
+                }
+                while (i < descLines.length) {
+                    const ln = descLines[i];
+                    let m = ln.match(/^(\d{1,2}:\d{2})[:：]\s*(.+)$/);
+                    let label;
+                    if (m) label = m[1];
+                    else { m = ln.match(/^(.{2,25})[:：]\s*(\S.*)$/); if (m) label = m[1]; }
+                    if (!m) { i++; continue; }
+                    label = label.replace(/\[[^\]]*\]/g, '').replace(/\*+/g, '').replace(/\s+/g, ' ').trim();
+                    const firstContent = m[2] ? m[2].trim() : '';
+                    const bodyLines = firstContent ? [firstContent] : [];
+                    i++;
+                    while (i < descLines.length) {
+                        const nxt = descLines[i];
+                        if (/^(\d{1,2}:\d{2})[:：]/.test(nxt) || /^(.{2,25})[:：]\s*\S/.test(nxt)) break;
+                        if (nxt.trim()) bodyLines.push(nxt);
+                        i++;
                     }
+                    const body = bodyLines.join('\n').trim().slice(0, 800);
+                    if (label && label.length >= 2 && label.length <= 22) subEvents.push({ label, body });
                 }
                 if (title) events.push({ date: dateStr, title, description: desc, subEvents: subEvents.slice(0, 8) });
             }
