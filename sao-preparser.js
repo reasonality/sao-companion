@@ -92,7 +92,7 @@ export function parseTimelineEntries(entries) {
     // Build set of enabled entry comments for stale data removal
     const enabledComments = new Set();
     for (const e of entries) {
-        if (e.enabled !== false) {
+        if (e.disable !== true) {
             enabledComments.add((e.comment || '').trim());
         }
     }
@@ -117,7 +117,7 @@ export function parseTimelineEntries(entries) {
 
     // Filter timeline entries
     const timelineEntries = entries.filter(e =>
-        e.enabled !== false && /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
+        e.disable !== true && /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
     );
 
     let totalCount = 0;
@@ -236,7 +236,7 @@ export function parseWorldRules(entries) {
     // Build set of enabled entry comments for stale data removal
     const enabledComments = new Set();
     for (const e of entries) {
-        if (e.enabled !== false) {
+        if (e.disable !== true) {
             enabledComments.add((e.comment || '').trim());
         }
     }
@@ -253,7 +253,7 @@ export function parseWorldRules(entries) {
     let count = 0;
 
     for (const entry of entries) {
-        if (entry.enabled === false) continue;
+        if (entry.disable === true) continue;
         const comment = (entry.comment || '').trim();
         if (!comment) continue;
 
@@ -348,7 +348,7 @@ function shouldDisableEntry(entry, parseResults) {
     if (entry.constant === true) return false;
 
     // Never disable already-disabled entries (don't inflate counts)
-    if (entry.enabled === false) return false;
+    if (entry.disable === true) return false;
 
     const comment = (entry.comment || '').trim();
     const content = entry.content || '';
@@ -378,7 +378,7 @@ function shouldDisableEntry(entry, parseResults) {
  * Disable parsed lorebook entries in-memory so ST no longer injects them.
  * LLM retrieves data via tool calls instead.
  *
- * SAFETY: Only mutates in-memory entry objects (entry.enabled = false).
+ * SAFETY: Only mutates in-memory entry objects (entry.disable = true).
  * Same pattern as enableCardRegex (index.js:388-443) which disables MIGRATED_SCRIPTS.
  * Card file (.json) is NOT modified — reversible on plugin deactivation or card switch.
  *
@@ -404,7 +404,7 @@ export function disableParsedEntries(entries, parseResults) {
     for (const entry of entries) {
         if (!shouldDisableEntry(entry, parseResults)) continue;
 
-        entry.enabled = false;
+        entry.disable = true;
         disabledCount++;
 
         // Track per-category for logging

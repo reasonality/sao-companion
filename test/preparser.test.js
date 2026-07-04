@@ -73,12 +73,12 @@ describe('computeEntriesHash', () => {
 
     it('hashes content regardless of enabled state (disable is in-memory, not card change)', () => {
         // e1 and e2 have DIFFERENT content sets → different hashes
-        const e1 = [{ content: 'abc', enabled: true }];
-        const e2 = [{ content: 'abc', enabled: true }, { content: 'disabled-entry', enabled: false }];
+        const e1 = [{ content: 'abc' }];
+        const e2 = [{ content: 'abc' }, { content: 'disabled-entry', disable: true }];
         expect(computeEntriesHash(e1)).not.toBe(computeEntriesHash(e2));
-        // Same content set, different enabled states → SAME hash (content is what matters)
-        const a = [{ content: 'abc', enabled: true }];
-        const b = [{ content: 'abc', enabled: false }];
+        // Same content set, different disable states → SAME hash (content is what matters)
+        const a = [{ content: 'abc' }];
+        const b = [{ content: 'abc', disable: true }];
         expect(computeEntriesHash(a)).toBe(computeEntriesHash(b));
     });
 
@@ -291,12 +291,12 @@ describe('runLorebookPreParser — Idempotency', () => {
         const result1 = runLorebookPreParser(entries);
         expect(result1).toBeTruthy();
         // Phase 5 disables the npc + floor entries in-memory
-        expect(entries[0].enabled).toBe(false);
-        expect(entries[1].enabled).toBe(false);
+        expect(entries[0].disable).toBe(true);
+        expect(entries[1].disable).toBe(true);
 
         // Simulate page reload: ST re-reads card from disk → entries re-enabled
-        entries[0].enabled = true;
-        entries[1].enabled = true;
+        delete entries[0].disable;
+        delete entries[1].disable;
 
         vi.mocked(log).mockClear();
         // Second run — hash was computed on FRESH entries (before disable),
@@ -637,7 +637,7 @@ describe('Phase 4: parseWorldRules', () => {
         const entries = [
             {
                 comment: 'sao-房屋',
-                enabled: false,
+                disable: true,
                 selective: true,
                 content: '<directive name="房屋规则">\n### 房价\n* 50-80万。\n</directive>',
             },
@@ -772,8 +772,8 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 2, floorCount: 0, timelineCount: 0, rulesCount: 0 });
         expect(count).toBe(2);
-        expect(entries[0].enabled).toBe(false);
-        expect(entries[1].enabled).toBe(false);
+        expect(entries[0].disable).toBe(true);
+        expect(entries[1].disable).toBe(true);
     });
 
     it('disables floor entries when floorCount > 0', () => {
@@ -792,8 +792,8 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 2, timelineCount: 0, rulesCount: 0 });
         expect(count).toBe(2);
-        expect(entries[0].enabled).toBe(false);
-        expect(entries[1].enabled).toBe(false);
+        expect(entries[0].disable).toBe(true);
+        expect(entries[1].disable).toBe(true);
     });
 
     it('disables timeline entries when timelineCount > 0', () => {
@@ -812,8 +812,8 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 10, rulesCount: 0 });
         expect(count).toBe(2);
-        expect(entries[0].enabled).toBe(false);
-        expect(entries[1].enabled).toBe(false);
+        expect(entries[0].disable).toBe(true);
+        expect(entries[1].disable).toBe(true);
     });
 
     it('disables specific rule entries (剑技获取, 冥想, 房屋) when rulesCount > 0', () => {
@@ -840,9 +840,9 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 0, rulesCount: 3 });
         expect(count).toBe(3);
-        expect(entries[0].enabled).toBe(false);
-        expect(entries[1].enabled).toBe(false);
-        expect(entries[2].enabled).toBe(false);
+        expect(entries[0].disable).toBe(true);
+        expect(entries[1].disable).toBe(true);
+        expect(entries[2].disable).toBe(true);
     });
 
     it('does NOT disable const entries (constant === true)', () => {
@@ -862,15 +862,15 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 1, floorCount: 0, timelineCount: 0, rulesCount: 0 });
         expect(count).toBe(1);
-        expect(entries[0].enabled).toBe(true);   // const — not disabled
-        expect(entries[1].enabled).toBe(false);   // profile — disabled
+        expect(entries[0].disable).not.toBe(true);   // const — not disabled
+        expect(entries[1].disable).toBe(true);        // profile — disabled
     });
 
     it('does NOT disable already-disabled entries (count does not inflate)', () => {
         const entries = [
             {
                 comment: 'sao-桐人',
-                enabled: false,  // already disabled
+                disable: true,  // already disabled
                 content: '```json\n{"characterProfile":{"characterName":"桐人"}}\n```',
             },
             {
@@ -882,8 +882,8 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 2, floorCount: 0, timelineCount: 0, rulesCount: 0 });
         expect(count).toBe(1);  // only亚丝娜, not 桐人 (already disabled)
-        expect(entries[0].enabled).toBe(false);  // unchanged
-        expect(entries[1].enabled).toBe(false);  // newly disabled
+        expect(entries[0].disable).toBe(true);  // unchanged (was already disabled)
+        expect(entries[1].disable).toBe(true);  // newly disabled
     });
 
     it('does NOT disable when parseResults is null (parsing failed)', () => {
@@ -897,7 +897,7 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, null);
         expect(count).toBe(0);
-        expect(entries[0].enabled).toBe(true);
+        expect(entries[0].disable).not.toBe(true);
     });
 
     it('does NOT disable when all parse counts are 0', () => {
@@ -911,7 +911,7 @@ describe('Phase 5: disableParsedEntries', () => {
 
         const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 0, rulesCount: 0 });
         expect(count).toBe(0);
-        expect(entries[0].enabled).toBe(true);
+        expect(entries[0].disable).not.toBe(true);
     });
 
     it('does NOT disable KEEP_ENABLED whitelist entries even if they match patterns', () => {
@@ -946,7 +946,7 @@ describe('Phase 5: disableParsedEntries', () => {
         const count = disableParsedEntries(entries, { npcCount: 5, floorCount: 99, timelineCount: 44, rulesCount: 8 });
         expect(count).toBe(0);
         for (const e of entries) {
-            expect(e.enabled).toBe(true);
+            expect(e.disable).not.toBe(true);
         }
     });
 
@@ -959,8 +959,8 @@ describe('Phase 5: disableParsedEntries', () => {
         ];
         const count = disableParsedEntries(entries, { npcCount: 5, floorCount: 99, timelineCount: 44, rulesCount: 8 });
         expect(count).toBe(0);
-        expect(entries[0].enabled).toBe(true);
-        expect(entries[1].enabled).toBe(true);
+        expect(entries[0].disable).not.toBe(true);
+        expect(entries[1].disable).not.toBe(true);
     });
 
     it('does NOT disable tentative-keep rule entries (PK, 经济, 等级)', () => {
@@ -994,7 +994,7 @@ describe('Phase 5: disableParsedEntries', () => {
         const count = disableParsedEntries(entries, { npcCount: 0, floorCount: 0, timelineCount: 0, rulesCount: 4 });
         expect(count).toBe(0);  // none disabled — PK/经济/等级 kept, 技能 not in RULES_TO_DISABLE
         for (const e of entries) {
-            expect(e.enabled).toBe(true);
+            expect(e.disable).not.toBe(true);
         }
     });
 
@@ -1070,9 +1070,9 @@ describe('runLorebookPreParser — Phase 5 integration (disable entries)', () =>
 
         expect(result).toBeTruthy();
         expect(result.disabledCount).toBe(2);  // NPC + floor, not const
-        expect(entries[0].enabled).toBe(false);  // NPC disabled
-        expect(entries[1].enabled).toBe(false);  // floor disabled
-        expect(entries[2].enabled).toBe(true);   // const kept
+        expect(entries[0].disable).toBe(true);  // NPC disabled
+        expect(entries[1].disable).toBe(true);  // floor disabled
+        expect(entries[2].disable).not.toBe(true);   // const kept
 
         expect(mockStore.loreParsed.disabledCount).toBe(2);
     });
@@ -1107,7 +1107,7 @@ describe('runLorebookPreParser — Phase 5 integration (disable entries)', () =>
 
         const result = runLorebookPreParser(entries);
         expect(result.disabledCount).toBe(0);
-        expect(entries[0].enabled).toBe(true);
+        expect(entries[0].disable).not.toBe(true);
     });
 });
 
@@ -1135,7 +1135,7 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(mockStore.calendarStore.events['2022-11-06'][0].sourceEntryId).toBe('2022年11月时间表');
 
         // Disable entry
-        entries[0].enabled = false;
+        entries[0].disable = true;
 
         // Re-parse — stale events removed
         const count2 = parseTimelineEntries(entries);
@@ -1170,7 +1170,7 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(mockStore.calendarStore.events['2022-11-06'].length).toBe(2);
 
         // Disable entry
-        entries[0].enabled = false;
+        entries[0].disable = true;
 
         // Re-parse
         parseTimelineEntries(entries);
@@ -1209,7 +1209,7 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(mockStore.calendarStore.events['2022-12-01']).toBeTruthy();
 
         // Disable only the November entry
-        entries[0].enabled = false;
+        entries[0].disable = true;
 
         // Re-parse
         parseTimelineEntries(entries);
@@ -1266,7 +1266,7 @@ describe('Stale data removal — world rules from disabled entries', () => {
         expect(mockStore.worldStore.rules.pk).toContain('安全区外');
 
         // Disable entry
-        entries[0].enabled = false;
+        entries[0].disable = true;
 
         // Re-parse
         const count2 = parseWorldRules(entries);
@@ -1298,7 +1298,7 @@ describe('Stale data removal — world rules from disabled entries', () => {
         expect(mockStore.worldStore.rules.economy).toBeTruthy();
 
         // Disable only PK entry
-        entries[0].enabled = false;
+        entries[0].disable = true;
 
         // Re-parse
         parseWorldRules(entries);
