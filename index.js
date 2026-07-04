@@ -2237,7 +2237,7 @@ function initPanelLogic() {
                 // 1. 先从 equipmentStore 销毁（含跨引用校验：已穿戴拒绝），skipSave 试探
                 const destroyed = await removeEquipmentById(equipmentId, true);
                 if (!destroyed) {
-                    alert('无法丢弃：装备可能已穿戴或不存在。');
+                    (typeof toastr !== 'undefined' ? toastr.error('无法丢弃：装备可能已穿戴或不存在。', 'SAO Companion') : alert('无法丢弃：装备可能已穿戴或不存在。'));
                     return;
                 }
                 // 2. 销毁成功，再从 inventoryStore 移除
@@ -2255,7 +2255,7 @@ function initPanelLogic() {
                 refreshStatus();
             } catch (e) {
                 log('丢弃装备失败: ' + e.message, 'error');
-                alert('丢弃失败: ' + e.message);
+                (typeof toastr !== 'undefined' ? toastr.error('丢弃失败: ' + e.message, 'SAO Companion') : alert('丢弃失败: ' + e.message));
             }
         },
 
@@ -2283,9 +2283,9 @@ function initPanelLogic() {
             if (!equipmentId) return;
             try {
                 const eq = getEquipmentById(equipmentId);
-                if (!eq) { alert('装备不存在'); return; }
+                if (!eq) { (typeof toastr !== 'undefined' ? toastr.error('装备不存在', 'SAO Companion') : alert('装备不存在')); return; }
                 const slot = eq.slot;
-                if (!slot) { alert('装备无 slot 信息'); return; }
+                if (!slot) { (typeof toastr !== 'undefined' ? toastr.error('装备无 slot 信息', 'SAO Companion') : alert('装备无 slot 信息')); return; }
                 await equipItem(slot, equipmentId, false);
                 appendActionLog({
                     action: 'equip',
@@ -2299,7 +2299,7 @@ function initPanelLogic() {
                 log('装备穿戴: ' + equipmentId + ' → ' + slot);
             } catch (e) {
                 log('装备穿戴失败: ' + e.message, 'error');
-                alert('装备失败：' + e.message);
+                (typeof toastr !== 'undefined' ? toastr.error('装备失败：' + e.message, 'SAO Companion') : alert('装备失败：' + e.message));
             }
         },
 
@@ -2308,7 +2308,7 @@ function initPanelLogic() {
             if (!slot) return;
             try {
                 const removedId = await unequipItem(slot, false);
-                if (!removedId) { alert('该槽位无装备'); return; }
+                if (!removedId) { (typeof toastr !== 'undefined' ? toastr.error('该槽位无装备', 'SAO Companion') : alert('该槽位无装备')); return; }
                 const eq = getEquipmentById(removedId);
                 appendActionLog({
                     action: 'unequip',
@@ -2322,7 +2322,7 @@ function initPanelLogic() {
                 log('装备卸下: ' + removedId + ' (slot: ' + slot + ')');
             } catch (e) {
                 log('卸下装备失败: ' + e.message, 'error');
-                alert('卸下失败：' + e.message);
+                (typeof toastr !== 'undefined' ? toastr.error('卸下失败：' + e.message, 'SAO Companion') : alert('卸下失败：' + e.message));
             }
         },
 
@@ -3180,7 +3180,7 @@ async function loadSettingsPanel() {
             window.SaoPanel.open();
         } catch (e) {
             console.error('[SAO Companion] 打开控制台失败:', e);
-            alert('[SAO Companion] 打开控制台失败: ' + e.message + '\n请检查浏览器控制台获取详细信息。');
+            (typeof toastr !== 'undefined' ? toastr.error('[SAO Companion] 打开控制台失败: ' + e.message + '\n请检查浏览器控制台获取详细信息。', 'SAO Companion') : alert('[SAO Companion] 打开控制台失败: ' + e.message + '\n请检查浏览器控制台获取详细信息。'));
         }
     });
 

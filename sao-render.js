@@ -1685,7 +1685,7 @@ function _attachStatusPanelListeners(shadow) {
                 _refreshStatusPanelContent(shadow);
             } catch (err) {
                 log(`卸下装备失败: ${err.message}`, 'warn');
-                alert('卸下装备失败：' + err.message);
+                (typeof toastr !== 'undefined' ? toastr.error('卸下装备失败：' + err.message, 'SAO Companion') : alert('卸下装备失败：' + err.message));
             }
         });
     });
@@ -1711,7 +1711,7 @@ function _attachStatusPanelListeners(shadow) {
                 }
             } catch (err) {
                 log(`穿戴装备失败: ${err.message}`, 'warn');
-                alert('装备失败：' + err.message);
+                (typeof toastr !== 'undefined' ? toastr.error('装备失败：' + err.message, 'SAO Companion') : alert('装备失败：' + err.message));
             }
         });
     });
