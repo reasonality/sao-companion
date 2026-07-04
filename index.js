@@ -1483,12 +1483,15 @@ function _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, self)
 function _dataRenderArrayField(path, arr, opts, self) {
     const topLabel = opts.topLabel || lastPathSegment(path);
     const isObject = (opts.isObject === true) || (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null);
+    // 点17: itemTitleKey 指定用哪个字段作为每条的标题(如 inventory items 用 name)
+    const titleKey = opts.itemTitleKey || null;
     if (isObject) {
         const schema = opts.schema || _dataInventoryItemSchema;
         const addDefaults = opts.addDefaults || { name: '', value: 0 };
         const items = arr.map((it, idx) => {
             const inner = _dataRenderFields(it, path + '|' + idx, opts.storeKey || '', schema, true, self);
-            return '<div class="sao-store-array-item"><div class="sao-store-array-item-fields">' + inner + '</div><button class="sao-store-array-remove" data-action="storeArrayRemove" data-array-path="' + esc(path) + '" data-array-idx="' + idx + '" title="删除 ' + (idx + 1) + '/' + arr.length + '">×</button></div>';
+            const itemTitle = (titleKey && it && it[titleKey]) ? '<div class="sao-store-array-item-title">' + esc(String(it[titleKey])) + '</div>' : '';
+            return '<div class="sao-store-array-item"><div class="sao-store-array-item-fields">' + itemTitle + inner + '</div><button class="sao-store-array-remove" data-action="storeArrayRemove" data-array-path="' + esc(path) + '" data-array-idx="' + idx + '" title="删除 ' + (idx + 1) + '/' + arr.length + '">×</button></div>';
         }).join('');
         return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(topLabel) + ' · ' + arr.length + ' 项（对象数组）</div>' + items + '<button class="sao-store-array-add" data-action="storeArrayAdd" data-array-path="' + esc(path) + '" data-array-defaults="' + esc(JSON.stringify([addDefaults])) + '">+ 添加</button></div>';
     }
@@ -2494,7 +2497,7 @@ function initPanelLogic() {
             const fields = [
                 { key: 'owner_id', readOnly: true },
                 { key: 'currency.cor', scalarType: 'number' },
-                { key: 'items', kind: 'array-items', schema: _dataInventoryItemSchema, addDefaults: { item_id: '', type: '', name: '', qty: 1 } },
+                { key: 'items', kind: 'array-items', schema: _dataInventoryItemSchema, addDefaults: { item_id: '', type: '', name: '', qty: 1 }, itemTitleKey: 'name' },
             ];
             return '<div class="sao-store-entry-detail">' + this._renderFieldsByPath(data, '', 'inventory', fields, true) + this._storeActions('inventory') + '</div>';
         },
