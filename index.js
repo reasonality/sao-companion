@@ -2443,7 +2443,7 @@ function initPanelLogic() {
             }
         },
 
-        _storeRenderPlayer(data) { return this._renderFieldsByPath(data, '', _dataStoreDefs[0].key, _dataPlayerSchema, true); },
+        _storeRenderPlayer(data) { return '<div class="sao-store-entry-detail">' + this._renderFieldsByPath(data, '', _dataStoreDefs[0].key, _dataPlayerSchema, true) + this._storeActions('player') + '</div>'; },
         _storeRenderWorld(data) {
             const sub = {
                 currentWeather: { condition: 'string', temperature: 'number' },
@@ -2471,7 +2471,7 @@ function initPanelLogic() {
                 schema: { date: 'string', event: 'string', floor_id: 'string' },
                 addDefaults: { date: '', event: '', floor_id: null },
             });
-            return inner + events;
+            return '<div class="sao-store-entry-detail">' + inner + events + this._storeActions('world') + '</div>';
         },
         _storeRenderInventory(data) {
             const fields = [
@@ -2479,7 +2479,7 @@ function initPanelLogic() {
                 { key: 'currency.cor', scalarType: 'number' },
                 { key: 'items', kind: 'array-items', schema: _dataInventoryItemSchema, addDefaults: { item_id: '', type: '', name: '', qty: 1 } },
             ];
-            return this._renderFieldsByPath(data, '', 'inventory', fields, true);
+            return '<div class="sao-store-entry-detail">' + this._renderFieldsByPath(data, '', 'inventory', fields, true) + this._storeActions('inventory') + '</div>';
         },
         _storeRenderCalendar(data) {
             const dateKeys = Object.keys(data.events || {});
@@ -2499,7 +2499,7 @@ function initPanelLogic() {
             // 选中日期的事件列表（字段化编辑，非 JSON）
             const datesBody = viewDate ? this._renderCalendarDates([viewDate], data.events || {}) : '<div class="sao-store-empty">请选择日期</div>';
             // 用 .sao-store-entry-detail 包裹，使 _dataApplyEdits 能收集 data-field-path 编辑
-            return '<div class="sao-store-entry-detail">' + summary + '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">基本信息</div>' + currentDateField + '</div>' + aptHtml + datePicker + datesBody + '</div>';
+            return '<div class="sao-store-entry-detail">' + summary + '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">基本信息</div>' + currentDateField + '</div>' + aptHtml + datePicker + datesBody + this._storeActions('calendar') + '</div>';
         },
         _storeRenderRuntime(data) {
             const keys = Object.keys(data || {});
@@ -2551,9 +2551,13 @@ function initPanelLogic() {
             main.scrollTop = main.scrollHeight;
         },
 
+        _storeActions(storeKey, entryId) {
+            const eid = entryId != null ? esc(String(entryId)) : '';
+            return '<div class="sao-store-actions"><button class="sao-store-btn-save" data-action="storeSave" data-store-key="' + esc(storeKey) + '" data-entry-id="' + eid + '">保存</button><button class="sao-store-btn-cancel" data-action="storeReset" data-store-key="' + esc(storeKey) + '" data-entry-id="' + eid + '">取消</button><span class="sao-store-status-ok" data-store-status="' + esc(storeKey) + (eid ? '|' + eid : '') + '" style="display:none;">✓ 已保存</span></div>';
+        },
         _storeRenderEntryDetail(entry, idField, storeKey) {
             const detail = this._renderFieldsByPath(entry, '', storeKey, _dataCollectionSchemas[idField] || null, true);
-            const actions = '<div class="sao-store-actions"><button class="primary" data-action="storeSave" data-store-key="' + esc(storeKey) + '" data-entry-id="' + esc(entry[idField]) + '">保存</button><button data-action="storeReset" data-store-key="' + esc(storeKey) + '" data-entry-id="' + esc(entry[idField]) + '">重置</button><span class="sao-store-status-ok" data-store-status="' + esc(storeKey) + '|' + esc(entry[idField]) + '" style="display:none;">✓ 已保存</span></div>';
+            const actions = this._storeActions(storeKey, entry[idField]);
             return '<div class="sao-store-entry-detail"><div class="sao-store-warning">修改 ID 类字段（' + esc(idField) + '）可能破坏其它 store 的引用。保存即写入 chatMetadata。</div>' + detail + actions + '</div>';
         },
 
