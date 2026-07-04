@@ -113,15 +113,6 @@ function _buildCanon(content) {
  */
 const EXTERNAL_FLOOR_DATA = {};
 
-/**
- * 各章节楼层配置。
- * maxFloor <= 0 的章节不做楼层补全。
- */
-const ARC_FLOOR_CONFIG = {
-    sao:       { maxFloor: 100, prefix: 'floor_' },
-    'real':     { maxFloor: 0,   prefix: 'real_' },           // 现实无楼层
-};
-
 // ============================================================
 // 导出函数
 // ============================================================
@@ -294,20 +285,19 @@ export function initFloorFromWorldBook(entries) {
 }
 
 /**
- * 补全当前章节的全部楼层 stub（世界书已有则跳过）。
- * @param {string} [arc] - 章节key，默认 'sao'。非 SAO 章节预留结构（当前只 SAO 填100层，其余留空待后续）。
+ * 补全全部楼层 stub（世界书已有则跳过）。
  * @returns {number} 新创建的 stub 数量
  */
-export function ensureAllFloorsExist(arc) {
-    const cfg = ARC_FLOOR_CONFIG[arc || 'sao'];
-    if (!cfg || cfg.maxFloor <= 0) return 0;
+export function ensureAllFloorsExist() {
+    const maxFloor = 100;
+    const prefix = 'floor_';
 
     const store = ensureFloorStore();
     let created = 0;
 
-    for (let i = 1; i <= cfg.maxFloor; i++) {
+    for (let i = 1; i <= maxFloor; i++) {
         const padded = String(i).padStart(3, '0');
-        const id = cfg.prefix + padded;
+        const id = prefix + padded;
         if (store.byId[id]) continue; // 已有（世界书或之前创建），跳过
 
         const ext = EXTERNAL_FLOOR_DATA[i] || {};

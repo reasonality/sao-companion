@@ -441,10 +441,9 @@ export function disableParsedEntries(entries, parseResults) {
  *
  * Idempotent: skips if already parsed with matching entry hash.
  * @param {Array} entries - character_book.entries
- * @param {string} [arc] - current arc key (default 'sao')
  * @returns {{ npcCount: number, floorCount: number, stubCount: number, timelineCount: number, rulesCount: number, disabledCount: number } | null}
  */
-export function runLorebookPreParser(entries, arc) {
+export function runLorebookPreParser(entries) {
     const store = getStore();
     if (!store) return null;
 
@@ -463,7 +462,7 @@ export function runLorebookPreParser(entries, arc) {
 
     // Phase 2: Floor settings → floorStore
     const floorCount = initFloorFromWorldBook(entries);
-    const stubCount = ensureAllFloorsExist(arc || 'sao');
+    const stubCount = ensureAllFloorsExist();
 
     // Phase 3: Timeline entries → calendarStore
     const timelineCount = parseTimelineEntries(entries);

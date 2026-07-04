@@ -27,7 +27,7 @@ export const CUSTOM_SKILL_DEFS = {
             target.hp -= Math.max(1, bonusDmg - (target.str || 0));
             log.push('星爆气流斩·双重打击：追加伤害！');
         },
-        _unlock: { type: 'floor', floor: 75, arc: 'sao' },
+        _unlock: { type: 'floor', floor: 75 },
         description: '双刀流奥义——十六连击的究极剑技。',
         effects_description: '生命窃取15% | 持续伤害3回合x30点 | 命中后追加50%ATK伤害',
     },
@@ -85,7 +85,6 @@ export function checkCustomSkillUnlocks(messageText) {
                 unlocked = floorVal >= def._unlock.floor; 
                 break;
             }
-            case 'chapter': unlocked = data.arc === def._unlock.arc; break;
             case 'keyword': unlocked = messageText.includes(def._unlock.keyword); break;
         }
         if (unlocked) {

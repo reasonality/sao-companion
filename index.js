@@ -1,6 +1,6 @@
 // SAO Companion - 刀剑神域角色卡专用扩展
 // 版本: 0.6.45 (用原卡模板替换自写美化)
-// 功能: 多模型分工 + 状态监控 + 章节管理 + 独立控制台
+// 功能: 多模型分工 + 状态监控 + 独立控制台
 
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import {
@@ -84,12 +84,6 @@ const SLOT_LABELS = {
 // ============================================================
 // 骰子表常量已迁移至 sao-generators.js
 // ============================================================
-
-/** 章节 -> 世界书条目名称前缀映射 (FIX 4) */
-const ARC_NAME_PREFIXES = {
-    sao:     ['sao-', 'sao'],
-    real:    ['\u73B0\u5B9E', '\u771F\u5B9E\u4E16\u754C'],
-};
 
 // ============================================================
 // P4c: 自定义技能系统 (Custom Skill System)
@@ -561,7 +555,7 @@ function bindEvents() {
             const char = getCurrentCharacter();
             if (char?.data?.character_book?.entries) {
                 const entries = char.data.character_book.entries;
-                const result = runLorebookPreParser(entries, getSettings().currentArc || 'sao');
+                const result = runLorebookPreParser(entries);
                 if (result) {
                     saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
                 }
@@ -717,30 +711,6 @@ function bindEvents() {
             // Centralized turn counter increment (per spec §4.4, at end of chain before save)
             const saoData = getSaoData();
 
-            // v2 CALENDAR MODEL: 必须在 P2d 清除 arcChangedThisTurn 之前读取。
-            // 若 P2d 块位置变动，此读取点必须同步移动。
-            // 见 CALENDAR_MODEL_V2_DESIGN.md §3 条件 #3
-            const _arcChangedForCalendar = !!saoData?.runtime?.arcChangedThisTurn;
-            // B6: Quest specialist also needs arcChanged before P2d clears it
-            const _arcChangedForQuest = !!saoData?.runtime?.arcChangedThisTurn;
-
-            // P2d: Arc-change calendar trigger (v1 consumer of arcChangedThisTurn) — v2 trigger condition #3.
-            if (saoData?.runtime?.arcChangedThisTurn) {
-                try {
-                    const cal = saoData.calendar;
-                    log('章节切换触发日历检查: arc=' + saoData.arc + ', 日期=' + (cal?.currentDate || '未初始化'));
-                    // v2 will hook calendarModelUpdate here; v1 just logs + ensures calendar is initialized for the new arc.
-                    if (cal && !cal.currentDate) {
-                        // New arc with no calendar date — ensure initialization runs on this message.
-                        // (initCalendarIfNeeded runs inside updateCalendarIncremental, already called above.)
-                    }
-                } catch (e) {
-                    log('章节切换日历检查失败: ' + e.message, 'warn');
-                } finally {
-                    saoData.runtime.arcChangedThisTurn = false; // clear after consumption (one-shot)
-                }
-            }
-
             // P2c: Periodic calendar health check (every 20 turns) — v1 consumer of calendarTurnCounter.
             // Also serves as the entry point for v2 trigger condition #4 (see CALENDAR_MODEL_V2_DESIGN.md §3).
             const preIncrement = saoData?.runtime?.calendarTurnCounter || 0;
@@ -760,9 +730,9 @@ function bindEvents() {
             if (!saoData.runtime) saoData.runtime = {};
             saoData.runtime.calendarTurnCounter = (saoData.runtime.calendarTurnCounter || 0) + 1;
 
-            // B6: Quest specialist — check every 5 turns or on arc change
+            // B6: Quest specialist — check every 5 turns
             const _questTurnCounter = saoData.runtime.calendarTurnCounter;
-            const _shouldCheckQuests = (_questTurnCounter % 5 === 0) || _arcChangedForQuest;
+            const _shouldCheckQuests = (_questTurnCounter % 5 === 0);
             if (_shouldCheckQuests) {
                 checkQuestsFromNarrative(rawText, messageId).catch(e =>
                     log('Quest specialist 检查失败: ' + e.message, 'warn')
@@ -788,7 +758,7 @@ function bindEvents() {
             // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveStore 之后、lock 块结束前）。
             // 不 await，不阻塞后处理链。opt-in 由 shouldTriggerCalendarModel 内部守护（§10.2）。
             // 见 CALENDAR_MODEL_V2_DESIGN.md §3/§5.3
-            if (shouldTriggerCalendarModel(rawText, saoData, { arcChangedThisTurn: _arcChangedForCalendar })) {
+            if (shouldTriggerCalendarModel(rawText, saoData)) {
                 calendarModelUpdate(rawText)
                     .catch(e => log('日历模型 fire-and-forget 失败: ' + e.message, 'warn'));
             }
@@ -1421,90 +1391,6 @@ function _dataRenderArrayField(path, arr, opts, self) {
 }
 
 function initPanelLogic() {
-    // 章节 → 世界书条目切换 (FIX 4: 使用条目名称前缀匹配)
-    async function switchWorldInfoEntries(arc) {
-        try {
-            const ctx = getContext();
-            const char = getCurrentCharacter();
-            if (!char?.data?.character_book?.entries) return;
-
-            const entries = char.data.character_book.entries;
-
-            // 旧的关键词映射（作为后备检查）
-            const arcKeywords = {
-                sao: ['sao', 'SAO', '\u827E\u6069\u845B\u6717\u7279', 'Aincrad'],
-                real: ['\u73B0\u5B9E', '\u771F\u5B9E\u4E16\u754C', '\u73B0\u5B9E\u4E16\u754C'],
-            };
-            const currentKeys = arcKeywords[arc] || [];
-            const namePrefixes = ARC_NAME_PREFIXES[arc] || [];
-
-            let enabledCount = 0, disabledCount = 0, unchangedCount = 0;
-
-            entries.forEach(e => {
-                const entryName = (e.comment || e.name || '').trim();
-
-                // 跳过时间线条目（按日期触发，不应被章节切换控制）
-                if (/\d{4}\u5E74\d{1,2}\u6708/.test(entryName)) {
-                    unchangedCount++;
-                    return;
-                }
-
-                // 方法1: 通过条目名称前缀判断章节归属
-                let entryArc = null;
-                for (const [arcKey, prefixes] of Object.entries(ARC_NAME_PREFIXES)) {
-                    if (prefixes.some(pfx => entryName.startsWith(pfx) || entryName.toLowerCase().startsWith(pfx.toLowerCase()))) {
-                        entryArc = arcKey;
-                        break;
-                    }
-                }
-
-                if (entryArc) {
-                    // 条目名称明确归属某个章节：启用/禁用
-                    const shouldBeEnabled = (entryArc === arc);
-                    if (e.enabled !== shouldBeEnabled) {
-                        e.enabled = shouldBeEnabled;
-                        if (shouldBeEnabled) enabledCount++; else disabledCount++;
-                    } else {
-                        unchangedCount++;
-                    }
-                    return;
-                }
-
-                // 方法2: 条目名称不含已知前缀 → 用旧的关键词匹配（仅对有 keys 的条目）
-                if (e.constant) { unchangedCount++; return; }
-                if (!e.selective) { unchangedCount++; return; }
-                const entryKeys = e.keys || [];
-                if (entryKeys.length === 0) { unchangedCount++; return; }
-
-                const isCurrentArc = entryKeys.some(k =>
-                    currentKeys.some(ck => k.toLowerCase().includes(ck.toLowerCase()))
-                );
-                if (entryKeys.length > 0) {
-                    const wasEnabled = e.enabled;
-                    e.enabled = isCurrentArc;
-                    if (e.enabled !== wasEnabled) {
-                        if (e.enabled) enabledCount++; else disabledCount++;
-                    } else {
-                        unchangedCount++;
-                    }
-                }
-            });
-
-            log(`\u4E16\u754C\u4E66\u5207\u6362 [${arc}]: \u542F\u7528=${enabledCount} \u7981\u7528=${disabledCount} \u4E0D\u53D8=${unchangedCount}`);
-
-            // 保存世界书
-            if (typeof ctx.saveWorldInfo === 'function') {
-                const bookName = char.data.character_book.name || char.name;
-                await ctx.saveWorldInfo(bookName, char.data.character_book, true);
-            } else if (ctx.writeExtensionField) {
-                await ctx.writeExtensionField(ctx.characterId, 'character_book', char.data.character_book);
-            }
-            log(`\u4E16\u754C\u4E66\u6761\u76EE\u5DF2\u6309\u7AE0\u8282 [${arc}] \u5207\u6362`);
-        } catch (e) {
-            log('\u4E16\u754C\u4E66\u5207\u6362\u5931\u8D25: ' + e.message, 'warn');
-        }
-    };
-
     // ============================================================
     // P2c: Calendar tab UI
     // ============================================================
@@ -2206,27 +2092,6 @@ function initPanelLogic() {
             saveSettingsDebounced();
             log('专家面板开关: ' + (cb.checked ? '开启' : '关闭'));
         },
-        switchArc(arc) {
-            const settings = getSettings();
-            settings.currentArc = arc;
-            saveSettingsDebounced();
-            const data = getSaoData();
-            if (data) data.arc = arc;
-            // Mark that the arc changed this turn — v2 calendar trigger condition #3 (CALENDAR_MODEL_V2_DESIGN.md §3).
-            // v1 consumer: log the arc change for diagnostics. Cleared after the next MESSAGE_RECEIVED cycle.
-            if (data) {
-                if (!data.runtime) data.runtime = {};
-                data.runtime.arcChangedThisTurn = true;
-                log('章节切换标记 arcChangedThisTurn=true (arc: ' + arc + ')');
-            }
-            switchWorldInfoEntries(arc);
-            injectMemoryAndState();
-            log('章节切换: ' + arc);
-            // 更新 UI
-            document.querySelectorAll('.sao-chapter-card').forEach(c => {
-                c.classList.toggle('sao-chapter-active', c.dataset.arc === arc);
-            });
-        },
         clearLogs() {
             logs.length = 0;
             updateLogDisplay();
@@ -2680,12 +2545,10 @@ function initPanelLogic() {
             const role = target.getAttribute('data-role');
             const type = target.getAttribute('data-type');
             const tab = target.getAttribute('data-tab');
-            const arc = target.getAttribute('data-arc');
 
             switch (action) {
                 case 'closePanel': window.SaoPanel.close(); break;
                 case 'switchTab': window.SaoPanel.switchTab(tab); break;
-                case 'switchArc': window.SaoPanel.switchArc(arc); break;
                 case 'fetchModels': window.SaoPanel.fetchModels(role); break;
                 case 'testModel': window.SaoPanel.testModel(role); break;
                 case 'saveModels': window.SaoPanel.saveModels(); break;
@@ -3181,13 +3044,6 @@ function refreshStatus() {
             questEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无活跃任务</span>';
         }
     }
-
-    // 当前章节高亮
-    const arcEl = document.getElementById('sao_current_arc');
-    if (arcEl) arcEl.textContent = settings.currentArc || 'sao';
-    document.querySelectorAll('.sao-chapter-card').forEach(c => {
-        c.classList.toggle('sao-chapter-active', c.dataset.arc === settings.currentArc);
-    });
 
     // BUG #5: 同步更新聊天消息中的状态面板（插件侧边栏修改后自动刷新）
     refreshLatestChatStatusPanel();

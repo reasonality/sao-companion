@@ -32,8 +32,6 @@ const DEFAULT_SETTINGS = Object.freeze({
     saoCalendar: { llmEnabled: false },
     // P2: 专家面板开关（opt-in 默认开——装饰面板专家化是核心收益）
     specialistPanels: { enabled: true },
-    // 章节
-    currentArc: 'sao',
     // SAO 卡兼容模式（替代 TavernHelper 脚本）
     compatMode: true,  // 自动关闭不兼容选项 + 启用角色卡正则
 });
@@ -198,7 +196,7 @@ export function getSaoData() {
     const meta = ctx.chatMetadata;
     if (!meta) return null;  // 群聊或异常情况
     if (!meta[MODULE_NAME]) {
-        meta[MODULE_NAME] = { state: null, arc: 'sao', calendar: null, calendarPanels: {}, panels: {} };
+        meta[MODULE_NAME] = { state: null, calendar: null, calendarPanels: {}, panels: {} };
     }
     const d = meta[MODULE_NAME];
     // 兼容旧字段

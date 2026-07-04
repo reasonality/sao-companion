@@ -559,8 +559,8 @@ describe('Floor Store validation', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('ensureAllFloorsExist', () => {
-    it('creates 100 stub floors for sao arc', () => {
-        const created = ensureAllFloorsExist('sao');
+    it('creates 100 stub floors', () => {
+        const created = ensureAllFloorsExist();
         expect(created).toBe(100);
         expect(getFloorByNumber(1)).toBeTruthy();
         expect(getFloorByNumber(50)).toBeTruthy();
@@ -568,8 +568,8 @@ describe('ensureAllFloorsExist', () => {
     });
 
     it('is idempotent — second call creates 0', () => {
-        ensureAllFloorsExist('sao');
-        const created2 = ensureAllFloorsExist('sao');
+        ensureAllFloorsExist();
+        const created2 = ensureAllFloorsExist();
         expect(created2).toBe(0);
     });
 
@@ -581,7 +581,7 @@ describe('ensureAllFloorsExist', () => {
         }];
         initFloorFromWorldBook(entries);
 
-        const created = ensureAllFloorsExist('sao');
+        const created = ensureAllFloorsExist();
         expect(created).toBe(99); // 100 - 1 existing
 
         // worldbook floor should remain unchanged
@@ -591,7 +591,7 @@ describe('ensureAllFloorsExist', () => {
     });
 
     it('stub floors have correct structure', () => {
-        ensureAllFloorsExist('sao');
+        ensureAllFloorsExist();
         const floor50 = getFloorByNumber(50);
         expect(floor50.floor_id).toBe('floor_050');
         expect(floor50.floor_number).toBe(50);
@@ -603,26 +603,16 @@ describe('ensureAllFloorsExist', () => {
     });
 
     it('floor 1 stub has unlocked:true', () => {
-        ensureAllFloorsExist('sao');
+        ensureAllFloorsExist();
         const floor1 = getFloorByNumber(1);
         expect(floor1.state.unlocked).toBe(true);
     });
 
     it('floor 100 stub has unlocked:false', () => {
-        ensureAllFloorsExist('sao');
+        ensureAllFloorsExist();
         const floor100 = getFloorByNumber(100);
         expect(floor100.state.unlocked).toBe(false);
         expect(floor100.floor_id).toBe('floor_100');
     });
-
-    it('returns 0 for non-SAO arcs with maxFloor 0', () => {
-        expect(ensureAllFloorsExist('现实')).toBe(0);
-    });
-
-    it('defaults to sao when arc is undefined', () => {
-        const created = ensureAllFloorsExist();
-        expect(created).toBe(100);
-    });
-
 
 });

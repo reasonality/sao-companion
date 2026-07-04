@@ -39,10 +39,9 @@ let _calendarModelRunning = false;
  * v2 触发条件检查（§3）。任一满足即返回 true。
  * @param {string} rawText - AI 消息原文
  * @param {object} saoData - getSaoData() 结果
- * @param {{arcChangedThisTurn?: boolean}} flags - 读-早传入的 arc 标记
  * @returns {boolean}
  */
-function shouldTriggerCalendarModel(rawText, saoData, { arcChangedThisTurn } = {}) {
+function shouldTriggerCalendarModel(rawText, saoData) {
     if (!getSettings().saoCalendar?.llmEnabled) return false;
     if (!rawText || !saoData?.calendar) return false;
 
@@ -59,9 +58,6 @@ function shouldTriggerCalendarModel(rawText, saoData, { arcChangedThisTurn } = {
             if (timeStr && timeStr !== cal.currentDate) return true;
         }
     }
-
-    // #3 章节切换（读-早传入的 flag）
-    if (arcChangedThisTurn) return true;
 
     return false;
 }

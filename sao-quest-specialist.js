@@ -1,5 +1,5 @@
 // sao-quest-specialist.js — 任务专家（从叙事中抽取任务事件）
-// 由 index.js 每 5 轮或 arc 切换时调用。
+// 由 index.js 每 5 轮调用。
 // 使用 specialist LLM 识别叙事中的任务事件（接受/进展/完成），更新 questStore。
 
 import { getSettings, log, safeJsonParse } from './sao-core.js';

@@ -102,9 +102,6 @@ export function injectMemoryAndState() {
         parts.push(stateText);
     }
 
-    // 当前章节
-    parts.push(`[章节]${settings.currentArc}`);
-
     // P2b: inject calendar date if available (from calendarStore)
     const calStore = getStore()?.calendarStore;
     if (calStore?.currentDate) {
@@ -139,7 +136,7 @@ export function injectMemoryAndState() {
         const injected = parts.join('\n');
         ctx.setExtensionPrompt('sao_companion_inject', injected, 1, 4, false, 0);
         // 诊断日志：每次注入输出 parts 数量、总字符数、各部分首行标记，便于在 SAO Companion 日志 tab 验证
-        // parts 顺序固定：[状态] / [章节] / [日期] / [日历提示] / 可用工具 / [上下文注入块]
+        // parts 顺序固定：[状态] / [日期] / [日历提示] / 可用工具 / [上下文注入块]
         const partHeaders = parts.map((p, i) => {
             const firstLine = p.split('\n', 1)[0] || '';
             const tag = firstLine.slice(0, 40);

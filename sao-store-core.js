@@ -47,7 +47,6 @@ const DEFAULT_STORE = {
     panels: {},
     calendarPanels: {},
     // 向后兼容字段（非迁移代码仍在使用）
-    arc: 'sao',
     calendar: null,
 };
 
@@ -90,7 +89,6 @@ export function getStore() {
         log('[store-core] 检测到旧版 flat state，执行惰性迁移', 'warn');
         // 保留旧数据中需要延续的字段
         const preserved = {
-            arc:        d.arc        ?? 'sao',
             panels:     d.panels     ?? {},
             calendarPanels: d.calendarPanels ?? {},
             calendar:   d.calendar   ?? null,
@@ -98,7 +96,6 @@ export function getStore() {
         // 替换为新骨架
         Object.assign(d, structuredClone(DEFAULT_STORE));
         // 回写保留字段
-        d.arc            = preserved.arc;
         d.panels         = preserved.panels;
         d.calendarPanels = preserved.calendarPanels;
         d.calendar       = preserved.calendar;
@@ -253,11 +250,9 @@ export function resetStore() {
     const meta = ctx?.chatMetadata;
     if (!meta) return;
     const preserved = {
-        arc: meta[MODULE_NAME]?.arc ?? 'sao',
         calendar: meta[MODULE_NAME]?.calendar ?? null,
     };
     meta[MODULE_NAME] = structuredClone(DEFAULT_STORE);
-    meta[MODULE_NAME].arc = preserved.arc;
     meta[MODULE_NAME].calendar = preserved.calendar;
     log('[store-core] store 已重置');
 }

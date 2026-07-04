@@ -408,7 +408,6 @@ export function registerGetWorldSetting(ctx) {
             type: 'object',
             properties: {
                 topic: { type: 'string', description: '查询话题（必填）', 'enum': ['death_game', 'economy', 'pk', 'combat', 'skills', 'leveling', 'housing', 'environment'] },
-                arc: { type: 'string', description: '可选篇章过滤', 'enum': ['sao', 'real'] },
             },
             required: ['topic'],
         },
@@ -425,10 +424,6 @@ export function registerGetWorldSetting(ctx) {
                 }
 
                 let data = rules[topic];
-                // 可选 arc 过滤
-                if (args?.arc && typeof data === 'object' && !Array.isArray(data)) {
-                    data = data[args.arc] || data;
-                }
 
                 if (typeof data === 'string') return data;
                 if (typeof data === 'object') return JSON.stringify(data, null, 2);

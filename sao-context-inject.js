@@ -2,7 +2,7 @@
 // 关键词触发 NPC/楼层档案 + 全量规则 + 日历 ±7天 + NPC 摘要块
 // 被 sao-prompt.js injectMemoryAndState() 调用，输出追加到 per-turn 状态注入
 
-import { getCurrentCharacter, getSettings, log } from './sao-core.js';
+import { getCurrentCharacter, log } from './sao-core.js';
 import { getStore } from './sao-store-core.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
@@ -17,12 +17,6 @@ const RULE_COMMENT_PATTERNS = [
     'sao-PK机制', 'sao-经济系统', 'sao-等级', 'sao-技能',
     'sao-剑技获取', 'sao-冥想', 'sao-房屋', 'sao-NPC档案构建规则',
 ];
-
-/** 章节 → 世界书条目名称前缀映射（用于 NPC 摘要块过滤） */
-const ARC_NAME_PREFIXES = {
-    sao:     ['sao-', 'sao'],
-    real:    ['现实', '真实世界'],
-};
 
 // ============================================================
 // 公共 API
@@ -89,15 +83,12 @@ export function injectContextualCanon(recentText) {
 // ============================================================
 
 /**
- * NPC 摘要块：列出当前章节主要 NPC 的一行状态。
- * "主要" = npcStore.source==='worldbook' + 世界书条目 comment 匹配当前章节前缀。
+ * NPC 摘要块：列出当前世界书 NPC 的一行状态。
+ * "来源" = npcStore.source==='worldbook' + 世界书条目 comment 匹配 NPC 名称。
  * @param {Array} entries - character_book.entries
  * @returns {string}
  */
 function buildNpcSummaryBlock(entries) {
-    const settings = getSettings();
-    const currentArc = settings?.currentArc || 'sao';
-    const prefixes = ARC_NAME_PREFIXES[currentArc] || ['sao-'];
     const npcStore = getStore()?.npcStore;
     if (!npcStore?.byId) return '';
 
@@ -112,16 +103,6 @@ function buildNpcSummaryBlock(entries) {
             return keys[0] === npc.name || comment.includes(npc.name);
         });
         if (!entry) continue;
-
-        const comment = (entry.comment || '').trim();
-        // 命名格式混用 "sao-亚丝娜" 与 "桐人sao-桐谷和人"，startsWith 会漏掉后者。
-        // 兜底：startsWith 命中即可，否则任一前缀作为子串出现亦可（小写比较）。
-        const commentLower = comment.toLowerCase();
-        const belongsToArc = prefixes.some(p => {
-            const pl = p.toLowerCase();
-            return commentLower.startsWith(pl) || commentLower.includes(pl);
-        });
-        if (!belongsToArc) continue;
 
         const parts = [npc.name];
         if (npc.state?.relationship) parts.push(npc.state.relationship);
