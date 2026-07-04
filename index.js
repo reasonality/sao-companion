@@ -2450,9 +2450,23 @@ function initPanelLogic() {
                 areaStatus: { location: 'string', danger_level: 'string', zone_type: 'string', description: 'string' },
             };
             const inner = this._renderFieldsByPath(data, '', 'world', sub, true);
-            const events = this._renderArrayField('worldEvents', Array.isArray(data.worldEvents) ? data.worldEvents : [], {
+            // 点12: worldEvents 去重（按 date+event+floor_id 按键化，只保留唯一项）
+            const rawEvents = Array.isArray(data.worldEvents) ? data.worldEvents : [];
+            const seen = new Set();
+            const deduped = rawEvents.filter(ev => {
+                if (!ev || typeof ev !== 'object') return false;
+                const key = (ev.date || '') + '|' + (ev.event || '') + '|' + (ev.floor_id || '');
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+            if (deduped.length !== rawEvents.length) {
+                log('worldEvents 去重: ' + rawEvents.length + ' → ' + deduped.length + ' 条');
+                data.worldEvents = deduped;
+            }
+            const events = this._renderArrayField('worldEvents', deduped, {
                 storeKey: 'world',
-                topLabel: 'worldEvents',
+                topLabel: fieldLabel('worldEvents'),
                 isObject: true,
                 schema: { date: 'string', event: 'string', floor_id: 'string' },
                 addDefaults: { date: '', event: '', floor_id: null },
