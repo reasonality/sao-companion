@@ -616,7 +616,6 @@ describe('ensureAllFloorsExist', () => {
     });
 
     it('returns 0 for non-SAO arcs with maxFloor 0', () => {
-        expect(ensureAllFloorsExist('ggo')).toBe(0);
         expect(ensureAllFloorsExist('现实')).toBe(0);
     });
 

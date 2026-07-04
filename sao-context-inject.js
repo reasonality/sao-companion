@@ -21,7 +21,6 @@ const RULE_COMMENT_PATTERNS = [
 /** 章节 → 世界书条目名称前缀映射（用于 NPC 摘要块过滤） */
 const ARC_NAME_PREFIXES = {
     sao:     ['sao-', 'sao'],
-    ggo:     ['ggo-', 'ggo', 'GGO'],
     real:    ['现实', '真实世界'],
 };
 

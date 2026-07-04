@@ -119,7 +119,6 @@ const EXTERNAL_FLOOR_DATA = {};
  */
 const ARC_FLOOR_CONFIG = {
     sao:       { maxFloor: 100, prefix: 'floor_' },
-    ggo:        { maxFloor: 0,   prefix: 'ggo_' },            // GGO 无楼层概念
     'real':     { maxFloor: 0,   prefix: 'real_' },           // 现实无楼层
 };
 
