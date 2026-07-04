@@ -2957,29 +2957,34 @@ function refreshStatus() {
     setText('sao_world_events', events.length > 0 ? events[events.length-1].event : '-');
 
     // 已穿戴装备 - 渲染到 sao_equipped_list（右列装备section）
-    // Bug3: 空槽位不渲染（!equipId 跳过），只有已装备的才显示卸下按钮
+    // 点9: 改成全 7 槽位网格（含空槽），与聊天栏装备区一致
     const slots = ['weapon', 'off_hand', 'head', 'chest', 'hands', 'legs', 'accessory'];
     const equipArr = [];
     for (const slot of slots) {
         const equipId = player.equipment?.[slot];
-        if (!equipId) continue;
+        if (!equipId) { equipArr.push({ slot, name: null, item: null }); continue; }
         const equip = getEquipmentById(equipId);
-        if (equip && equip.name) {
-            equipArr.push({ slot, name: equip.name, item: equip });
-        }
+        equipArr.push({ slot, name: equip?.name || null, item: equip || null });
     }
     const equippedEl = document.getElementById('sao_equipped_list');
     if (equippedEl) {
-        if (equipArr.length > 0) {
-            equippedEl.innerHTML = equipArr.map((entry, i) =>
-                `<div class="sao-tag sao-tag-equip" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
-                `<span data-detail-type="equip" data-detail-index="${i}" style="cursor:pointer;">${esc(SLOT_LABELS[entry.slot] || entry.slot)}: ${esc(entry.name)}</span>` +
-                `<button class="sao-btn sao-btn-sm" data-action="unequip" data-slot="${esc(entry.slot)}" title="卸下装备">↓</button>` +
-                `</div>`
-            ).join('');
-        } else {
-            equippedEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">暂无穿戴装备</span>';
-        }
+        equippedEl.innerHTML = equipArr.map((entry, i) => {
+            const slotLabel = SLOT_LABELS[entry.slot] || entry.slot;
+            if (!entry.name) {
+                // 空槽位
+                return `<div class="sao-equip-row sao-equip-row-empty" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border:1px solid rgba(255,255,255,0.04);border-radius:6px;margin-bottom:4px;">` +
+                    `<span style="color:var(--text-tertiary);font-size:0.85em;">${esc(slotLabel)}</span>` +
+                    `<span style="color:var(--text-tertiary);font-size:0.82em;opacity:0.6;">无</span>` +
+                    `</div>`;
+            }
+            return `<div class="sao-equip-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border:1px solid rgba(0,210,255,0.15);border-radius:6px;margin-bottom:4px;background:rgba(0,210,255,0.04);">` +
+                `<div style="display:flex;flex-direction:column;gap:2px;cursor:pointer;" data-detail-type="equip" data-detail-index="${i}">` +
+                `<span style="color:var(--text-tertiary);font-size:0.78em;">${esc(slotLabel)}</span>` +
+                `<span style="color:var(--text-primary);font-size:0.9em;font-weight:600;">${esc(entry.name)}</span>` +
+                `</div>` +
+                `<button class="sao-btn sao-btn-sm" data-action="unequip" data-slot="${esc(entry.slot)}" title="卸下装备" style="padding:2px 8px;font-size:0.78em;">↓</button>` +
+                `</div>`;
+        }).join('');
         _saoCurrentData = _saoCurrentData || {};
         _saoCurrentData.equipment = equipArr;
     }
