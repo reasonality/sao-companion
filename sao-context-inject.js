@@ -117,7 +117,13 @@ function buildNpcSummaryBlock(entries) {
         if (!entry) continue;
 
         const comment = (entry.comment || '').trim();
-        const belongsToArc = prefixes.some(p => comment.toLowerCase().startsWith(p.toLowerCase()));
+        // 命名格式混用 "sao-亚丝娜" 与 "桐人sao-桐谷和人"，startsWith 会漏掉后者。
+        // 兜底：startsWith 命中即可，否则任一前缀作为子串出现亦可（小写比较）。
+        const commentLower = comment.toLowerCase();
+        const belongsToArc = prefixes.some(p => {
+            const pl = p.toLowerCase();
+            return commentLower.startsWith(pl) || commentLower.includes(pl);
+        });
         if (!belongsToArc) continue;
 
         const parts = [npc.name];
