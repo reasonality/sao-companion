@@ -9,7 +9,7 @@ import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
 import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
-import { findOrCreateNpc, updateNpcState, addObservation, getNpcById } from './sao-store-npc.js';
+import { findOrCreateNpc, updateNpcState, addObservation, getNpcById, getNpcByName } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
 import { extractJsonObject } from './sao-specialists.js';
 
@@ -712,12 +712,19 @@ export async function applyExtractedData(extracted, customSkillDefs) {
     }
 
     // 5. NPC Updates → npcStore
+    const newNpcs = [];
     if (Array.isArray(extracted.npcUpdates) && extracted.npcUpdates.length > 0) {
         for (const upd of extracted.npcUpdates) {
             if (!upd || !upd.name) continue;
             try {
+                // 判断是否为新 NPC（在 findOrCreateNpc 之前检查）
+                const existingNpc = getNpcByName(upd.name);
                 const npcId = findOrCreateNpc(upd.name);
                 if (!npcId) continue;
+                // 记录新创建的 NPC（之前不存在，且无 worldbook 来源）
+                if (!existingNpc) {
+                    newNpcs.push(upd.name);
+                }
                 const stateUpdate = {};
                 if (upd.relationship != null) stateUpdate.relationship = String(upd.relationship);
                 if (upd.affinity != null) {
@@ -746,4 +753,5 @@ export async function applyExtractedData(extracted, customSkillDefs) {
     }
 
     await saveStore();
+    return newNpcs;
 }

@@ -664,7 +664,14 @@ function bindEvents() {
             }
             // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
             const extracted = await extractAll(rawText, callModel, messageId);
-            if (extracted) await applyExtractedData(extracted, CUSTOM_SKILL_DEFS);
+            const newNpcs = extracted ? await applyExtractedData(extracted, CUSTOM_SKILL_DEFS) : [];
+
+            // P3e: 新 NPC 档案生成（fire-and-forget，非阻塞）
+            if (Array.isArray(newNpcs) && newNpcs.length > 0) {
+                import('./sao-npc-profile-gen.js').then(({ generateNpcProfiles }) =>
+                    generateNpcProfiles(newNpcs, rawText)
+                ).catch(e => log('NPC 档案生成失败: ' + e.message, 'warn'));
+            }
 
             // P2b: Calendar incremental update (v1 pure regex, no LLM)
             // await 保证 calendar 变更（含 calendarVersion 递增）在 combat/skill 之前完成，
