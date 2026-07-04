@@ -88,8 +88,6 @@ const SLOT_LABELS = {
 /** 章节 -> 世界书条目名称前缀映射 (FIX 4) */
 const ARC_NAME_PREFIXES = {
     sao:     ['sao-', 'sao'],
-    alo_old: ['\u65E7alo-', '\u65E7alo', '\u65E7ALO'],
-    alo_new: ['\u65B0\u751Falo-', '\u65B0\u751Falo', '\u65B0\u751FALO'],
     ggo:     ['ggo-', 'ggo', 'GGO'],
     real:    ['\u73B0\u5B9E', '\u771F\u5B9E\u4E16\u754C'],
 };
@@ -1436,8 +1434,6 @@ function initPanelLogic() {
             // 旧的关键词映射（作为后备检查）
             const arcKeywords = {
                 sao: ['sao', 'SAO', '\u827E\u6069\u845B\u6717\u7279', 'Aincrad'],
-                alo_old: ['\u65E7alo', '\u65E7ALO', '\u65E7ALO\u7BC7'],
-                alo_new: ['\u65B0\u751Falo', '\u65B0\u751FALO', '\u65B0\u751FALO\u7BC7'],
                 ggo: ['ggo', 'GGO', '\u5E7D\u7075\u5B50\u5F39'],
                 real: ['\u73B0\u5B9E', '\u771F\u5B9E\u4E16\u754C', '\u73B0\u5B9E\u4E16\u754C'],
             };

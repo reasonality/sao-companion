@@ -119,8 +119,6 @@ const EXTERNAL_FLOOR_DATA = {};
  */
 const ARC_FLOOR_CONFIG = {
     sao:       { maxFloor: 100, prefix: 'floor_' },
-    'alo_new':  { maxFloor: 100, prefix: 'newalo_floor_' },  // 新生 ALO 世界树9层+其他，预留100
-    'alo_old':  { maxFloor: 9,   prefix: 'oldalo_floor_' },   // 旧 ALO 9 大世界
     ggo:        { maxFloor: 0,   prefix: 'ggo_' },            // GGO 无楼层概念
     'real':     { maxFloor: 0,   prefix: 'real_' },           // 现实无楼层
 };

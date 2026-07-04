@@ -408,7 +408,7 @@ export function registerGetWorldSetting(ctx) {
             type: 'object',
             properties: {
                 topic: { type: 'string', description: '查询话题（必填）', 'enum': ['death_game', 'economy', 'pk', 'combat', 'skills', 'leveling', 'housing', 'environment'] },
-                arc: { type: 'string', description: '可选篇章过滤', 'enum': ['sao', 'alo', 'ggo', 'real'] },
+                arc: { type: 'string', description: '可选篇章过滤', 'enum': ['sao', 'ggo', 'real'] },
             },
             required: ['topic'],
         },

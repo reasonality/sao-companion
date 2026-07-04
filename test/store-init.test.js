@@ -625,11 +625,5 @@ describe('ensureAllFloorsExist', () => {
         expect(created).toBe(100);
     });
 
-    it('creates 9 floors for alo_old arc', () => {
-        const created = ensureAllFloorsExist('alo_old');
-        expect(created).toBe(9);
-        expect(getFloorById('oldalo_floor_001')).toBeTruthy();
-        expect(getFloorById('oldalo_floor_009')).toBeTruthy();
-        expect(getFloorById('oldalo_floor_010')).toBeNull();
-    });
+
 });
