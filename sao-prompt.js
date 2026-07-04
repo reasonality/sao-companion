@@ -4,6 +4,7 @@
 import { getSaoData, getContext, getSettings, isSaoCard, log, esc } from './sao-core.js';
 import { projectCompactState, projectFullState } from './sao-state-projection.js';
 import { getStore } from './sao-store-core.js';
+import { buildContextualInjection } from './sao-context-inject.js';
 
 // ============================================================
 // Phase 3: Prompt 清理 / 替代 promptOnly 正则
@@ -125,6 +126,13 @@ export function injectMemoryAndState() {
             '- search_world_book(query): 按关键词搜索世界书条目（通用回退）\n' +
             '当你需要某楼层/NPC/事件/规则的详细信息时，优先调用工具而非猜测。'
         );
+    }
+
+    // Contextual canon injection (keyword-triggered NPC/floor profiles + all rules + calendar ±7d + NPC summary)
+    const recentMsgs = (ctx.chat || []).slice(-3).map(m => m.mes || '').join('\n');
+    const contextBlock = buildContextualInjection(recentMsgs);
+    if (contextBlock) {
+        parts.push(contextBlock);
     }
 
     if (parts.length > 0) {

@@ -33,6 +33,10 @@ vi.mock('../sao-store-inventory.js', () => ({
     getInventoryStore: vi.fn(() => mockStore?.inventoryStore || null),
     getCurrency: vi.fn(() => mockStore?.inventoryStore?.currency?.cor ?? 0),
 }));
+vi.mock('../sao-context-inject.js', () => ({
+    buildContextualInjection: vi.fn(() => ''),
+    injectContextualCanon: vi.fn(() => ''),
+}));
 
 // Import after mocks
 import { projectCompactState, projectFullState, projectEquipmentSummary, projectSkillSummary, projectStateHint } from '../sao-state-projection.js';

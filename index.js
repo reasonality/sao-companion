@@ -14,10 +14,10 @@ import {
 } from './sao-core.js';
 import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
 import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem } from './sao-store-player.js';
-import { getEquipmentById, removeEquipmentById } from './sao-store-equipment.js';
-import { getSkillById } from './sao-store-skill.js';
+import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
+import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
-import { useConsumable as useConsumableStore, getConsumableById } from './sao-store-consumable.js';
+import { useConsumable as useConsumableStore, getConsumableById, getConsumableStore } from './sao-store-consumable.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
     generateEquipment, generateSkill, generateLoot, generateConsumable,
@@ -43,6 +43,8 @@ import {
 import { getFloorStore } from './sao-store-floor.js';
 import { runLorebookPreParser } from './sao-preparser.js';
 import { getWorldStore } from './sao-store-world.js';
+import { getNpcStore } from './sao-store-npc.js';
+import { getQuestStore } from './sao-store-quest.js';
 import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
@@ -1169,6 +1171,246 @@ async function loadPanelHTML() {
     }
 }
 
+// ============================================================
+// 数据存储浏览器 — schema/config 常量 + 字段递归渲染 + 编辑应用 helpers
+// 这些都是 module-level 常量,window.SaoPanel 方法通过名字引用。
+// ============================================================
+
+const _dataStoreDefs = [
+    { key: 'player',     label: '玩家',     kind: 'player',     get: () => getPlayerStore() },
+    { key: 'world',      label: '世界',     kind: 'world',      get: () => getWorldStore() },
+    { key: 'calendar',   label: '日历',     kind: 'calendar',   get: () => getStore().calendarStore },
+    { key: 'npc',        label: 'NPC',     kind: 'collection', idField: 'npc_id',       get: () => getNpcStore() },
+    { key: 'floor',      label: '楼层',     kind: 'collection', idField: 'floor_id',     get: () => getFloorStore() },
+    { key: 'equipment',  label: '装备',     kind: 'collection', idField: 'equipment_id', get: () => getEquipmentStore() },
+    { key: 'skill',      label: '技能',     kind: 'collection', idField: 'skill_id',     get: () => getSkillStore() },
+    { key: 'consumable', label: '消耗品',   kind: 'collection', idField: 'consumable_id', get: () => getConsumableStore() },
+    { key: 'quest',      label: '任务',     kind: 'collection', idField: 'quest_id',     get: () => getQuestStore() },
+    { key: 'inventory',  label: '背包',     kind: 'inventory',  get: () => getInventoryStore() },
+    { key: 'runtime',    label: '运行时',   kind: 'runtime',    get: () => getStore().runtime },
+];
+
+// 字段 ID 形如 _xxx / xxx_id / xxx_hash 的视为只读元信息
+function isReadOnlyKey(k) {
+    return /^_/.test(k) || /_id$/.test(k) || /_hash$/.test(k) || /^source$/.test(k);
+}
+
+function formatValAsText(v) {
+    if (v == null) return '(null)';
+    if (typeof v === 'object') { try { return JSON.stringify(v); } catch (_) { return String(v); } }
+    return String(v);
+}
+function safeJsonStringify(v, maxLen) {
+    let s; try { s = JSON.stringify(v); } catch (_) { return String(v); }
+    if (typeof maxLen === 'number' && s.length > maxLen) s = s.slice(0, maxLen) + '…';
+    return s;
+}
+function rowHtml(label, inputHtml) {
+    return '<div class="sao-store-field-row"><label class="sao-store-field-label">' + esc(label) + '</label>' + inputHtml + '</div>';
+}
+function rowHtmlMulti(label, inputHtml) {
+    return '<div class="sao-store-field-row sao-multiline"><label class="sao-store-field-label">' + esc(label) + '</label>' + inputHtml + '</div>';
+}
+function rowScalar(label, inputHtml, isCheckbox) {
+    return '<div class="sao-store-field-row' + (isCheckbox ? ' sao-bool-row' : '') + '"><label class="sao-store-field-label">' + esc(label) + '</label>' + inputHtml + '</div>';
+}
+function lastPathSegment(p) {
+    const seg = p.split('|');
+    return seg[seg.length - 1];
+}
+
+// dot-path(|) → 在对象层级中取最后一段之前的路径对应的对象
+function pathGet(root, path) {
+    if (!root || !path) return root;
+    const seg = path.split('|');
+    let cur = root;
+    for (const k of seg) {
+        if (cur == null) return undefined;
+        cur = cur[k];
+    }
+    return cur;
+}
+function pathSet(root, path, val) {
+    const seg = path.split('|');
+    let cur = root;
+    for (let i = 0; i < seg.length - 1; i++) cur = (cur || {})[seg[i]];
+    if (cur != null) cur[seg[seg.length - 1]] = val;
+}
+
+// 编辑应用:递归收集所有 data-field-path leaf input,parse 后写回 target
+function _dataApplyEdits(rootEl, target) {
+    if (!rootEl || !target) return;
+    const list = rootEl.querySelectorAll('[data-field-path]');
+    list.forEach(el => {
+        const path = el.getAttribute('data-field-path');
+        const type = el.getAttribute('data-field-type');
+        let val;
+        if (type === 'bool') val = !!el.checked;
+        else if (type === 'number') val = el.value === '' ? 0 : (parseFloat(el.value) || 0);
+        else if (type === 'scalar-null') {
+            val = el.value === '' ? null : el.value;
+        } else {
+            val = el.value;
+        }
+        pathSet(target, path, val);
+    });
+}
+
+// 编辑应用 2:calendar event JSON（独立于上面,因为这些 textarea 用的是 data-cal-date / data-cal-idx,不写 target）
+function _dataApplyCalEventEdits(cal) {
+    if (!cal || !cal.events) return;
+    document.querySelectorAll('[data-cal-date][data-cal-idx]').forEach(el => {
+        const date = el.getAttribute('data-cal-date');
+        const idx = parseInt(el.getAttribute('data-cal-idx'), 10);
+        const arr = cal.events[date];
+        if (!arr || idx >= arr.length) return;
+        try {
+            const parsed = JSON.parse(el.value);
+            arr[idx] = parsed;
+        } catch (_) { /* keep existing on parse error */ }
+    });
+}
+
+// 单个 store 状态显示
+function _dataSetStatus(storeKey, entryId, kind, message) {
+    const selector = '[data-store-status="' + (entryId ? storeKey + '|' + entryId : storeKey) + '"]';
+    const el = document.querySelector(selector);
+    if (!el) return;
+    if (kind === 'ok') {
+        el.className = 'sao-store-status-ok';
+        el.textContent = message;
+        el.style.display = 'inline-block';
+        setTimeout(() => { el.style.display = 'none'; }, 2400);
+    } else {
+        el.className = 'sao-store-status-err';
+        el.textContent = message;
+        el.style.display = 'inline-block';
+    }
+}
+
+// 解析当前编辑目标(SaoPanel方法用,落到 store 里具体对象)
+function _dataResolveTarget(def, entryId) {
+    if (!def) return null;
+    const data = safe(() => def.get());
+    if (!data) return null;
+    if (def.kind === 'inventory' || def.kind === 'world' || def.kind === 'player' || def.kind === 'calendar' || def.kind === 'runtime') return data;
+    return (data.byId || {})[entryId];
+}
+
+// 集合字段 schema(目前仅作 hint,真实渲染按运行时类型推断)
+const _dataCollectionSchemas = {
+    npc_id: {
+        name: 'string',
+        aliases: ['string'], // array of strings
+        canon: { characterName: 'string' },
+        state: { relationship: 'string', affinity: 'number', floor_id: 'string', location: 'string', last_seen_date: 'string', status: ['string'] },
+        observations: ['string'],
+    },
+    floor_id: {
+        floor_number: 'number',
+        name: 'string',
+        canon: { theme: 'string', mainTown: 'string', labyrinth: 'string', boss: 'string' },
+        state: { unlocked: 'bool', cleared: 'bool', discovered_locations: ['string'], notes: ['string'] },
+    },
+    equipment_id: {
+        name: 'string', slot: 'string', item_level: 'number', rarity: 'string',
+        stats: { atk: 'number', str: 'number', agi: 'number', int: 'number', vit: 'number', maxHp: 'number', maxMp: 'number', hit: 'number', crit: 'number' },
+        effects: ['string'],
+    },
+    skill_id: {
+        name: 'string', weapon_type: 'string', skill_level: 'number',
+        combat: { atk: 'number', hitRate: 'number', critRate: 'number', attacksPerTurn: 'number', mpCost: 'number', cd: 'number', targetsPerAttack: 'number' },
+        description: 'string',
+    },
+    consumable_id: {
+        name: 'string', description: 'string', category: 'string', rarity: 'string', item_level: 'number',
+        effects: [{ type: 'string', stat: 'string', amount: 'number', duration: 'number' }],
+    },
+    quest_id: {
+        title: 'string', summary: 'string', status: 'string', kind: 'string',
+        objectives: [{ text: 'string', done: 'bool', objective_id: 'string' }],
+        reward_hint: 'string',
+    },
+};
+
+const _dataPlayerSchema = {
+    player_id: 'string',
+    identity: { name: 'string', title: 'string' },
+    vitals: { hp: 'number', maxHp: 'number', mp: 'number', maxMp: 'number' },
+    attributes: { str: 'number', agi: 'number', int: 'number', vit: 'number' },
+    progression: { level: 'number', totalExp: 'number' },
+    position: { floor_id: 'string', location: 'string' },
+    cursor_type: 'string',
+    equipment: { weapon: 'string', off_hand: 'string', head: 'string', chest: 'string', hands: 'string', legs: 'string', accessory: 'string' },
+    skills: [{ skill_id: 'string', name: 'string', proficiency: 'number' }],
+};
+
+const _dataInventoryItemSchema = {
+    item_id: 'string', type: 'string', name: 'string', qty: 'number', equipment_id: 'string', consumable_id: 'string', description: 'string',
+};
+const _dataAppointmentSchema = {
+    id: 'string', date: 'string', title: 'string', type: 'string', description: 'string', participants: 'string', location: 'string', status: 'string',
+};
+const _dataAppointmentDefaults = { id: '', date: '', title: '', type: 'custom', description: '', participants: '', location: '', status: 'pending' };
+
+// 递归渲染 fields (category: <fieldset> of <field row>)
+function _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, self) {
+    if (!obj || typeof obj !== 'object') return '';
+    const keys = Object.keys(obj);
+    const schemaFor = schema || null;
+    const html = keys.map(key => {
+        const val = obj[key];
+        const fullPath = pathPrefix ? pathPrefix + '|' + key : key;
+        if (isReadOnlyKey(key)) {
+            return rowHtml(key, '<div class="sao-store-field-readonly" title="' + esc(key) + '">' + esc(formatValAsText(val)) + '</div>');
+        }
+        if (val === null || typeof val === 'undefined') {
+            return rowHtml(key, '<input type="text" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="scalar-null" value="" placeholder="(空)">');
+        }
+        if (typeof val === 'boolean') {
+            return rowScalar(key, '<label class="sao-store-field-bool"><input type="checkbox" data-field-path="' + esc(fullPath) + '" data-field-type="bool" ' + (val ? 'checked' : '') + '> ' + (val ? '启用' : '关闭') + '</label>', true);
+        }
+        if (typeof val === 'number') {
+            return rowHtml(key, '<input type="number" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="number" value="' + esc(val) + '">');
+        }
+        if (typeof val === 'string') {
+            if (val.length > 80) {
+                return rowHtmlMulti(key, '<textarea class="sao-store-field-textarea" data-field-path="' + esc(fullPath) + '" data-field-type="string" rows="3">' + esc(val) + '</textarea>');
+            }
+            return rowHtml(key, '<input type="text" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="string" value="' + esc(val) + '">');
+        }
+        if (Array.isArray(val)) {
+            return _dataRenderArrayField(fullPath, val, { storeKey, topLabel: key }, self);
+        }
+        if (typeof val === 'object') {
+            const innerSchema = (schemaFor && typeof schemaFor === 'object' && !Array.isArray(schemaFor)) ? (schemaFor[key]) : null;
+            const nested = _dataRenderFields(val, fullPath, storeKey, innerSchema, true, self);
+            return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(key) + '</div>' + nested + '</div>';
+        }
+        return rowHtml(key, '<div class="sao-store-field-readonly">' + esc(String(val)) + '</div>');
+    }).join('');
+    return html;
+}
+
+function _dataRenderArrayField(path, arr, opts, self) {
+    const topLabel = opts.topLabel || lastPathSegment(path);
+    const isObject = (opts.isObject === true) || (arr.length > 0 && typeof arr[0] === 'object' && arr[0] !== null);
+    if (isObject) {
+        const schema = opts.schema || _dataInventoryItemSchema;
+        const addDefaults = opts.addDefaults || { name: '', value: 0 };
+        const items = arr.map((it, idx) => {
+            const inner = _dataRenderFields(it, path + '|' + idx, opts.storeKey || '', schema, true, self);
+            return '<div class="sao-store-array-item"><div class="sao-store-array-item-fields">' + inner + '</div><button class="sao-store-array-remove" data-action="storeArrayRemove" data-array-path="' + esc(path) + '" data-array-idx="' + idx + '" title="删除 ' + (idx + 1) + '/' + arr.length + '">×</button></div>';
+        }).join('');
+        return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(topLabel) + ' · ' + arr.length + ' 项（对象数组）</div>' + items + '<button class="sao-store-array-add" data-action="storeArrayAdd" data-array-path="' + esc(path) + '" data-array-defaults="' + esc(JSON.stringify([addDefaults])) + '">+ 添加</button></div>';
+    }
+    const rows = arr.map((item, idx) => {
+        const val = item == null ? '' : String(item);
+        return '<div class="sao-store-array-row"><input type="text" class="sao-store-field-input" data-field-path="' + esc(path) + '|' + idx + '" data-field-type="string" value="' + esc(val) + '"><button class="sao-store-array-remove" data-action="storeArrayRemove" data-array-path="' + esc(path) + '" data-array-idx="' + idx + '" title="删除">×</button></div>';
+    }).join('');
+    return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(topLabel) + ' · ' + arr.length + ' 项</div>' + rows + '<button class="sao-store-array-add" data-action="storeArrayAdd" data-array-path="' + esc(path) + '" data-array-defaults="[]">+ 添加</button></div>';
+}
+
 function initPanelLogic() {
     // 章节 → 世界书条目切换 (FIX 4: 使用条目名称前缀匹配)
     async function switchWorldInfoEntries(arc) {
@@ -1867,6 +2109,7 @@ function initPanelLogic() {
                 });
             }
             if (tabName === 'calendar') _renderCalendarTab();
+            if (tabName === 'data') this.renderStoreTab();
         },
 
         // 拉取模型列表
@@ -2128,6 +2371,297 @@ function initPanelLogic() {
             }
         },
 
+        // ============================================================
+        // 数据存储浏览器 — DOM 渲染 + 保存均委托给以下方法。
+        // 设计要点:单一递归 field renderer,按 dot-path(| 分隔)编辑 entry,避免按 sub-store 分支爆炸。
+        // ============================================================
+        _activeStoreKey: null,
+        _activeEntryId: null,
+        _pageLimit: 50,
+        _dataSearches: {},
+        _dataPages: {},
+
+        _dataRefreshSidebar() {
+            const sidebar = document.getElementById('sao_store_sidebar');
+            if (!sidebar) return;
+            const store = getStore();
+            if (!store) {
+                sidebar.innerHTML = '<div class="sao-store-empty">chatMetadata 不存在</div>';
+                return;
+            }
+            const counts = this._dataComputeCounts();
+            sidebar.innerHTML = _dataStoreDefs.map(d => {
+                const count = counts[d.key];
+                return `<div class="sao-store-sidebar-item${this._activeStoreKey === d.key ? ' active' : ''}" data-action="storeBrowse" data-store-key="${esc(d.key)}"><span>${esc(d.label)}</span>${count !== null ? `<span class="sao-store-sidebar-item-count">${count}</span>` : ''}</div>`;
+            }).join('');
+        },
+        _dataComputeCounts() {
+            const r = {};
+            r.player = safe(() => getPlayerStore()) ? 1 : 0;
+            const world = safe(() => getWorldStore());
+            r.world = world && (world.currentWeather || world.areaStatus || (Array.isArray(world.worldEvents) && world.worldEvents.length)) ? 1 : 0;
+            r.calendar = safe(() => getStore().calendarStore) ? 1 : 0;
+            const npc = safe(() => getNpcStore());
+            r.npc = npc ? Object.keys(npc.byId || {}).length : 0;
+            const floor = safe(() => getFloorStore());
+            r.floor = floor ? Object.keys(floor.byId || {}).length : 0;
+            const eq = safe(() => getEquipmentStore());
+            r.equipment = eq ? Object.keys(eq.byId || {}).length : 0;
+            const sk = safe(() => getSkillStore());
+            r.skill = sk ? Object.keys(sk.byId || {}).length : 0;
+            const con = safe(() => getConsumableStore());
+            r.consumable = con ? Object.keys(con.byId || {}).length : 0;
+            const quest = safe(() => getQuestStore());
+            r.quest = quest ? (quest.activeIds.length + quest.completedIds.length) : 0;
+            const inv = safe(() => getInventoryStore());
+            r.inventory = inv ? (inv.items || []).length : 0;
+            const rt = safe(() => getStore().runtime);
+            r.runtime = rt ? Object.keys(rt).length : 0;
+            return r;
+        },
+
+        renderStoreTab() {
+            this._activeEntryId = null;
+            this._dataRefreshSidebar();
+            const defs = _dataStoreDefs;
+            const validKey = defs.find(d => d.key === this._activeStoreKey) ? this._activeStoreKey : defs[0].key;
+            this.renderStoreSection(validKey);
+        },
+
+        renderStoreSection(storeKey) {
+            this._activeStoreKey = storeKey;
+            this._activeEntryId = null;
+            document.querySelectorAll('.sao-store-sidebar-item').forEach(el => {
+                el.classList.toggle('active', el.getAttribute('data-store-key') === storeKey);
+            });
+            const def = _dataStoreDefs.find(d => d.key === storeKey);
+            const main = document.getElementById('sao_store_main');
+            if (!def || !main) return;
+            const data = safe(() => def.get());
+            if (data == null) {
+                main.innerHTML = `<div class="sao-store-main-header"><span class="sao-store-main-title">${esc(def.label)}</span></div><div class="sao-store-empty">store 尚未初始化</div>`;
+                return;
+            }
+            const header = `<div class="sao-store-main-header"><span class="sao-store-main-title">${esc(def.label)}</span></div>`;
+            let body = '';
+            if (def.kind === 'runtime')            body = this._storeRenderRuntime(data);
+            else if (def.kind === 'inventory')     body = this._storeRenderInventory(data);
+            else if (def.kind === 'calendar')      body = this._storeRenderCalendar(data);
+            else if (def.kind === 'world')         body = this._storeRenderWorld(data);
+            else if (def.kind === 'player')        body = this._storeRenderPlayer(data);
+            else                                   body = this._storeRenderCollection(data, def);
+            main.innerHTML = header + body;
+        },
+
+        // --- 集合类显示（NPC / 楼层 / 装备 / 技能 / 消耗品 / 任务）---
+        _storeRenderCollection(data, def) {
+            const storeKey = this._activeStoreKey;
+            const searchVal = (this._dataSearches && this._dataSearches[storeKey]) || '';
+            const entries = Object.values(data.byId || {});
+            const filtered = entries.filter(e => !searchVal || JSON.stringify(e).toLowerCase().includes(searchVal.toLowerCase()));
+            filtered.sort((a, b) => String(this._entryLabelOf(a, def)).localeCompare(String(this._entryLabelOf(b, def)), 'zh'));
+            const list = filtered.length === 0
+                ? '<div class="sao-store-empty">无匹配条目</div>'
+                : filtered.map(e => `<div class="sao-store-entry-row${this._activeEntryId === e[def.idField] ? ' active' : ''}" data-action="storeEntry" data-store-key="${esc(storeKey)}" data-entry-id="${esc(e[def.idField])}"><span class="sao-store-entry-row-main">${esc(this._entryLabelOf(e, def))}</span><span class="sao-store-entry-row-meta">${esc(e[def.idField] || '')}</span></div>`).join('');
+            const searchBox = `<div class="sao-store-toolbar"><input type="text" class="sao-store-search" placeholder="搜索 ${esc(def.label)}..." value="${esc(searchVal)}" data-store-key="${esc(storeKey)}"></div>`;
+            const target = this._activeEntryId && data.byId[this._activeEntryId]
+                ? this._storeRenderEntryDetail(data.byId[this._activeEntryId], def.idField, storeKey)
+                : '<div class="sao-store-empty">从上方列表中选择一个条目以查看和编辑字段</div>';
+            return searchBox + `<div class="sao-store-entry-list">${list}</div>${target}`;
+        },
+
+        _entryLabelOf(entry, def) {
+            if (!entry) return '';
+            switch (def.key) {
+                case 'npc':        return entry.name || entry[def.idField];
+                case 'floor':      return entry.floor_number != null ? '第 ' + entry.floor_number + ' 层 · ' + (entry.name || '') : (entry.name || entry[def.idField]);
+                case 'equipment':  return entry.name || entry[def.idField];
+                case 'skill':      return entry.name || entry[def.idField];
+                case 'consumable': return entry.name || entry[def.idField];
+                case 'quest':      return entry.title || entry[def.idField];
+                default:           return entry.name || entry.title || entry[def.idField];
+            }
+        },
+
+        _storeRenderPlayer(data) { return this._renderFieldsByPath(data, '', _dataStoreDefs[0].key, _dataPlayerSchema, true); },
+        _storeRenderWorld(data) {
+            const sub = {
+                currentWeather: { condition: 'string', temperature: 'number' },
+                areaStatus: { location: 'string', danger_level: 'string', zone_type: 'string', description: 'string' },
+            };
+            const inner = this._renderFieldsByPath(data, '', 'world', sub, true);
+            const events = this._renderArrayField('worldEvents', Array.isArray(data.worldEvents) ? data.worldEvents : [], {
+                storeKey: 'world',
+                topLabel: 'worldEvents',
+                isObject: true,
+                schema: { date: 'string', event: 'string', floor_id: 'string' },
+                addDefaults: { date: '', event: '', floor_id: null },
+            });
+            return inner + events;
+        },
+        _storeRenderInventory(data) {
+            const fields = [
+                { key: 'owner_id', readOnly: true },
+                { key: 'currency.cor', scalarType: 'number' },
+                { key: 'items', kind: 'array-items', schema: _dataInventoryItemSchema, addDefaults: { item_id: '', type: '', name: '', qty: 1 } },
+            ];
+            return this._renderFieldsByPath(data, '', 'inventory', fields, true);
+        },
+        _storeRenderCalendar(data) {
+            const dateKeys = Object.keys(data.events || {});
+            const eventTotal = dateKeys.reduce((s, k) => s + ((data.events[k] || []).length), 0);
+            const aptCount = (data.appointments || []).length;
+            const fields = [
+                { key: 'currentDate', scalarType: 'string' },
+                { key: 'appointments', kind: 'array-items', schema: _dataAppointmentSchema, addDefaults: _dataAppointmentDefaults },
+            ];
+            const flat = {
+                currentDate: data.currentDate || '',
+                appointments: data.appointments || [],
+            };
+            const top = this._renderFieldsByPath(flat, '', 'calendar', fields, true);
+            const summary = '<div class="sao-store-pagination">' + dateKeys.length + ' 天 · ' + eventTotal + ' 事件 · ' + aptCount + ' 约定</div>';
+            const datesBody = this._renderCalendarDates(dateKeys, data.events || {});
+            const datesTitle = '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">events（只读模式：每行一个 JSON，可单条删除）</div></div>';
+            return summary + top + datesTitle + datesBody;
+        },
+        _storeRenderRuntime(data) {
+            const keys = Object.keys(data || {});
+            if (keys.length === 0) return '<div class="sao-store-empty">runtime 为空</div>';
+            return '<div class="sao-store-warning">runtime 只读：编辑会绕过状态机的同步逻辑，可能破坏游戏流程。改动需小心。</div>'
+                + keys.sort().map(k => {
+                    let json;
+                    try { json = JSON.stringify(data[k], null, 2); } catch (_) { json = String(data[k]); }
+                    return '<details class="sao-store-runtime"><summary>' + esc(k) + '</summary><pre>' + esc(json) + '</pre></details>';
+                }).join('');
+        },
+        _renderCalendarDates(dateKeys, eventsMap) {
+            const page = (this._dataPages && this._dataPages.calendarDates) || this._pageLimit;
+            if (dateKeys.length === 0) return '<div class="sao-store-empty">无 events</div>';
+            const visible = dateKeys.slice(0, page);
+            const html = visible.map(date => {
+                const list = eventsMap[date] || [];
+                const inner = list.map((ev, idx) => {
+                    let json;
+                    try { json = JSON.stringify(ev, null, 2); } catch (_) { json = String(ev); }
+                    return '<div class="sao-store-array-item"><div class="sao-store-array-item-fields"><textarea class="sao-store-field-textarea" data-cal-date="' + esc(date) + '" data-cal-idx="' + idx + '" rows="3">' + esc(json) + '</textarea><div class="sao-store-pagination">编辑此条 JSON（高级）</div></div><button class="sao-store-array-remove" data-action="storeCalEventRemove" data-cal-date="' + esc(date) + '" data-cal-idx="' + idx + '" title="删除">×</button></div>';
+                }).join('');
+                return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(date) + ' · ' + list.length + ' 事件</div>' + inner + '</div>';
+            }).join('');
+            const more = dateKeys.length > page
+                ? '<div class="sao-store-toolbar"><button data-action="storeCalDatesMore">加载更多 (+' + Math.min(this._pageLimit, dateKeys.length - page) + ')</button><span class="sao-store-pagination">' + page + ' / ' + dateKeys.length + ' 天</span></div>'
+                : '';
+            return html + more;
+        },
+
+        renderStoreEntry(storeKey, entryId) {
+            this._activeEntryId = entryId;
+            const def = _dataStoreDefs.find(d => d.key === storeKey);
+            const main = document.getElementById('sao_store_main');
+            if (!def || !main) return;
+            const data = safe(() => def.get());
+            if (!data) return;
+            if (def.kind === 'player' || def.kind === 'world' || def.kind === 'inventory' || def.kind === 'calendar') return this.renderStoreSection(storeKey);
+            const entry = (data.byId || {})[entryId];
+            if (!entry) {
+                main.insertAdjacentHTML('beforeend', '<div class="sao-store-empty">条目不存在</div>');
+                return;
+            }
+            document.querySelectorAll('.sao-store-entry-row').forEach(el => {
+                el.classList.toggle('active', el.getAttribute('data-entry-id') === entryId);
+            });
+            const existingDetail = main.querySelector('.sao-store-entry-detail');
+            if (existingDetail) existingDetail.remove();
+            const html = this._storeRenderEntryDetail(entry, def.idField, storeKey);
+            main.insertAdjacentHTML('beforeend', html);
+            main.scrollTop = main.scrollHeight;
+        },
+
+        _storeRenderEntryDetail(entry, idField, storeKey) {
+            const detail = this._renderFieldsByPath(entry, '', storeKey, _dataCollectionSchemas[idField] || null, true);
+            const actions = '<div class="sao-store-actions"><button class="primary" data-action="storeSave" data-store-key="' + esc(storeKey) + '" data-entry-id="' + esc(entry[idField]) + '">保存</button><button data-action="storeReset" data-store-key="' + esc(storeKey) + '" data-entry-id="' + esc(entry[idField]) + '">重置</button><span class="sao-store-status-ok" data-store-status="' + esc(storeKey) + '|' + esc(entry[idField]) + '" style="display:none;">✓ 已保存</span></div>';
+            return '<div class="sao-store-entry-detail"><div class="sao-store-warning">修改 ID 类字段（' + esc(idField) + '）可能破坏其它 store 的引用。保存即写入 chatMetadata。</div>' + detail + actions + '</div>';
+        },
+
+        _renderFieldsByPath(obj, pathPrefix, storeKey, schema, allowNested) { return _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, this); },
+        _renderArrayField(path, arr, opts) { return _dataRenderArrayField(path, arr, opts, this); },
+
+        // --- 收集编辑并写回 ---
+        async saveStoreEntry(storeKey, entryId) {
+            const def = _dataStoreDefs.find(d => d.key === storeKey);
+            const main = document.getElementById('sao_store_main');
+            if (!def || !main) return;
+            const data = safe(() => def.get());
+            if (!data) { _dataSetStatus(storeKey, entryId, 'err', 'store 不存在'); return; }
+            const isSingle = (def.kind === 'inventory' || def.kind === 'world' || def.kind === 'player' || def.kind === 'calendar' || def.kind === 'runtime');
+            const target = isSingle ? data : (data.byId || {})[entryId];
+            if (!target) { _dataSetStatus(storeKey, entryId, 'err', '目标对象不存在'); return; }
+            const detail = main.querySelector('.sao-store-entry-detail');
+            if (detail) _dataApplyEdits(detail, target);
+            if (storeKey === 'calendar') _dataApplyCalEventEdits(data);
+            try {
+                await saveStore();
+                log('[data tab] saved ' + storeKey + (entryId ? ' ' + entryId : ''));
+                _dataSetStatus(storeKey, entryId, 'ok', '✓ 已保存');
+                if (typeof toastr !== 'undefined') toastr.success('数据已保存', 'SAO Companion');
+            } catch (e) {
+                log('[data tab] save failed: ' + e.message, 'error');
+                _dataSetStatus(storeKey, entryId, 'err', '✗ ' + e.message);
+                if (typeof toastr !== 'undefined') toastr.error('保存失败: ' + e.message, 'SAO Companion');
+                return;
+            }
+            this._dataRefreshSidebar();
+            this.renderStoreSection(storeKey);
+        },
+
+        async storeCalEventRemove(date, idx) {
+            const cal = safe(() => getStore().calendarStore);
+            if (!cal || !cal.events) return;
+            const arr = cal.events[date];
+            if (!arr || idx >= arr.length) return;
+            arr.splice(idx, 1);
+            if (arr.length === 0) delete cal.events[date];
+            await saveStore();
+            if (typeof toastr !== 'undefined') toastr.success('已删除 ' + date + ' 第 ' + (idx + 1) + ' 条', 'SAO Companion');
+            this.renderStoreSection('calendar');
+        },
+        storeCalDatesMore() {
+            this._dataPages = this._dataPages || {};
+            this._dataPages.calendarDates = (this._dataPages.calendarDates || this._pageLimit) + this._pageLimit;
+            this.renderStoreSection('calendar');
+        },
+        storeSearchChange(storeKey, value) {
+            this._dataSearches = this._dataSearches || {};
+            this._dataSearches[storeKey] = value;
+            const main = document.getElementById('sao_store_main');
+            if (!main) return;
+            const listEl = main.querySelector('.sao-store-entry-list');
+            const def = _dataStoreDefs.find(d => d.key === storeKey);
+            const data = safe(() => def.get());
+            const newFragment = this._storeRenderCollection(data, def);
+            main.innerHTML = main.querySelector('.sao-store-main-header').outerHTML + newFragment;
+        },
+        storeArrayAdd(path, defaultsJson) {
+            const def = _dataStoreDefs.find(d => d.key === this._activeStoreKey);
+            const target = _dataResolveTarget(def, this._activeEntryId);
+            if (!target) return;
+            const parent = pathGet(target, path);
+            if (!parent) return;
+            let defaults = [];
+            try { defaults = JSON.parse(defaultsJson || '[]'); } catch (_) { defaults = []; }
+            const newItem = Array.isArray(defaults) && defaults.length > 0 ? defaults[0] : '';
+            parent.push(newItem);
+            this.renderStoreSection(this._activeStoreKey);
+        },
+        storeArrayRemove(path, idx) {
+            const def = _dataStoreDefs.find(d => d.key === this._activeStoreKey);
+            const target = _dataResolveTarget(def, this._activeEntryId);
+            if (!target) return;
+            const arr = pathGet(target, path);
+            if (!Array.isArray(arr)) return;
+            arr.splice(idx, 1);
+            this.renderStoreSection(this._activeStoreKey);
+        },
     };
 
     // 面板事件委托（替代 onclick 内联事件，避免 DOMPurify 清洗）
@@ -2172,6 +2706,56 @@ function initPanelLogic() {
                 case 'discardEquipment': {
                     const eqId = target.getAttribute('data-equipment-id');
                     if (eqId) window.SaoPanel.discardEquipment(eqId);
+                    break;
+                }
+                case 'storeBrowse': {
+                    const storeKey = target.getAttribute('data-store-key');
+                    if (storeKey) window.SaoPanel.renderStoreSection(storeKey);
+                    break;
+                }
+                case 'storeEntry': {
+                    const storeKey = target.getAttribute('data-store-key');
+                    const entryId = target.getAttribute('data-entry-id');
+                    if (storeKey && entryId) window.SaoPanel.renderStoreEntry(storeKey, entryId);
+                    break;
+                }
+                case 'storeSave': {
+                    const storeKey = target.getAttribute('data-store-key');
+                    const entryId = target.getAttribute('data-entry-id');
+                    if (storeKey) window.SaoPanel.saveStoreEntry(storeKey, entryId || null);
+                    break;
+                }
+                case 'storeReset': {
+                    const storeKey = target.getAttribute('data-store-key');
+                    if (storeKey) window.SaoPanel.renderStoreSection(storeKey);
+                    break;
+                }
+                case 'storeSearchChange': {
+                    const storeKey = target.getAttribute('data-store-key');
+                    const val = target.value;
+                    if (storeKey) window.SaoPanel.storeSearchChange(storeKey, val);
+                    break;
+                }
+                case 'storeCalEventRemove': {
+                    const date = target.getAttribute('data-cal-date');
+                    const idx = parseInt(target.getAttribute('data-cal-idx'), 10);
+                    if (date && !isNaN(idx)) window.SaoPanel.storeCalEventRemove(date, idx).catch(e => log('[data tab] ' + e.message, 'error'));
+                    break;
+                }
+                case 'storeCalDatesMore': {
+                    window.SaoPanel.storeCalDatesMore();
+                    break;
+                }
+                case 'storeArrayAdd': {
+                    const aPath = target.getAttribute('data-array-path');
+                    const defaults = target.getAttribute('data-array-defaults');
+                    if (aPath) window.SaoPanel.storeArrayAdd(aPath, defaults);
+                    break;
+                }
+                case 'storeArrayRemove': {
+                    const rPath = target.getAttribute('data-array-path');
+                    const rIdx = parseInt(target.getAttribute('data-array-idx'), 10);
+                    if (rPath && !isNaN(rIdx)) window.SaoPanel.storeArrayRemove(rPath, rIdx);
                     break;
                 }
                 case 'switchInvTab': {
@@ -2220,6 +2804,13 @@ function initPanelLogic() {
                     break;
                 }
             }
+        });
+        // 数据存储浏览器:搜索框实时过滤（debounce 不必要,数据量小）
+        panel.addEventListener('input', (e) => {
+            const tEl = e.target;
+            if (!tEl.classList || !tEl.classList.contains('sao-store-search')) return;
+            const sk = tEl.getAttribute('data-store-key');
+            if (sk && window.SaoPanel) window.SaoPanel.storeSearchChange(sk, tEl.value);
         });
     }
 
