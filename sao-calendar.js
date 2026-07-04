@@ -105,10 +105,12 @@ let _cleanDaysCacheKey = null;
  */
 export function buildCleanCalendarDays(currentDate) {
     const char = getCurrentCharacter();
-    const cacheKey = char?.name + '|' + (currentDate || '');
+    // 一次性全读世界书时间线（不再按 currentDate 限制月份窗口），允许随意切换任意月份查看。
+    // 缓存仅按角色卡名 keying（与 currentDate 无关，因为不再过滤）。
+    const cacheKey = char?.name || '';
     if (_cleanDaysCache && _cleanDaysCacheKey === cacheKey) return _cleanDaysCache;
 
-    const events = _filterTimelineEntries(currentDate, { monthWindow: 12 });
+    const events = _filterTimelineEntries(null, { monthWindow: null });
     const days = {};
     for (const ev of events) {
         if (!days[ev.date]) days[ev.date] = { events: [] };
