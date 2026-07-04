@@ -89,8 +89,9 @@ function addDays(dateObj, n) {
     return result;
 }
 
-/** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。 */
-const CANON_DATA_VERSION = 6;
+/** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。
+ * v7: 解析器改为捕获干净事件名 + 正文段落作为 description（原仅捕获整行作为 title，description=title）。 */
+const CANON_DATA_VERSION = 7;
 
 // === 渲染专用：干净数据缓存（绕过可能被污染的 cal.days） ===
 let _cleanDaysCache = null;
@@ -115,7 +116,7 @@ export function buildCleanCalendarDays(currentDate) {
             type: 'canon',
             time: null,
             title: ev.title,
-            description: ev.title,
+            description: ev.description || ev.title,
             source: 'timeline',
             date: ev.date,
         });
@@ -327,6 +328,32 @@ function _filterTimelineEntries(currentDate, options = {}) {
         if (!isNaN(cy) && !isNaN(cm)) currentMonthIdx = cy * 12 + (cm - 1);
     }
 
+    // 日期头检测：支持两种格式，后跟分隔符（区分于正文行）。
+    //   格式A: MM月DD日（可选 YYYY年 前缀）后跟 空格/(/-///： 或行尾
+    //   格式B: YYYY-MM-DD 或 YYYY/MM/DD 后跟 :：/空格/- 或行尾
+    const stripMd = (s) => s.replace(/^#{0,6}\s*/, '').replace(/^\*+|\*+$/g, '').trim();
+    const parseHeader = (line) => {
+        const s = stripMd(line);
+        let m = s.match(/^(?:\d{4}年)?(\d{1,2})月(\d{1,2})日(?=\s*(?:[\(\/\-–—:：]|$))/);
+        if (m) {
+            const yp = s.match(/^(\d{4})年/);
+            return { year: yp ? parseInt(yp[1]) : null, month: parseInt(m[1]), day: parseInt(m[2]), tail: s.slice(m[0].length) };
+        }
+        m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?=\s*(?:[:：\s\-]|$))/);
+        if (m) return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]), tail: s.slice(m[0].length) };
+        return null;
+    };
+    // 事件名提取：去掉 (星期X) 前缀与分隔符，取最后一个 " - "/" | " 之后的内容，去尾冒号/粗体。
+    // 例："(星期日) - 宣告日:" → "宣告日"；" / 第三周 - 探索的极限:" → "探索的极限"；"(星期二) | 稳步推进" → "稳步推进"。
+    const extractName = (tail) => {
+        let t = tail.replace(/^[\s]*\(星期.\)\s*/, '').replace(/^[\s\-–—\/:：|]+/, '').trim();
+        const di = Math.max(t.lastIndexOf(' - '), t.lastIndexOf(' – '), t.lastIndexOf(' — '), t.lastIndexOf(' | '));
+        if (di >= 0) t = t.slice(di).replace(/^[\s\-–—|]+/, '').trim();
+        return t.replace(/[:：\s\*]+$/, '').trim();
+    };
+    // 月度总结/小结行（如 "11月总结:"）触发 flush 并停止累积，避免整月总结挂到最后一日。
+    const summaryRe = /^\d{1,2}月(总结|小结|概览|汇总)[:：]?$/;
+
     const events = [];
     for (const e of entries) {
         const entryName = (e.comment || e.name || '').trim();
@@ -344,61 +371,52 @@ function _filterTimelineEntries(currentDate, options = {}) {
         const content = e.content || '';
         if (!content) continue;
 
-        // 块状解析：markdown 头 #### **11月6日...** 设定当前日期，后续 * 子弹点累积为该日事件
-        const monthMatch = entryName.match(/年(\d{1,2})月/);
-        let entryMonth = monthMatch ? parseInt(monthMatch[1]) : 0;
+        let entryMonth = (entryName.match(/年(\d{1,2})月/) || [])[1];
+        entryMonth = entryMonth ? parseInt(entryMonth) : 0;
         let curDay = 0;
-        let eventBuf = [];
-        const flushDay = () => {
-            if (curDay > 0 && eventBuf.length > 0 && entryMonth > 0 && fallbackYear) {
-                const dateStr = fallbackYear + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
-                // 每个 bullet 作为独立事件，而非合并截断
-                for (const txt of eventBuf) {
-                    events.push({ date: dateStr, title: txt.slice(0, 200) });
+        let curYear = fallbackYear || 0;
+        let nameBuf = '';
+        let descBuf = [];
+        let stopped = false;
+
+        const flush = () => {
+            if (curDay > 0 && entryMonth > 0 && curYear > 0 && (nameBuf || descBuf.length)) {
+                const dateStr = curYear + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
+                let desc = descBuf
+                    .map(l => l.replace(/^\s{0,3}[*\-+]\s+/, '').trim())
+                    .filter(Boolean)
+                    .join('\n')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+                if (desc.length > 1500) desc = desc.slice(0, 1500) + '…';
+                let title = nameBuf;
+                // 无干净事件名（空或仅括号标注如 \"(星期五)\"/\"(推算日期)\"）时，用描述首行作标题
+                if (!title || /^\(.*\)$/.test(title)) {
+                    const firstLine = desc.split('\n')[0] || '';
+                    title = firstLine.replace(/^事件标题[:：]\s*/, '').slice(0, 40).trim() || (entryMonth + '月' + curDay + '日');
                 }
+                if (title) events.push({ date: dateStr, title, description: desc });
             }
-            eventBuf = [];
+            curDay = 0; nameBuf = ''; descBuf = [];
         };
+
         for (const line of content.split(/\r?\n/)) {
             const trimmed = line.trim();
-            if (!trimmed) continue;
-            // markdown 头：#### **11月6日 (星期日) - 宣告日**
-            const hdrM = trimmed.match(/^#{1,6}\s*\*{0,2}\s*(\d{1,2})月(\d{1,2})日/);
-            if (hdrM) {
-                flushDay();
-                // 用 header 中的月份覆盖 entry name 月份（防跨月污染）
-                entryMonth = parseInt(hdrM[1]) || entryMonth;
-                curDay = parseInt(hdrM[2]);
+            if (stopped) continue;
+            if (summaryRe.test(trimmed)) { flush(); stopped = true; continue; }
+            const hdr = parseHeader(trimmed);
+            if (hdr) {
+                flush();
+                entryMonth = hdr.month || entryMonth;
+                curDay = hdr.day;
+                curYear = hdr.year || fallbackYear || 0;
+                nameBuf = extractName(hdr.tail);
+                descBuf = [];
                 continue;
             }
-            if (curDay > 0) {
-                // 子弹点：* **[关键事件]:** ... 或 * 情报商...
-                const bulM = line.match(/^\s{0,3}[*\-+]\s+(.+)$/);
-                if (bulM) {
-                    let txt = bulM[1]
-                        .replace(/\*\*([^*]+)\*\*/g, '$1')   // 去 **bold**
-                        .replace(/\*([^*]+)\*/g, '$1')         // 去 *italic*
-                        .replace(/^\[[^\]]*\]:\s*/, '')        // 去 [标签]:
-                        .replace(/\s*\[[^\]]*\]:\s*/g, ' ')    // 去 中间 [标签]:
-                        .replace(/\s+/g, ' ')
-                        .trim();
-                    if (txt && txt.length > 1) eventBuf.push(txt);
-                    continue;
-                }
-                // 也尝试旧格式（YYYY-MM-DD: 或 MM月DD日:）以保持向后兼容
-                const parsed = parseTimelineEvent(trimmed, fallbackYear);
-                if (parsed) {
-                    flushDay();
-                    events.push({ date: parsed.date, title: parsed.title });
-                    curDay = 0; // 旧格式自带完整日期，重置 curDay 防止后续子弹点误挂
-                }
-            } else {
-                // 无当前日期时也尝试旧格式
-                const parsed = parseTimelineEvent(trimmed, fallbackYear);
-                if (parsed) events.push({ date: parsed.date, title: parsed.title });
-            }
+            if (curDay > 0) descBuf.push(trimmed);
         }
-        flushDay();
+        flush();
     }
     return events;
 }
@@ -650,7 +668,7 @@ export function initCalendarIfNeeded() {
             calStore.events[ev.date].push(toCalendarStoreEvent({
                 type: 'canon',
                 title: ev.title,
-                description: ev.title,
+                description: ev.description || ev.title,
             }, ev.date, calStore.events[ev.date].length));
             extractedCount++;
         }

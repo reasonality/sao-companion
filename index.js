@@ -3200,7 +3200,7 @@ export function init() {
                 const typeColor = evt.type === 'appointment' ? '#ffb800' : (evt.type === 'canon' ? '#00d68a' : '#00d2ff');
                 return `<div style="padding:8px;margin-bottom:6px;background:rgba(8,12,20,0.5);border-left:3px solid ${typeColor};border-radius:4px;font-size:0.85em;">
                     <span style="display:inline-block;padding:2px 6px;border-radius:3px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:${typeColor};">${typeLabel}</span>${time}${esc(evt.title || evt.description || '无标题')}
-                    ${evt.description && evt.description !== evt.title ? `<div style="font-size:0.8em;color:#9fb0cc;margin-top:4px;">${esc(evt.description)}</div>` : ''}
+                    ${evt.description && evt.description !== evt.title ? `<div style="font-size:0.8em;color:#9fb0cc;margin-top:4px;white-space:pre-line;">${esc(evt.description)}</div>` : ''}
                     </div>`;
                 }).join('');
             }
