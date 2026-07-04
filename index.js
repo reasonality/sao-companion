@@ -3161,10 +3161,10 @@ export function init() {
         const modal = document.createElement('div');
         modal.id = 'sao_chat_cal_modal';
         modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:99999;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
-        modal.innerHTML = `<div style="background:#0f1522;border:1px solid rgba(0,210,255,0.3);border-radius:8px;max-width:420px;width:90%;max-height:70vh;overflow-y:auto;padding:16px;color:#eaf2ff;font-family:sans-serif;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                <h3 id="sao_chat_cal_title" style="margin:0;color:#00d2ff;font-size:1.1em;"></h3>
-                <button id="sao_chat_cal_close" style="background:none;border:none;color:#9fb0cc;font-size:1.4em;cursor:pointer;">\u00d7</button>
+        modal.innerHTML = `<div style="background:#0f1522;border:1px solid rgba(0,210,255,0.3);border-radius:8px;max-width:560px;width:92%;max-height:75vh;overflow-y:auto;padding:18px;color:#eaf2ff;font-family:sans-serif;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <h3 id="sao_chat_cal_title" style="margin:0;color:#00d2ff;font-size:1.25em;font-weight:700;"></h3>
+                <button id="sao_chat_cal_close" style="background:none;border:none;color:#9fb0cc;font-size:1.6em;cursor:pointer;line-height:1;">\u00d7</button>
             </div>
             <div id="sao_chat_cal_body"></div>
         </div>`;
@@ -3192,16 +3192,16 @@ export function init() {
             const manualEvents = savedEvents.filter(ev => ev.type !== 'canon');
             const events = [...cleanEvents, ...manualEvents];
             if (events.length === 0) {
-                bodyEl.innerHTML = '<span style="opacity:0.6;font-size:0.9em;">\u65e0\u4e8b\u4ef6</span>';
+                bodyEl.innerHTML = '<span style="opacity:0.6;font-size:1em;">\u65e0\u4e8b\u4ef6</span>';
             } else {
                 bodyEl.innerHTML = events.map(evt => {
                     const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
-                const time = evt.time ? `<span style="color:#00d2ff;">${esc(evt.time)}</span> ` : '';
-                const typeColor = evt.type === 'appointment' ? '#ffb800' : (evt.type === 'canon' ? '#00d68a' : '#00d2ff');
-                return `<div style="padding:8px;margin-bottom:6px;background:rgba(8,12,20,0.5);border-left:3px solid ${typeColor};border-radius:4px;font-size:0.85em;">
-                    <span style="display:inline-block;padding:2px 6px;border-radius:3px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:${typeColor};">${typeLabel}</span>${time}${esc(evt.title || evt.description || '无标题')}
-                    ${evt.description && evt.description !== evt.title ? `<div style="font-size:0.8em;color:#9fb0cc;margin-top:4px;white-space:pre-line;">${esc(evt.description)}</div>` : ''}
-                    </div>`;
+                    const time = evt.time ? `<span style="color:#00d2ff;font-weight:600;">${esc(evt.time)}</span> ` : '';
+                    const typeColor = evt.type === 'appointment' ? '#ffb800' : (evt.type === 'canon' ? '#00d68a' : '#00d2ff');
+                    return `<div style="padding:10px 12px;margin-bottom:8px;background:rgba(8,12,20,0.6);border-left:4px solid ${typeColor};border-radius:5px;font-size:1em;line-height:1.4;">
+                        <div style="margin-bottom:4px;"><span style="display:inline-block;padding:3px 8px;border-radius:3px;background:rgba(0,210,255,0.14);font-size:0.8em;margin-right:8px;color:${typeColor};font-weight:600;">${typeLabel}</span>${time}<span style="font-size:1em;font-weight:600;color:#eaf2ff;">${esc(evt.title || evt.description || '无标题')}</span></div>
+                        ${evt.description && evt.description !== evt.title ? `<div style="font-size:0.92em;color:#b8c8e0;margin-top:5px;white-space:pre-line;line-height:1.5;">${esc(evt.description)}</div>` : ''}
+                        </div>`;
                 }).join('');
             }
             modal.style.display = 'flex';

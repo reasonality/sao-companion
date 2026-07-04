@@ -368,7 +368,7 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         // 每格展示当天事件：主标题 + 子事件（多行），最多 N 行后 +M 提示。
         const displayEvents = allEvents;
         if (displayEvents.length > 0) {
-            const MAX_LINES = 5;
+            const MAX_LINES = 3;
             const lines = [];
             let shown = 0;
             for (const ev of displayEvents) {
@@ -383,7 +383,7 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
                     shown++;
                 }
             }
-            let total = displayEvents.reduce((n, ev) => n + 1 + (((ev && ev.subEvents) || []).length), 0);
+            const total = displayEvents.reduce((n, ev) => n + 1 + (((ev && ev.subEvents) || []).length), 0);
             if (total > MAX_LINES) lines.push('<div class="sao-cal-event-more">+' + (total - MAX_LINES) + '</div>');
             eventHtml = '<div class="sao-cal-event-text">' + lines.join('') + '</div>';
         }

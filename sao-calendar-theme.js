@@ -37,11 +37,14 @@ export const SAO_CALENDAR_CSS = `
 .sao-cal-nav-btn:hover{background:rgba(0,210,255,0.2);}
 .sao-cal-details summary{display:flex;align-items:center;gap:6px;}
 @media(max-width:640px){
-.sao-cal-grid{grid-template-rows:18px!important;grid-auto-rows:minmax(60px,60px)!important;gap:2px!important;}
-.sao-cal-cell{height:60px!important;padding:3px 4px!important;border-radius:4px!important;}
-.sao-cal-day-num{font-size:0.75em!important;}
-.sao-cal-event-text{font-size:0.55em!important;}
-.sao-cal-header{font-size:0.55em!important;}
+.sao-cal-grid{grid-template-rows:18px!important;grid-auto-rows:70px!important;gap:2px!important;}
+.sao-cal-cell{height:70px!important;padding:3px 4px!important;border-radius:4px!important;}
+.sao-cal-day-num{font-size:0.8em!important;}
+.sao-cal-event-text{font-size:0.85em!important;gap:1px!important;}
+.sao-cal-event-line{font-size:0.85em!important;padding:0 3px!important;}
+.sao-cal-event-sub{font-size:0.78em!important;}
+.sao-cal-event-more{font-size:0.75em!important;}
+.sao-cal-header{font-size:0.6em!important;}
 .sao-cal-dot{width:3px!important;height:3px!important;}
 }
 `;
