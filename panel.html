@@ -94,14 +94,14 @@
 </div>
 <div class="sao-panel-body">
 <div class="sao-panel-tabs">
-<div class="sao-tab active" data-action="switchTab" data-tab="status">状态监控</div>
+<div class="sao-tab active" data-action="switchTab" data-tab="models">模型配置</div>
+        <div class="sao-tab" data-action="switchTab" data-tab="status">状态监控</div>
         <div class="sao-tab" data-action="switchTab" data-tab="calendar">日历</div>
-        <div class="sao-tab" data-action="switchTab" data-tab="models">模型配置</div>
-<div class="sao-tab" data-action="switchTab" data-tab="logs">日志</div>
 <div class="sao-tab" data-action="switchTab" data-tab="data">数据存储</div>
+<div class="sao-tab" data-action="switchTab" data-tab="logs">日志</div>
 <div class="sao-tab" data-action="switchTab" data-tab="about">关于</div>
 </div>
-<div class="sao-tab-content active" data-content="status">
+<div class="sao-tab-content" data-content="status">
 <div class="sao-grid-2 sao-status-row1">
 <div class="sao-section"><div class="sao-section-title">玩家状态</div>
 <div id="sao_player_card" class="sao-card">
@@ -179,6 +179,38 @@
 <button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testGenerate">测试生成</button>
 </div>
 <div class="sao-test-result" id="sao_generate_test"></div>
+</div>
+<div class="sao-tab-content active" data-content="models">
+<div class="sao-section"><div class="sao-section-title">模型配置</div>
+<div class="sao-info-box">主对话始终使用酒馆主模型。在此配置三个专家 LLM；留空则回退到主模型。</div>
+<div class="sao-card">
+<div class="sao-card-title">🧬 专家1：数据与世界状态<span class="sao-status-box sao-status-warn" id="sao_state_status" style="font-size:0.8em;">未配置</span></div>
+<p style="color:var(--text-secondary);font-size:0.82em;margin-bottom:12px;">每轮更新：玩家状态、世界状态、玩家技能、玩家物品、玩家装备、任务现状、NPC状态、公会状况、房屋状况、地图。留空回退主模型。</p>
+<div class="sao-field"><label>API 地址</label><input id="sao_state_url" placeholder="https://api.deepseek.com/v1" /></div>
+<div class="sao-field"><label>API 密钥</label><input id="sao_state_key" type="password" placeholder="sk-..." /></div>
+<div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_state_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="state">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="state">测试</button></div>
+<div class="sao-test-result" id="sao_state_test"></div>
+</div>
+<div class="sao-card">
+<div class="sao-card-title">⚔️ 专家2：装备与剑技生成<span class="sao-status-box sao-status-warn" id="sao_equipment_status" style="font-size:0.8em;">未配置</span></div>
+<p style="color:var(--text-secondary);font-size:0.82em;margin-bottom:12px;">按需调用：仅生成新剑技、新装备、新 buff 时触发。使用已有装备/剑技/buff 不调用。留空回退主模型。</p>
+<div class="sao-field"><label>API 地址</label><input id="sao_equipment_url" placeholder="https://api.deepseek.com/v1" /></div>
+<div class="sao-field"><label>API 密钥</label><input id="sao_equipment_key" type="password" placeholder="sk-..." /></div>
+<div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_equipment_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="equipment">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="equipment">测试</button></div>
+<div class="sao-test-result" id="sao_equipment_test"></div>
+</div>
+<div class="sao-card">
+<div class="sao-card-title">🌍 专家3：事件与约定<span class="sao-status-box sao-status-warn" id="sao_world_status" style="font-size:0.8em;">未配置</span></div>
+<p style="color:var(--text-secondary);font-size:0.82em;margin-bottom:12px;">每轮更新：事件与约定增删改，看本轮对话+前后7天既有事件。同步到聊天栏和插件日历。留空回退主模型。</p>
+<div class="sao-field"><label>API 地址</label><input id="sao_world_url" placeholder="https://api.deepseek.com/v1" /></div>
+<div class="sao-field"><label>API 密钥</label><input id="sao_world_key" type="password" placeholder="sk-..." /></div>
+<div class="sao-model-row"><div class="sao-field"><label>模型</label><select id="sao_world_model"><option value="">点击获取</option></select></div><button class="sao-btn sao-btn-sm" data-action="fetchModels" data-role="world">获取</button><button class="sao-btn sao-btn-secondary sao-btn-sm" data-action="testModel" data-role="world">测试</button></div>
+<div class="sao-test-result" id="sao_world_test"></div>
+</div>
+<div style="margin-top:10px;">
+<button class="sao-btn" data-action="saveModels">保存配置</button>
+</div>
+</div>
 </div>
 <div class="sao-tab-content" data-content="calendar">
 <div class="sao-section"><div class="sao-section-title">日历</div>
