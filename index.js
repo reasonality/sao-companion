@@ -1271,20 +1271,8 @@ function _dataApplyEdits(rootEl, target) {
     });
 }
 
-// 编辑应用 2:calendar event JSON（独立于上面,因为这些 textarea 用的是 data-cal-date / data-cal-idx,不写 target）
-function _dataApplyCalEventEdits(cal) {
-    if (!cal || !cal.events) return;
-    document.querySelectorAll('[data-cal-date][data-cal-idx]').forEach(el => {
-        const date = el.getAttribute('data-cal-date');
-        const idx = parseInt(el.getAttribute('data-cal-idx'), 10);
-        const arr = cal.events[date];
-        if (!arr || idx >= arr.length) return;
-        try {
-            const parsed = JSON.parse(el.value);
-            arr[idx] = parsed;
-        } catch (_) { /* keep existing on parse error */ }
-    });
-}
+// 编辑应用:calendar 事件现用字段化编辑(data-field-path)，由 _dataApplyEdits 统一处理，
+// 不再需要独立的 JSON textarea 解析。旧 _dataApplyCalEventEdits 已删除。
 
 // 单个 store 状态显示
 function _dataSetStatus(storeKey, entryId, kind, message) {
@@ -1367,6 +1355,11 @@ const _dataAppointmentSchema = {
     id: 'string', date: 'string', title: 'string', type: 'string', description: 'string', participants: 'string', location: 'string', status: 'string',
 };
 const _dataAppointmentDefaults = { id: '', date: '', title: '', type: 'custom', description: '', participants: '', location: '', status: 'pending' };
+// 日历事件字段 schema（数据存储编辑器用，字段化而非 JSON）
+const _dataCalEventSchema = {
+    event_id: 'string', type: 'string', title: 'string', description: 'string', time: 'string', source: 'string',
+};
+const _dataCalEventDefaults = { event_id: '', type: 'custom', title: '', description: '', time: '', source: '' };
 
 // 递归渲染 fields (category: <fieldset> of <field row>)
 function _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, self) {
@@ -2404,19 +2397,21 @@ function initPanelLogic() {
             const dateKeys = Object.keys(data.events || {});
             const eventTotal = dateKeys.reduce((s, k) => s + ((data.events[k] || []).length), 0);
             const aptCount = (data.appointments || []).length;
-            const fields = [
-                { key: 'currentDate', scalarType: 'string' },
-                { key: 'appointments', kind: 'array-items', schema: _dataAppointmentSchema, addDefaults: _dataAppointmentDefaults },
-            ];
-            const flat = {
-                currentDate: data.currentDate || '',
-                appointments: data.appointments || [],
-            };
-            const top = this._renderFieldsByPath(flat, '', 'calendar', fields, true);
+            // currentDate 手动渲染为日期选择器（_dataRenderFields 只支持 text input，需特殊处理）
+            const currentDay = data.currentDate || '';
+            const currentDateField = '<div class="sao-store-field-row"><label class="sao-store-field-label">currentDate</label><input type="date" class="sao-store-field-input" data-field-path="currentDate" data-field-type="string" value="' + esc(currentDay) + '"></div>';
+            // appointments 用字段化数组编辑器
+            const aptFields = [{ key: 'appointments', kind: 'array-items', schema: _dataAppointmentSchema, addDefaults: _dataAppointmentDefaults }];
+            const aptFlat = { appointments: data.appointments || [] };
+            const aptHtml = this._renderFieldsByPath(aptFlat, '', 'calendar', aptFields, true);
             const summary = '<div class="sao-store-pagination">' + dateKeys.length + ' 天 · ' + eventTotal + ' 事件 · ' + aptCount + ' 约定</div>';
-            const datesBody = this._renderCalendarDates(dateKeys, data.events || {});
-            const datesTitle = '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">events（只读模式：每行一个 JSON，可单条删除）</div></div>';
-            return summary + top + datesTitle + datesBody;
+            // 日期选择器：选择某天查看/编辑该日事件（不再显示全部日期）
+            const viewDate = this._storeCalViewDate || currentDay || '';
+            const datePicker = '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">选择日期查看事件</div><input type="date" class="sao-store-field-input" data-action="storeCalViewDateChange" value="' + esc(viewDate) + '" style="width:160px;"></div>';
+            // 选中日期的事件列表（字段化编辑，非 JSON）
+            const datesBody = viewDate ? this._renderCalendarDates([viewDate], data.events || {}) : '<div class="sao-store-empty">请选择日期</div>';
+            // 用 .sao-store-entry-detail 包裹，使 _dataApplyEdits 能收集 data-field-path 编辑
+            return '<div class="sao-store-entry-detail">' + summary + '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">基本信息</div>' + currentDateField + '</div>' + aptHtml + datePicker + datesBody + '</div>';
         },
         _storeRenderRuntime(data) {
             const keys = Object.keys(data || {});
@@ -2429,22 +2424,20 @@ function initPanelLogic() {
                 }).join('');
         },
         _renderCalendarDates(dateKeys, eventsMap) {
-            const page = (this._dataPages && this._dataPages.calendarDates) || this._pageLimit;
             if (dateKeys.length === 0) return '<div class="sao-store-empty">无 events</div>';
-            const visible = dateKeys.slice(0, page);
-            const html = visible.map(date => {
+            // 字段化编辑器：每个事件用 _renderArrayField 渲染为对象数组，复用 storeArrayAdd/Remove。
+            // path 用 events|YYYY-MM-DD 格式，pathGet/pathSet 按 | 分段遍历对象键。
+            const html = dateKeys.map(date => {
                 const list = eventsMap[date] || [];
-                const inner = list.map((ev, idx) => {
-                    let json;
-                    try { json = JSON.stringify(ev, null, 2); } catch (_) { json = String(ev); }
-                    return '<div class="sao-store-array-item"><div class="sao-store-array-item-fields"><textarea class="sao-store-field-textarea" data-cal-date="' + esc(date) + '" data-cal-idx="' + idx + '" rows="3">' + esc(json) + '</textarea><div class="sao-store-pagination">编辑此条 JSON（高级）</div></div><button class="sao-store-array-remove" data-action="storeCalEventRemove" data-cal-date="' + esc(date) + '" data-cal-idx="' + idx + '" title="删除">×</button></div>';
-                }).join('');
-                return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(date) + ' · ' + list.length + ' 事件</div>' + inner + '</div>';
+                return this._renderArrayField('events|' + date, list, {
+                    storeKey: 'calendar',
+                    topLabel: esc(date) + ' 事件',
+                    isObject: true,
+                    schema: _dataCalEventSchema,
+                    addDefaults: _dataCalEventDefaults,
+                });
             }).join('');
-            const more = dateKeys.length > page
-                ? '<div class="sao-store-toolbar"><button data-action="storeCalDatesMore">加载更多 (+' + Math.min(this._pageLimit, dateKeys.length - page) + ')</button><span class="sao-store-pagination">' + page + ' / ' + dateKeys.length + ' 天</span></div>'
-                : '';
-            return html + more;
+            return html;
         },
 
         renderStoreEntry(storeKey, entryId) {
@@ -2491,7 +2484,12 @@ function initPanelLogic() {
             if (!target) { _dataSetStatus(storeKey, entryId, 'err', '目标对象不存在'); return; }
             const detail = main.querySelector('.sao-store-entry-detail');
             if (detail) _dataApplyEdits(detail, target);
-            if (storeKey === 'calendar') _dataApplyCalEventEdits(data);
+            // calendar 事件现用字段化编辑(data-field-path)，由 _dataApplyEdits 统一处理。
+            // currentDate 日期选择器需特殊处理：input type=date 的值写入 currentDate 字段。
+            if (storeKey === 'calendar' && detail) {
+                const dateInput = detail.querySelector('[data-action="storeCalViewDateChange"]');
+                // 日期选择器仅用于选查看日期，不写入 currentDate（currentDate 由字段编辑器处理）
+            }
             try {
                 await saveStore();
                 log('[data tab] saved ' + storeKey + (entryId ? ' ' + entryId : ''));
@@ -2508,6 +2506,7 @@ function initPanelLogic() {
         },
 
         async storeCalEventRemove(date, idx) {
+            // 旧方法保留兼容：事件删除现走 storeArrayRemove(path=events|date)
             const cal = safe(() => getStore().calendarStore);
             if (!cal || !cal.events) return;
             const arr = cal.events[date];
@@ -2521,6 +2520,10 @@ function initPanelLogic() {
         storeCalDatesMore() {
             this._dataPages = this._dataPages || {};
             this._dataPages.calendarDates = (this._dataPages.calendarDates || this._pageLimit) + this._pageLimit;
+            this.renderStoreSection('calendar');
+        },
+        storeCalViewDateChange(dateStr) {
+            this._storeCalViewDate = dateStr || '';
             this.renderStoreSection('calendar');
         },
         storeSearchChange(storeKey, value) {
@@ -2627,12 +2630,6 @@ function initPanelLogic() {
                     if (storeKey) window.SaoPanel.storeSearchChange(storeKey, val);
                     break;
                 }
-                case 'storeCalEventRemove': {
-                    const date = target.getAttribute('data-cal-date');
-                    const idx = parseInt(target.getAttribute('data-cal-idx'), 10);
-                    if (date && !isNaN(idx)) window.SaoPanel.storeCalEventRemove(date, idx).catch(e => log('[data tab] ' + e.message, 'error'));
-                    break;
-                }
                 case 'storeCalDatesMore': {
                     window.SaoPanel.storeCalDatesMore();
                     break;
@@ -2702,6 +2699,12 @@ function initPanelLogic() {
             if (!tEl.classList || !tEl.classList.contains('sao-store-search')) return;
             const sk = tEl.getAttribute('data-store-key');
             if (sk && window.SaoPanel) window.SaoPanel.storeSearchChange(sk, tEl.value);
+        });
+        // 日期选择器 change 事件（非 click）：日历栏选查看日期
+        panel.addEventListener('change', (e) => {
+            const tEl = e.target;
+            if (!tEl || tEl.getAttribute('data-action') !== 'storeCalViewDateChange') return;
+            if (window.SaoPanel) window.SaoPanel.storeCalViewDateChange(tEl.value);
         });
     }
 
