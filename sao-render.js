@@ -357,29 +357,36 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
 
         let dotsHtml = '';
         let eventHtml = '';
-        // 绿点/黄点只用 calDayEvents（精确日期），不用 dayContentMap（可能跨月泄漏）
-        const greenCount = nonAptEvents.length > 0 ? Math.min(nonAptEvents.length, 5) : 0;
+        // 绿点数按子事件数计（无子事件时主事件算 1 个），黄点按约定数。
+        // 例：11月6号 1 个 canon 事件含 14 个子事件 → 5 个绿点（上限 5）。
+        let greenCount = 0;
+        for (const ev of nonAptEvents) {
+            const subs = (ev && ev.subEvents) || [];
+            greenCount += subs.length > 0 ? subs.length : 1;
+        }
+        greenCount = greenCount > 0 ? Math.min(greenCount, 5) : 0;
         const yellowCount = appointments.length > 0 ? 1 : 0;
         let dots = '';
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
         // 显示合并后的事件文字（canon + appointment），精确日期 key。
-        // 每格展示：主标题 + 第一个子事件正文（最多 3 行截断）+ 子事件数 N 更多提示。
+        // 每格展示：第一个事件的第一个子事件正文（不显示主标题行），最多 3 行截断 + 子事件数 N 提示。
         const displayEvents = allEvents;
         if (displayEvents.length > 0) {
             const lines = [];
             for (const ev of displayEvents) {
-                const main = typeof ev === 'string' ? ev : (ev.title || ev.description || '');
-                lines.push('<div class="sao-cal-event-line">' + esc(main) + '</div>');
                 const subs = (ev && ev.subEvents) || [];
-                // 第一个子事件的正文（多行截断为 3 行）
                 if (subs.length > 0) {
                     const first = subs[0];
                     const body = first.body || first.label || '';
-                    if (body) lines.push('<div class="sao-cal-event-body">' + esc(body.slice(0, 120)) + '</div>');
+                    if (body) lines.push('<div class="sao-cal-event-body">' + esc(body.slice(0, 140)) + '</div>');
+                    if (subs.length > 1) lines.push('<div class="sao-cal-event-more">+' + (subs.length - 1) + ' 子事件</div>');
+                } else {
+                    // 无子事件（如约定/变化剧情）：显示事件标题或正文。
+                    const main = typeof ev === 'string' ? ev : (ev.title || ev.description || '');
+                    if (main) lines.push('<div class="sao-cal-event-body">' + esc(main.slice(0, 140)) + '</div>');
                 }
-                if (subs.length > 1) lines.push('<div class="sao-cal-event-more">+' + (subs.length - 1) + ' 子事件</div>');
                 break; // 只显示第一个事件
             }
             eventHtml = '<div class="sao-cal-event-text">' + lines.join('') + '</div>';
