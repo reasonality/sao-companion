@@ -125,7 +125,7 @@ export function getStore() {
         if (!d.floorStore.byId)        d.floorStore.byId = {};
         if (!d.floorStore.numberToId)  d.floorStore.numberToId = {};
     }
-    if (!d.calendarStore)  d.calendarStore = { currentDate: null, events: {}, appointments: [] };
+    if (!d.calendarStore)  d.calendarStore = { currentDate: null, events: {}, appointments: [], eventOverrides: {} };
     if (!d.questStore)     d.questStore = { byId: {}, activeIds: [], completedIds: [] };
     else {
         if (!d.questStore.byId)          d.questStore.byId = {};

@@ -207,6 +207,8 @@ export function buildCleanCalendarDays(currentDate) {
     }
     // 应用 eventOverrides 覆盖层（LLM 增删改 canon 事件，按 chatMetadata 自动隔离）
     const overrides = getCalendarStore()?.eventOverrides || {};
+    const cacheKey = rawKey + '|' + JSON.stringify(overrides);
+    if (_cleanDaysCache && _cleanDaysCacheKey === cacheKey) return _cleanDaysCache;
     const days = JSON.parse(JSON.stringify(_rawWorldbookDays)); // 浅拷贝足够(只改 events 数组引用)
     for (const [dateStr, ov] of Object.entries(overrides)) {
         if (!days[dateStr]) days[dateStr] = { events: [] };
