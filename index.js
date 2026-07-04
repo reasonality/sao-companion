@@ -1044,11 +1044,6 @@ function renderEquipmentDetail(item) {
     return detailHtml;
 }
 
-function coreCodeLabel(code) {
-    const map = { A1: '伤害输出', A2: '生命恢复', A3: '法力恢复', A4: '牺牲增益', A5: '终结技' };
-    return map[code] || code;
-}
-
 /**
  * 将 EN 效果代码翻译为可读说明
  * 动态从角色卡世界书条目解析，自动同步卡片更新

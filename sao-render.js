@@ -1586,13 +1586,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
 /** 稀有度文本 → CSS class */
 function _rarityClass(rarity) { return rarityClassShared(rarity); }
 
-function _detailRow(label, value, valueClass) {
-    return `<div class="sao-detail-row"><span class="sao-detail-label">${label}</span><span class="sao-detail-value${valueClass ? ' ' + valueClass : ''}">${value}</span></div>`;
-}
-
 function _renderDetailEquip(item) { return _renderEquipShared(item); }
-
-const _CORE_CODE_LABEL = { A1: '伤害输出', A2: '生命恢复', A3: '法力恢复', A4: '牺牲增益', A5: '终结技' };
 
 function _renderDetailSkill(sk) { return _renderSkillShared(sk); }
 
