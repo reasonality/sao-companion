@@ -10,6 +10,7 @@ import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
+import { buildCalCellHtml } from './sao-calendar-cell.js';
 import { equipItem, unequipItem, getPlayerStore } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
@@ -337,61 +338,26 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
     }
     for (let day = 1; day <= daysInMonth; day++) {
         const isCurrent = day === cd;
-        const cls = 'sao-cal-cell' + (isCurrent ? ' sao-cal-today' : '');
         const dateStrFull = dateStr(day);
         // 硬过滤：只显示 date 字段与当前 grid 日期完全匹配的事件
         // 旧数据没有 date 字段（undefined）→ 过滤掉（不信任旧数据）
         // 新数据有 date 字段 → 必须与 dateStrFull 匹配
         const rawCalEvents = calDaysMap?.[dateStrFull]?.events || [];
-        const calDayEvents = rawCalEvents.filter(ev => {
-            // 只信任有 date 字段且匹配的事件
-            return ev.date === dateStrFull;
-        });
+        const calDayEvents = rawCalEvents.filter(ev => ev.date === dateStrFull);
         // 合并持久化 cal.days 中的非 canon 事件(appointment 等)，与控制台 buildCalCell 一致。
         // buildCleanCalendarDays 只产出 canon 事件，appointment 存在 cal.days，不合并则黄点永不显示。
         const dirtyEvents = getSaoData()?.calendar?.days?.[dateStrFull]?.events || [];
         const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon' && ev.date === dateStrFull);
         const allEvents = [...calDayEvents, ...aptEvents];
-        const appointments = allEvents.filter(e => e.type === 'appointment');
-        const nonAptEvents = allEvents.filter(e => e.type !== 'appointment');
 
-        let dotsHtml = '';
-        let eventHtml = '';
-        // 绿点数按子事件数计（无子事件时主事件算 1 个），黄点按约定数。
-        // 例：11月6号 1 个 canon 事件含 14 个子事件 → 5 个绿点（上限 5）。
-        let greenCount = 0;
-        for (const ev of nonAptEvents) {
-            const subs = (ev && ev.subEvents) || [];
-            greenCount += subs.length > 0 ? subs.length : 1;
-        }
-        greenCount = greenCount > 0 ? Math.min(greenCount, 5) : 0;
-        const yellowCount = appointments.length > 0 ? 1 : 0;
-        let dots = '';
-        for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
-        for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
-        if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        // 显示合并后的事件文字（canon + appointment），精确日期 key。
-        // 每格展示：第一个事件的第一个子事件正文（不显示主标题行，不显示 +N 提示）。
-        // 绿点数量已表达子事件数，底部空间留给正文（最多 5 行截断）。
-        const displayEvents = allEvents;
-        if (displayEvents.length > 0) {
-            const lines = [];
-            for (const ev of displayEvents) {
-                const subs = (ev && ev.subEvents) || [];
-                if (subs.length > 0) {
-                    const first = subs[0];
-                    const body = first.body || first.label || '';
-                    if (body) lines.push('<div class="sao-cal-event-body">' + esc(body.slice(0, 200)) + '</div>');
-                } else {
-                    // 无子事件（如约定/变化剧情）：显示事件标题或正文。
-                    const main = typeof ev === 'string' ? ev : (ev.title || ev.description || '');
-                    if (main) lines.push('<div class="sao-cal-event-body">' + esc(main.slice(0, 200)) + '</div>');
-                }
-                break; // 只显示第一个事件
-            }
-            eventHtml = '<div class="sao-cal-event-text">' + lines.join('') + '</div>';
-        }
-        cells += `<div class="${cls}" data-date="${dateStrFull}" role="button" aria-label="${dateStrFull}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${eventHtml}</div>`;
+        cells += buildCalCellHtml({
+            dateStr: dateStrFull,
+            day,
+            isCurrentMonth: true,
+            isToday: isCurrent,
+            events: allEvents,
+            roleButton: true,
+        });
     }
     return cells;
 }

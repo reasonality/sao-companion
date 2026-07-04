@@ -33,6 +33,7 @@ import {
     addAppointmentToCalendar,
     buildCleanCalendarDays,
 } from './sao-calendar.js';
+import { buildCalCellHtml } from './sao-calendar-cell.js';
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
@@ -1557,34 +1558,17 @@ function initPanelLogic() {
         const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon');
         const events = [...cleanEvents, ...aptEvents];
 
-        const cls = ['sao-cal-cell'];
-        if (!isCurrentMonth) cls.push('sao-cal-other-month');
-        if (dateStr === todayStr) cls.push('sao-cal-today');
-        if (dateStr === _calSelectedDate) cls.push('sao-cal-selected');
-        if (events.length > 0) cls.push('sao-cal-has-event');
-
-        let dotsHtml = '';
-        let firstEventHtml = '';
-        if (isCurrentMonth && events.length > 0) {
-            const appointments = events.filter(e => e.type === 'appointment');
-            const nonAptEvents = events.filter(e => e.type !== 'appointment');
-
-            // Dots: green for events (cap 5), yellow for appointment (1 if any)
-            const greenDots = Math.min(nonAptEvents.length, 5);
-            const yellowDots = appointments.length > 0 ? 1 : 0;
-            let dotsStr = '';
-            for (let i = 0; i < greenDots; i++) dotsStr += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
-            for (let i = 0; i < yellowDots; i++) dotsStr += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
-            dotsHtml = `<div class="sao-cal-dots">${dotsStr}</div>`;
-
-            // Only first event as plain text (no chip)
-            const first = events[0];
-            const full = first.title || first.description || '';
-            const txt = esc(full);
-            firstEventHtml = `<div class="sao-cal-event-text">${txt}</div>`;
-        }
-
-        return `<div class="${cls.join(' ')}" data-action="calSelectDay" data-date="${dateStr}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${firstEventHtml}</div>`;
+        // 共享格子构建：与聊天栏同一份代码，保证两边样式/绿点/正文一致。
+        // 控制台额外传 dataAction="calSelectDay"（事件委托）+ isSelected（选中态高亮）。
+        return buildCalCellHtml({
+            dateStr,
+            day,
+            isCurrentMonth,
+            isToday: dateStr === todayStr,
+            isSelected: dateStr === _calSelectedDate,
+            events,
+            dataAction: 'calSelectDay',
+        });
     }
 
     function renderCalendarDayDetail() {
