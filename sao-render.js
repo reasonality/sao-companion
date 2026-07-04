@@ -364,12 +364,20 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
         for (let i = 0; i < greenCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-canon"></span>';
         for (let i = 0; i < yellowCount; i++) dots += '<span class="sao-cal-dot sao-cal-dot-apt"></span>';
         if (dots) dotsHtml = '<div class="sao-cal-dots">' + dots + '</div>';
-        // 显示合并后的事件文字（canon + appointment），精确日期 key
+        // 显示合并后的事件文字（canon + appointment），精确日期 key。
+        // 格子内最多展示 3 条事件文字（每条最多 2 行截断），超出显示 "+N" 提示。
         const displayEvents = allEvents;
         if (displayEvents.length > 0) {
-            const first = displayEvents[0];
-            const full = typeof first === 'string' ? first : (first.title || first.description || '');
-            eventHtml = '<div class="sao-cal-event-text">' + esc(full) + '</div>';
+            const MAX_SHOW = 3;
+            const shown = displayEvents.slice(0, MAX_SHOW);
+            const rest = displayEvents.length - shown.length;
+            const lines = shown.map(ev => {
+                const txt = typeof ev === 'string' ? ev : (ev.title || ev.description || '');
+                const aptCls = ev && ev.type === 'appointment' ? ' sao-cal-event-apt' : '';
+                return '<div class="sao-cal-event-line' + aptCls + '">' + esc(txt) + '</div>';
+            });
+            if (rest > 0) lines.push('<div class="sao-cal-event-more">+' + rest + '</div>');
+            eventHtml = '<div class="sao-cal-event-text">' + lines.join('') + '</div>';
         }
         cells += `<div class="${cls}" data-date="${dateStrFull}" role="button" aria-label="${dateStrFull}"><div class="sao-cal-day-num">${day}${dotsHtml}</div>${eventHtml}</div>`;
     }
