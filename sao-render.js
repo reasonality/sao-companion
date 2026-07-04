@@ -11,6 +11,7 @@ import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
+import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared, rarityClass as rarityClassShared } from './sao-detail-popup.js';
 import { equipItem, unequipItem, getPlayerStore } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
@@ -1583,80 +1584,19 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
 // ============================================================
 
 /** 稀有度文本 → CSS class */
-function _rarityClass(rarity) {
-    if (!rarity) return '';
-    const r = String(rarity).toLowerCase();
-    if (r.includes('橙') || r.includes('传说') || r.includes('legendary') || r.includes('orange')) return 'sao-rarity-legendary';
-    if (r.includes('紫') || r.includes('史诗') || r.includes('epic') || r.includes('purple')) return 'sao-rarity-epic';
-    if (r.includes('蓝') || r.includes('稀有') || r.includes('rare') || r.includes('blue')) return 'sao-rarity-rare';
-    if (r.includes('绿') || r.includes('优质') || r.includes('uncommon') || r.includes('green')) return 'sao-rarity-uncommon';
-    return 'sao-rarity-common';
-}
+function _rarityClass(rarity) { return rarityClassShared(rarity); }
 
 function _detailRow(label, value, valueClass) {
     return `<div class="sao-detail-row"><span class="sao-detail-label">${label}</span><span class="sao-detail-value${valueClass ? ' ' + valueClass : ''}">${value}</span></div>`;
 }
 
-function _renderDetailEquip(item) {
-    const rows = [];
-    if (item.name) rows.push(_detailRow('名称', esc(item.name)));
-    if (item.slot) rows.push(_detailRow('槽位', esc(item.slot)));
-    if (item.rarity) rows.push(_detailRow('稀有度', esc(item.rarity), _rarityClass(item.rarity)));
-    if (item.item_level != null) rows.push(_detailRow('物品等级', esc(item.item_level)));
-    if (item.stats) {
-        const labels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT', atk: '⚔️ ATK', hit: '🎯 HIT', crit: '💥 CRIT' };
-        for (const [k, v] of Object.entries(item.stats)) {
-            if (v > 0) rows.push(_detailRow(labels[k] || esc(k.toUpperCase()), '+' + esc(v)));
-        }
-    }
-    if (item.affixes?.length) {
-        rows.push(_detailRow('附魔', item.affixes.map(a => `<span class="sao-tag sao-tag-affix">${esc(a)}</span>`).join(' ')));
-    }
-    if (item.description) rows.push(_detailRow('描述', esc(item.description)));
-    return rows.join('');
-}
+function _renderDetailEquip(item) { return _renderEquipShared(item); }
 
 const _CORE_CODE_LABEL = { A1: '伤害输出', A2: '生命恢复', A3: '法力恢复', A4: '牺牲增益', A5: '终结技' };
 
-function _renderDetailSkill(sk) {
-    const rows = [];
-    if (sk.weapon_type) rows.push(_detailRow('武器类型', esc(sk.weapon_type)));
-    if (sk.proficiency != null) rows.push(_detailRow('技能等级', 'Lv' + esc(sk.proficiency)));
-    if (sk.rarity) rows.push(_detailRow('稀有度', esc(sk.rarity), _rarityClass(sk.rarity)));
-    const c = sk.combat || {};
-    if (c.atk != null) rows.push(_detailRow('基础伤害', esc(c.atk)));
-    if (c.hit != null) rows.push(_detailRow('命中率', esc(c.hit) + '%'));
-    if (c.crit != null) rows.push(_detailRow('暴击率', esc(c.crit) + '%'));
-    if (c.mpCost != null) rows.push(_detailRow('MP消耗', esc(c.mpCost)));
-    if (c.cd != null) rows.push(_detailRow('冷却', esc(c.cd) + '回合'));
-    if (c.apt != null) rows.push(_detailRow('连击数', esc(c.apt)));
-    if (c.tpa != null) rows.push(_detailRow('目标数', esc(c.tpa)));
-    if (sk.effects?.wn) rows.push(_detailRow('核心功能', esc(_CORE_CODE_LABEL[sk.effects.wn] || sk.effects.wn)));
-    if (sk.effects?.en?.length) {
-        rows.push(_detailRow('词条', sk.effects.en.map(e => `<span class="sao-tag sao-tag-affix">${esc(e)}</span>`).join(' ')));
-    }
-    if (sk.description) rows.push(_detailRow('描述', esc(sk.description)));
-    return rows.join('');
-}
+function _renderDetailSkill(sk) { return _renderSkillShared(sk); }
 
-function _renderDetailInv(item) {
-    const rows = [];
-    const TYPE_LABELS = { equipment: '装备', consumable: '消耗品', material: '材料', quest_item: '任务物品' };
-    if (item.type === 'equipment' && item.equipment_id) {
-        const eq = getEquipmentById(item.equipment_id);
-        if (eq) return _renderDetailEquip(eq);
-    }
-    if (item.name) rows.push(_detailRow('名称', esc(item.name)));
-    if (item.qty != null) rows.push(_detailRow('数量', esc(item.qty)));
-    if (item.type) rows.push(_detailRow('类型', esc(TYPE_LABELS[item.type] || item.type)));
-    if (item.rarity) rows.push(_detailRow('稀有度', esc(item.rarity), _rarityClass(item.rarity)));
-    if (item.item_level != null) rows.push(_detailRow('物品等级', '⭐' + esc(item.item_level)));
-    if (item.effects?.length) {
-        rows.push(_detailRow('效果', item.effects.map(e => esc(typeof e === 'string' ? e : e.name || JSON.stringify(e))).join(', ')));
-    }
-    if (item.description) rows.push(_detailRow('描述', esc(item.description)));
-    return rows.join('');
-}
+function _renderDetailInv(item) { return _renderInvShared(item, getEquipmentById); }
 
 /**
  * C3/C5.5: 为状态面板交互按钮附加事件监听。

@@ -34,6 +34,7 @@ import {
     buildCleanCalendarDays,
 } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
+import { renderDetailEquip, renderDetailSkill, renderDetailInv, rarityClass as rarityClassShared } from './sao-detail-popup.js';
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
@@ -1036,37 +1037,11 @@ function closeDetailModal() {
 }
 
 // 稀有度文本 → CSS class 映射（兼容中文颜色/中文档位/英文）
-function rarityClass(rarity) {
-    if (!rarity) return 'sao-rarity-common';
-    const r = String(rarity).toLowerCase();
-    if (r.includes('橙') || r.includes('传说') || r.includes('red') || r.includes('legendary') || r.includes('orange')) return 'sao-rarity-legendary';
-    if (r.includes('紫') || r.includes('史诗') || r.includes('epic') || r.includes('purple')) return 'sao-rarity-epic';
-    if (r.includes('蓝') || r.includes('稀有') || r.includes('rare') || r.includes('blue')) return 'sao-rarity-rare';
-    if (r.includes('绿') || r.includes('优质') || r.includes('uncommon') || r.includes('green')) return 'sao-rarity-uncommon';
-    return 'sao-rarity-common';
-}
+function rarityClass(rarity) { return rarityClassShared(rarity); }
 
 function renderEquipmentDetail(item) {
-    const rows = []
-    // 名称行：确保有名字的装备一定显示名称（避免详情弹窗为空）
-    if (item.name) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">名称</span><span class="sao-detail-value">${esc(item.name)}</span></div>`)
-    if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(item.type)}</span></div>`)
-    if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
-    if (item.item_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">物品等级</span><span class="sao-detail-value">${esc(item.item_level)}</span></div>`)
-    if (item.stats) {
-        const statLabels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT' };
-        for (const [k, v] of Object.entries(item.stats)) {
-            if (v > 0) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">${statLabels[k] || esc(k.toUpperCase())}</span><span class="sao-detail-value">+${esc(v)}</span></div>`)
-        }
-    }
-    if (item.affixes && item.affixes.length > 0) {
-        const affixHtml = item.affixes.map(a => `<span class="sao-tag sao-tag-affix">${esc(a)}</span>`).join(' ')
-        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">附魔</span><span class="sao-detail-value">${affixHtml}</span></div>`)
-    }
-    if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
-    // 如果没有任何行，至少显示名称防止空弹窗
-    if (rows.length === 0 && item.name) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">名称</span><span class="sao-detail-value">${esc(item.name)}</span></div>`)
-    return rows.join('')
+    const detailHtml = renderDetailEquip(item);
+    return detailHtml;
 }
 
 function coreCodeLabel(code) {
@@ -1098,34 +1073,7 @@ function describeEnCode(raw) {
 }
 
 function renderSkillDetail(sk) {
-    const rows = []
-    if (sk.weapon_type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">武器类型</span><span class="sao-detail-value">${esc(sk.weapon_type)}</span></div>`)
-    if (sk.proficiency != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">技能等级</span><span class="sao-detail-value">Lv${esc(sk.proficiency)}</span></div>`)
-    if (sk.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(sk.rarity)}">${esc(sk.rarity)}</span></div>`)
-    if (sk.combat?.atk != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">基础伤害</span><span class="sao-detail-value">${esc(sk.combat.atk)}</span></div>`)
-    if (sk.combat?.hit != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">命中率</span><span class="sao-detail-value">${esc(sk.combat.hit)}%</span></div>`)
-    if (sk.combat?.crit != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">暴击率</span><span class="sao-detail-value">${esc(sk.combat.crit)}%</span></div>`)
-    if (sk.combat?.mpCost != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">MP消耗</span><span class="sao-detail-value">${esc(sk.combat.mpCost)}</span></div>`)
-    if (sk.combat?.cd != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">冷却</span><span class="sao-detail-value">${esc(sk.combat.cd)}回合</span></div>`)
-    if (sk.combat?.apt != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">连击数</span><span class="sao-detail-value">${esc(sk.combat.apt)}</span></div>`)
-    if (sk.combat?.tpa != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">目标数</span><span class="sao-detail-value">${esc(sk.combat.tpa)}</span></div>`)
-    if (sk.effects?.wn) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">核心功能</span><span class="sao-detail-value">${esc(coreCodeLabel(sk.effects.wn))}</span></div>`)
-    if (sk.effects?.en && sk.effects.en.length > 0) {
-        const affixHtml = sk.effects.en.map(raw => {
-            const d = describeEnCode(raw);
-            return d ? `<span class="sao-tag sao-tag-affix" title="${esc(d.code)}">${esc(d.label)}</span>` : `<span class="sao-tag sao-tag-affix">${esc(raw)}</span>`;
-        }).join(' ');
-        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">词条</span><span class="sao-detail-value">${affixHtml}</span></div>`)
-    }
-    if (sk.effects?.en && sk.effects.en.length > 0) {
-        const descHtml = sk.effects.en.map(raw => {
-            const d = describeEnCode(raw);
-            return d ? `<div style="margin:2px 0;">• <strong>${esc(d.label)}</strong>：${esc(d.desc)}</div>` : '';
-        }).join('');
-        if (descHtml) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">效果说明</span><span class="sao-detail-value" style="text-align:left;max-width:320px;">${descHtml}</span></div>`)
-    }
-    if (sk.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(sk.description)}</span></div>`)
-    return rows.join('')
+    return renderDetailSkill(sk, describeEnCode);
 }
 
 function renderInventoryDetail(item) {
@@ -1133,7 +1081,7 @@ function renderInventoryDetail(item) {
     if (item.type === 'equipment' && item.equipment_id) {
         const eq = getEquipmentById(item.equipment_id);
         if (eq) {
-            const detailHtml = renderEquipmentDetail(eq);
+            const detailHtml = renderDetailEquip(eq);
             // R5: 装备按钮 + 丢弃按钮
             return detailHtml + `<div style="margin-top:12px;text-align:center;display:flex;gap:10px;justify-content:center;">` +
                 `<button class="sao-btn" data-action="equipFromInventory" data-equipment-id="${esc(item.equipment_id)}">装备</button>` +
@@ -1141,17 +1089,11 @@ function renderInventoryDetail(item) {
                 `</div>`;
         }
     }
-    const TYPE_LABELS_CN = { equipment: '装备', consumable: '消耗品', material: '材料', quest_item: '任务物品' };
-    const rows = []
-    if (item.qty != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">数量</span><span class="sao-detail-value">${esc(item.qty)}</span></div>`)
-    if (item.item_level != null) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">物品等级</span><span class="sao-detail-value">⭐${esc(item.item_level)}</span></div>`)
-    if (item.type) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">类型</span><span class="sao-detail-value">${esc(TYPE_LABELS_CN[item.type] || item.type)}</span></div>`)
-    if (item.rarity) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">稀有度</span><span class="sao-detail-value ${rarityClass(item.rarity)}">${esc(item.rarity)}</span></div>`)
-    if (item.description) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">描述</span><span class="sao-detail-value">${esc(item.description)}</span></div>`)
+    const detailHtml = renderDetailInv(item);
     if (item.type === 'consumable' && item.item_id) {
-        return rows.join('') + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button></div>`;
+        return detailHtml + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button></div>`;
     }
-    return rows.join('')
+    return detailHtml;
 }
 
 async function loadPanelHTML() {
