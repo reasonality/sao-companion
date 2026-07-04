@@ -1725,14 +1725,14 @@ function _attachStatusPanelListeners(shadow) {
             try {
                 const results = await useConsumable(itemId);
                 if (results.length === 0) {
-                    alert('使用失败：物品不存在或非消耗品');
+                    if (typeof toastr !== 'undefined') toastr.warning('物品不存在或非消耗品', 'SAO Companion');
                     return;
                 }
                 _refreshStatusPanelContent(shadow);
-                if (results && results.length > 0) alert('使用成功：' + results.join(', '));
+                if (typeof toastr !== 'undefined' && results.length > 0) toastr.success(results.join(', '), '使用成功');
             } catch (err) {
                 log(`使用消耗品失败: ${err.message}`, 'warn');
-                alert('使用失败：' + err.message);
+                if (typeof toastr !== 'undefined') toastr.error('使用失败: ' + err.message, 'SAO Companion');
             }
         });
     });

@@ -2265,16 +2265,16 @@ function initPanelLogic() {
             try {
                 const results = await useConsumableStore(itemId);
                 if (results.length === 0) {
-                    alert('使用失败：物品不存在或非消耗品');
+                    if (typeof toastr !== 'undefined') toastr.warning('物品不存在或非消耗品', 'SAO Companion');
                     return;
                 }
                 closeDetailModal();
                 refreshStatus();
                 log('使用消耗品: ' + itemId + ' → ' + results.join(', '));
-                alert('使用成功：' + results.join(', '));
+                if (typeof toastr !== 'undefined') toastr.success(results.join(', '), '使用成功');
             } catch (e) {
                 log('使用消耗品失败: ' + e.message, 'error');
-                alert('使用失败：' + e.message);
+                if (typeof toastr !== 'undefined') toastr.error('使用失败: ' + e.message, 'SAO Companion');
             }
         },
 

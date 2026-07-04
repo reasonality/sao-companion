@@ -192,36 +192,39 @@ export function validateConsumableEntry(data) {
  * @returns {Promise<string[]>} results 数组（如 ['HP +50 (100→150)']）
  */
 export async function useConsumable(itemId) {
-    // Bug4b: 防御 —— itemId 为空/null 直接返回
     if (!itemId) {
         log(`useConsumable: itemId 为空`, 'warn');
         return [];
     }
 
-    // 1. 从 inventoryStore 找 item
     const invStore = getInventoryStore();
-    const item = invStore.items.find(i => i.item_id === itemId && (i.type === 'consumable' || i.consumable_id));
+    // 点8: 放宽查找条件 — item_id 或 consumable_id 匹配均可，type 不限 consumable
+    // （旧逻辑仅匹配 type==='consumable' || consumable_id，部分物品 type 可能缺失或不匹配）
+    const item = invStore.items.find(i =>
+        (i.item_id === itemId || i.consumable_id === itemId) &&
+        (i.type === 'consumable' || i.consumable_id || i.type === 'material')
+    );
     if (!item) {
-        log(`useConsumable: 物品 ${itemId} 不存在或非消耗品`, 'warn');
+        log(`useConsumable: 物品 ${itemId} 不存在于背包`, 'warn');
         return [];
     }
 
-    // 2. 获取消耗品定义
     const def = getConsumableById(item.consumable_id);
     if (!def) {
         log(`useConsumable: 消耗品定义 ${item.consumable_id} 不存在`, 'warn');
         return [];
     }
 
-    // 3. 应用 effects
     const playerStore = getPlayerStore();
     const results = [];
+    let skippedFull = false;
 
     for (const eff of (def.effects || [])) {
         if (eff.type === 'restore' || eff.type === 'buff') {
             if (eff.stat === 'hp') {
                 const oldHp = playerStore.vitals.hp;
                 const maxHp = playerStore.vitals.maxHp;
+                if (oldHp >= maxHp) { skippedFull = true; continue; }
                 const newHp = Math.min(oldHp + (eff.value || 0), maxHp);
                 await updatePlayerVitals({ hp: newHp }, true);
                 results.push(`HP +${eff.value} (${oldHp}→${newHp})`);
@@ -258,6 +261,11 @@ export async function useConsumable(itemId) {
             // M1: 未知效果类型，给用户反馈而非静默忽略
             results.push(`未知效果类型: ${eff.type}`);
         }
+    }
+
+    // 点8: 所有效果都因满血/满蓝跳过时, 返回提示而非空数组(避免误报'物品不存在')
+    if (results.length === 0 && skippedFull) {
+        return ['HP/MP 已满，无需使用'];
     }
 
     // 4. 减少数量（Bug4b: 防御 qty 为 undefined/NaN）
