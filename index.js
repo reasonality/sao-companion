@@ -2615,6 +2615,20 @@ function initPanelLogic() {
             }
             this._dataRefreshSidebar();
             this.renderStoreSection(storeKey);
+            // 点14: 保存后立即应用到状态栏 — 重新渲染聊天面板 + 插件状态
+            try {
+                const ctx = getContext();
+                if (ctx && ctx.chat && ctx.chat.length > 0) {
+                    for (let i = ctx.chat.length - 1; i >= 0 && i >= ctx.chat.length - 5; i--) {
+                        const msg = ctx.chat[i];
+                        if (msg && !msg.is_user) {
+                            const el = getMessageElement(i);
+                            if (el) renderAllTags(el, msg.mes || '', i);
+                        }
+                    }
+                }
+                if (typeof refreshStatus === 'function') refreshStatus();
+            } catch (e) { log('[data tab] 状态刷新失败: ' + e.message, 'warn'); }
         },
 
         storeCalViewDateChange(dateStr) {
