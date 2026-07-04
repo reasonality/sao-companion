@@ -57,6 +57,18 @@ import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calenda
 import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
 // sao-rules.js 已删除（规则段落直接内联到各专家 systemPrompt）
 
+// 安全执行函数，失败时返回 null（数据存储浏览器各 helper 共用）。
+// 注意:本模块未从 sao-state-projection/sao-store-world 导入 safe——这两个模块的 safe 均为模块内私有，
+// 故在此本地定义。语义与上述两处一致。
+function safe(fn, label) {
+    try {
+        return fn();
+    } catch (e) {
+        log(`[data-tab] ${label || ''} 失败: ${e.message}`, 'warn');
+        return null;
+    }
+}
+
 // ============================================================
 // 常量
 // ============================================================
