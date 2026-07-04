@@ -670,9 +670,8 @@ function bindEvents() {
         // 同样不得在自动事件中调用。
         await withProcessingLock(`msg-${messageId}`, async () => {
             // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源；内部已 catch 返回 null）
-            if (getSettings().specialistPanels?.enabled !== false) {
-                await callStatusSpecialist(messageId, rawText);
-            }
+            // 点10: 专家1始终运行（不再受 toggle 控制）
+            await callStatusSpecialist(messageId, rawText);
             // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
             const extracted = await extractAll(rawText, callModel, messageId);
             const newNpcs = extracted ? await applyExtractedData(extracted, CUSTOM_SKILL_DEFS) : [];
@@ -904,19 +903,18 @@ function bindEvents() {
             // P2: swipe 后重新触发装饰专家 + P3 status 专家
             // C6: Phase C — renderUserStatus 优先从 store projection 渲染（specialist 写 store → projection 读 store）
             // panel 缓存仅作 fallback，权威数据在 store 中
-            if (getSettings().specialistPanels?.enabled !== false) {
-                callStatusSpecialist(messageId, msg.mes || '')
-                    .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
-                    .catch(e => log('swipe 重触发 status 专家失败: ' + e.message, 'warn'));
-                const specialistPromises = fireSpecialistPanels(messageId, msg.mes || '');
-                if (specialistPromises.length > 0) {
-                    Promise.allSettled(specialistPromises).then(() => {
-                        try {
-                            const el3 = getMessageElement(messageId);
-                            if (el3) renderAllTags(el3, msg.mes || '', messageId);
-                        } catch (e) { log('swipe 专家面板重渲染失败: ' + e.message, 'warn'); }
-                    });
-                }
+            // 点10: 专家始终运行（不再受 toggle 控制）
+            callStatusSpecialist(messageId, msg.mes || '')
+                .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
+                .catch(e => log('swipe 重触发 status 专家失败: ' + e.message, 'warn'));
+            const specialistPromises = fireSpecialistPanels(messageId, msg.mes || '');
+            if (specialistPromises.length > 0) {
+                Promise.allSettled(specialistPromises).then(() => {
+                    try {
+                        const el3 = getMessageElement(messageId);
+                        if (el3) renderAllTags(el3, msg.mes || '', messageId);
+                    } catch (e) { log('swipe 专家面板重渲染失败: ' + e.message, 'warn'); }
+                });
             }
         });
     }
@@ -933,19 +931,18 @@ function bindEvents() {
             // P2: 编辑后重新触发装饰专家 + P3 status 专家
             // C6: Phase C — renderUserStatus 优先从 store projection 渲染（specialist 写 store → projection 读 store）
             // panel 缓存仅作 fallback，权威数据在 store 中
-            if (getSettings().specialistPanels?.enabled !== false) {
-                callStatusSpecialist(messageId, msg.mes || '')
-                    .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
-                    .catch(e => log('edit 重触发 status 专家失败: ' + e.message, 'warn'));
-                const specialistPromises = fireSpecialistPanels(messageId, msg.mes || '');
-                if (specialistPromises.length > 0) {
-                    Promise.allSettled(specialistPromises).then(() => {
-                        try {
-                            const el3 = getMessageElement(messageId);
-                            if (el3) renderAllTags(el3, msg.mes || '', messageId);
-                        } catch (e) { log('edit 专家面板重渲染失败: ' + e.message, 'warn'); }
-                    });
-                }
+            // 点10: 专家始终运行（不再受 toggle 控制）
+            callStatusSpecialist(messageId, msg.mes || '')
+                .then(() => { const el2 = getMessageElement(messageId); if (el2) renderAllTags(el2, msg.mes || '', messageId); })
+                .catch(e => log('edit 重触发 status 专家失败: ' + e.message, 'warn'));
+            const specialistPromises = fireSpecialistPanels(messageId, msg.mes || '');
+            if (specialistPromises.length > 0) {
+                Promise.allSettled(specialistPromises).then(() => {
+                    try {
+                        const el3 = getMessageElement(messageId);
+                        if (el3) renderAllTags(el3, msg.mes || '', messageId);
+                    } catch (e) { log('edit 专家面板重渲染失败: ' + e.message, 'warn'); }
+                });
             }
         });
     }
@@ -2179,24 +2176,6 @@ function initPanelLogic() {
             }
             log('模型配置已保存');
         },
-        toggleCalLlm() {
-            const cb = document.getElementById('sao_calendar_llm_enabled');
-            if (!cb) return;
-            const settings = getSettings();
-            if (!settings.saoCalendar) settings.saoCalendar = { llmEnabled: false };
-            settings.saoCalendar.llmEnabled = cb.checked;
-            saveSettingsDebounced();
-            log('日历 LLM 增强开关: ' + (cb.checked ? '开启' : '关闭'));
-        },
-        toggleSpecialistPanels() {
-            const cb = document.getElementById('sao_specialist_panels_enabled');
-            if (!cb) return;
-            const settings = getSettings();
-            if (!settings.specialistPanels) settings.specialistPanels = { enabled: true };
-            settings.specialistPanels.enabled = cb.checked;
-            saveSettingsDebounced();
-            log('专家面板开关: ' + (cb.checked ? '开启' : '关闭'));
-        },
         clearLogs() {
             logs.length = 0;
             updateLogDisplay();
@@ -2696,8 +2675,6 @@ function initPanelLogic() {
                 case 'fetchModels': window.SaoPanel.fetchModels(role); break;
                 case 'testModel': window.SaoPanel.testModel(role); break;
                 case 'saveModels': window.SaoPanel.saveModels(); break;
-                case 'toggleCalLlm': window.SaoPanel.toggleCalLlm(); break;
-                case 'toggleSpecialistPanels': window.SaoPanel.toggleSpecialistPanels(); break;
                 case 'testGenerate': window.SaoPanel.testGenerate(); break;
                 case 'refreshStatus': refreshStatus(); break;
                 case 'clearLogs': window.SaoPanel.clearLogs(); break;
@@ -2926,12 +2903,6 @@ function loadSettingsToPanel() {
             updateModelStatus(role, !!cfg.url && !!cfg.model);
         }
     });
-    // v2 日历 LLM 开关状态
-    const llmCb = document.getElementById('sao_calendar_llm_enabled');
-    if (llmCb) llmCb.checked = !!(settings.saoCalendar?.llmEnabled);
-    // P2: 专家面板开关状态
-    const specialistCb = document.getElementById('sao_specialist_panels_enabled');
-    if (specialistCb) specialistCb.checked = settings.specialistPanels?.enabled !== false;
 }
 
 function updateModelStatus(role, ok) {

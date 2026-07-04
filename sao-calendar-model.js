@@ -43,7 +43,6 @@ let _calendarModelRunning = false;
  * @returns {boolean}
  */
 function shouldTriggerCalendarModel(rawText, saoData) {
-    if (!getSettings().saoCalendar?.llmEnabled) return false;
     if (!rawText || !saoData?.calendar) return false;
 
     // #1 时间跳跃（约定提取触发，非日期推进）

@@ -237,7 +237,7 @@ const GENERATION_TRIGGER_RE = /习得|获得新|获得.*(?:剑技|装备|技能)
  */
 export function fireSpecialistPanels(messageId, narrativeText) {
     if (messageId == null) return [];
-    if (getSettings().specialistPanels?.enabled === false) return [];
+    // 点10: 专家2始终运行（不再受 toggle 控制）
     const promises = [];
     for (const cfg of PANEL_SPECIALIST_CONFIG) {
         // 装备/剑技专家仅在叙述包含生成/获取事件时触发（避免每轮重复列出）
