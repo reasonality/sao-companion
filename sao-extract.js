@@ -12,6 +12,9 @@ import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById, getNpcByName } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
 import { extractJsonObject } from './sao-specialists.js';
+import { addTemporaryBuff, addPermanentBuff, removeBuff } from './sao-buff.js';
+import { createGuild, discoverGuild, addGuildMember, removeGuildMember, getGuildByName } from './sao-store-guild.js';
+import { setPlayerHousing, updatePlayerHousing, addDecoration, addFurniture, removeFurniture, clearPlayerHousing } from './sao-store-housing.js';
 
 // === 纯解析函数 ===
 
@@ -750,6 +753,90 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                 log(`NPC 更新失败 (${upd.name}): ${e.message}`, 'warn');
             }
         }
+    }
+
+    // 7. Buff Updates → playerStore.buffs
+    if (Array.isArray(extracted.buffUpdates) && extracted.buffUpdates.length > 0) {
+        for (const b of extracted.buffUpdates) {
+            if (!b || !b.id || !b.name) continue;
+            if (b.type === 'permanent') {
+                addPermanentBuff(getPlayerStore(), b);
+            } else {
+                addTemporaryBuff(getPlayerStore(), b);
+            }
+        }
+        log(`Buff 更新: ${extracted.buffUpdates.length} 个`);
+    }
+
+    // 8. Buff Removals
+    if (Array.isArray(extracted.buffRemovals) && extracted.buffRemovals.length > 0) {
+        for (const id of extracted.buffRemovals) {
+            removeBuff(getPlayerStore(), id);
+        }
+    }
+
+    // 9. Guild Updates
+    if (Array.isArray(extracted.guildUpdates) && extracted.guildUpdates.length > 0) {
+        for (const g of extracted.guildUpdates) {
+            if (!g || !g.name) continue;
+            if (g.action === 'create') {
+                createGuild(g.name, g.leader, { headquarters: g.headquarters, buff: g.buff, description: g.description });
+            } else if (g.action === 'discover') {
+                discoverGuild(g.name);
+            } else if (g.action === 'join') {
+                const player = getPlayerStore();
+                const guild = getGuildByName(g.name);
+                if (guild) {
+                    player.guild_id = guild.guild_id;
+                    addGuildMember(guild.guild_id, player.identity?.name || '{{user}}');
+                    if (guild.buff) {
+                        addPermanentBuff(player, {
+                            id: 'guild_' + guild.guild_id,
+                            source: '公会：' + guild.name,
+                            name: guild.buff.name,
+                            effects: guild.buff.effects,
+                            description: guild.buff.description,
+                        });
+                    }
+                }
+            } else if (g.action === 'leave') {
+                const player = getPlayerStore();
+                const oldGuildId = player.guild_id;
+                player.guild_id = null;
+                if (oldGuildId) removeBuff(player, 'guild_' + oldGuildId);
+            } else if (g.action === 'member_add' && g.guild_name && g.member_name) {
+                const guild = getGuildByName(g.guild_name);
+                if (guild) addGuildMember(guild.guild_id, g.member_name);
+            } else if (g.action === 'member_remove' && g.guild_name && g.member_name) {
+                const guild = getGuildByName(g.guild_name);
+                if (guild) removeGuildMember(guild.guild_id, g.member_name);
+            } else if (g.action === 'disband' && g.name) {
+                const guild = getGuildByName(g.name);
+                if (guild) guild.disbanded = true;
+            }
+        }
+        log(`公会更新: ${extracted.guildUpdates.length} 条`);
+    }
+
+    // 10. Housing Updates
+    if (Array.isArray(extracted.housingUpdates) && extracted.housingUpdates.length > 0) {
+        for (const h of extracted.housingUpdates) {
+            if (!h || !h.action) continue;
+            if (h.action === 'buy' || h.action === 'set') {
+                setPlayerHousing(h);
+            } else if (h.action === 'update') {
+                updatePlayerHousing(h);
+            } else if (h.action === 'decorate' && h.decoration) {
+                addDecoration(h.decoration);
+            } else if (h.action === 'add_furniture' && h.furniture) {
+                addFurniture(h.furniture);
+            } else if (h.action === 'remove_furniture' && h.name) {
+                removeFurniture(h.name);
+            } else if (h.action === 'sell' || h.action === 'leave') {
+                clearPlayerHousing();
+            }
+        }
+        log(`房屋更新: ${extracted.housingUpdates.length} 条`);
     }
 
     await saveStore();

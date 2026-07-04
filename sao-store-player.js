@@ -51,6 +51,10 @@ function ensurePlayerStore() {
     if (!store.playerStore) {
         store.playerStore = structuredClone(DEFAULT_PLAYER);
     }
+    // Buffs: 兼容旧数据补全
+    if (!store.playerStore.buffs) store.playerStore.buffs = { temporary: [], permanent: [] };
+    // Guild: 兼容旧数据补全
+    if (store.playerStore.guild_id === undefined) store.playerStore.guild_id = null;
     return store.playerStore;
 }
 

@@ -41,6 +41,8 @@ const DEFAULT_STORE = {
     questStore: { byId: {}, activeIds: [], completedIds: [] },
     worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null },
     consumableStore: { byId: {}, nameToId: {} },
+    guildStore: { byId: {}, nameToId: {} },
+    housingStore: { playerHousing: null },
     loreParsed: null,
     actionLog: { entries: [], lastInjectedTurn: 0, currentTurn: 0 },
     runtime: {},
@@ -141,6 +143,12 @@ export function getStore() {
         if (!d.consumableStore.byId)     d.consumableStore.byId = {};
         if (!d.consumableStore.nameToId) d.consumableStore.nameToId = {};
     }
+    if (!d.guildStore) d.guildStore = { byId: {}, nameToId: {} };
+    else {
+        if (!d.guildStore.byId)     d.guildStore.byId = {};
+        if (!d.guildStore.nameToId) d.guildStore.nameToId = {};
+    }
+    if (!d.housingStore) d.housingStore = { playerHousing: null };
     if (typeof d.consumableMigrationV1 !== 'boolean') d.consumableMigrationV1 = false;
     if (!d.actionLog) d.actionLog = { entries: [], lastInjectedTurn: 0, currentTurn: 0 };
     else {
@@ -148,6 +156,8 @@ export function getStore() {
         if (typeof d.actionLog.lastInjectedTurn !== 'number') d.actionLog.lastInjectedTurn = 0;
         if (typeof d.actionLog.currentTurn !== 'number') d.actionLog.currentTurn = 0;
     }
+    // Buffs: playerStore 惰性初始化（由 sao-store-player.js 负责），此处仅补全已有 playerStore 的 buffs
+    if (d.playerStore && !d.playerStore.buffs) d.playerStore.buffs = { temporary: [], permanent: [] };
 
     // ---- consumable 迁移守卫（只跑一次） ----
     // M3: 加标记避免每次 getStore() 都 O(n) 遍历 items

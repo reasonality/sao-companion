@@ -13,6 +13,9 @@ import { getWorldStore } from './sao-store-world.js';
 import { getFloorStore } from './sao-store-floor.js';
 import { getConsumableById } from './sao-store-consumable.js';
 import { log, esc } from './sao-core.js';
+import { calculateBuffTotals, formatBuffsForDisplay } from './sao-buff.js';
+import { getPlayerGuild } from './sao-store-guild.js';
+import { getPlayerHousing, getActiveFurnitureBuffs } from './sao-store-housing.js';
 
 /** 区域危险度 → 中文标签（与面板侧栏 index.js DANGER_LABEL 对齐） */
 const DANGER_LABEL = { safe: '安全', low: '低危', medium: '中危', high: '高危', extreme: '极危' };
@@ -295,13 +298,25 @@ export function projectFullState() {
     const stats = [];
     if (player.progression?.level != null)   stats.push(`等级: ${player.progression.level}`);
     if (player.progression?.totalExp != null) stats.push(`经验: ${player.progression.totalExp}`);
+
+    // Buff 加成：计算 buff + 家具 buff 总属性加成
+    const buffTotals = calculateBuffTotals(player.buffs);
+    const furnitureBuffs = getActiveFurnitureBuffs();
+    if (furnitureBuffs.length > 0) {
+        for (const fb of furnitureBuffs) {
+            for (const [key, val] of Object.entries(fb.effects || {})) {
+                buffTotals[key] = (buffTotals[key] || 0) + val;
+            }
+        }
+    }
+
     const attr = player.attributes;
     if (attr) {
         const parts = [];
-        if (attr.str != null) parts.push(`STR:${attr.str}`);
-        if (attr.agi != null) parts.push(`AGI:${attr.agi}`);
-        if (attr.int != null) parts.push(`INT:${attr.int}`);
-        if (attr.vit != null) parts.push(`VIT:${attr.vit}`);
+        if (attr.str != null) parts.push(`STR:${attr.str + (buffTotals.str || 0)}`);
+        if (attr.agi != null) parts.push(`AGI:${attr.agi + (buffTotals.agi || 0)}`);
+        if (attr.int != null) parts.push(`INT:${attr.int + (buffTotals.int || 0)}`);
+        if (attr.vit != null) parts.push(`VIT:${attr.vit + (buffTotals.vit || 0)}`);
         if (parts.length) stats.push(parts.join(' '));
     }
     // HP / MP（含战斗软守卫）
@@ -320,6 +335,35 @@ export function projectFullState() {
     }
     if (stats.length) {
         sections.push({ label: '等级与属性', text: stats.join(' | '), priority: 2 });
+    }
+
+    // ---- Buff 展示（仅有 buff 时显示） ----
+    let buffDisplay = formatBuffsForDisplay(player.buffs);
+    if (furnitureBuffs.length > 0) {
+        const furnitureBuffStr = furnitureBuffs.map(fb => {
+            const eff = Object.entries(fb.effects || {}).map(([k, v]) => `${k.toUpperCase()}+${v}`).join(',');
+            return eff ? `${fb.name}(${eff})` : fb.name;
+        }).join(' ');
+        if (furnitureBuffStr) {
+            buffDisplay += (buffDisplay ? ' | ' : '') + '[家具]' + furnitureBuffStr;
+        }
+    }
+    if (buffDisplay) {
+        sections.push({ label: 'Buff', text: buffDisplay, priority: 2.5 });
+    }
+
+    // ---- 公会展示（仅有公会时显示） ----
+    const guild = getPlayerGuild();
+    if (guild) {
+        const guildText = `${guild.name}${guild.buff ? '(' + guild.buff.name + ')' : ''}`;
+        sections.push({ label: '公会', text: guildText, priority: 2.6 });
+    }
+
+    // ---- 住所展示（仅有住房时显示） ----
+    const housing = getPlayerHousing();
+    if (housing) {
+        const housingText = housing.location || housing.type;
+        sections.push({ label: '住所', text: housingText, priority: 2.7 });
     }
 
     // ---- 3. 装备 ----

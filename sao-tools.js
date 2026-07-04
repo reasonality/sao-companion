@@ -7,6 +7,7 @@ import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
+import { getGuildByName, getDiscoveredGuilds } from './sao-store-guild.js';
 import { event_types } from '../../../events.js';
 
 // ============================================================================
@@ -438,6 +439,42 @@ export function registerGetWorldSetting(ctx) {
     });
 }
 
+export function registerGetGuildInfo(ctx) {
+    ctx.registerFunctionTool({
+        name: 'get_guild_info',
+        displayName: 'Get Guild Info',
+        formatMessage: () => '查询公会信息...',
+        description: '获取公会信息：查看公会的基本资料、成员、据点、公会加成等。只有已发现的公会才能被查询。',
+        parameters: {
+            '$schema': 'http://json-schema.org/draft-04/schema#',
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: '公会名称（必填）' },
+            },
+            required: ['name'],
+        },
+        action: wrapToolAction('get_guild_info', async (args) => {
+            try {
+                const name = args && args.name;
+                if (!name) return '请提供公会名称';
+                const guild = getGuildByName(name);
+                if (!guild || !guild.discovered) return '未找到已发现的公会"' + name + '"';
+                let info = `公会: ${guild.name}\n会长: ${guild.leader || '?'}\n成员: ${guild.members.join(', ')}`;
+                if (guild.headquarters) info += `\n据点: ${guild.headquarters.floor_id}F ${guild.headquarters.location}`;
+                if (guild.buff) info += `\n公会加成: ${guild.buff.name} (${guild.buff.description})`;
+                if (guild.description) info += `\n简介: ${guild.description}`;
+                if (guild.disbanded) info += '\n状态: 已解散';
+                return info;
+            } catch (e) {
+                log('get_guild_info 失败: ' + e.message, 'warn');
+                return '获取公会信息失败: ' + e.message;
+            }
+        }),
+        shouldRegister: () => isSaoCard(),
+        stealth: false,
+    });
+}
+
 export function registerSearchWorldBook(ctx) {
     ctx.registerFunctionTool({
         name: 'search_world_book',
@@ -518,7 +555,7 @@ export function registerSearchWorldBook(ctx) {
 
 // === Function Calling Tool System (P0: framework only, tools registered in P1) ===
 
-export const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info', 'get_world_setting', 'search_world_book'];
+export const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info', 'get_guild_info', 'get_world_setting', 'search_world_book'];
 
 export function registerTools() {
     const ctx = getContext();
@@ -533,9 +570,10 @@ export function registerTools() {
     registerGetCalendar(ctx);
     registerGetCharacterInfo(ctx);
     registerGetFloorInfo(ctx);
+    registerGetGuildInfo(ctx);
     registerGetWorldSetting(ctx);
     registerSearchWorldBook(ctx);
-    log('function calling 工具系统已就绪（5 个工具已注册）');
+    log('function calling 工具系统已就绪（6 个工具已注册）');
     return true;
 }
 

@@ -67,6 +67,13 @@ vi.mock('../sao-store-consumable.js', () => ({
     useConsumable: vi.fn(() => []),
 }));
 
+vi.mock('../sao-store-housing.js', () => ({
+    getPlayerHousing: vi.fn(() => mockStore?.housingStore?.playerHousing || null),
+    getActiveFurnitureBuffs: vi.fn(() => []),
+    isPlayerAtHome: vi.fn(() => false),
+    getHousingStore: vi.fn(() => mockStore?.housingStore || { playerHousing: null }),
+}));
+
 // Import AFTER mocks
 import { projectStatusPanelHtml, projectQuestSummary } from '../sao-state-projection.js';
 

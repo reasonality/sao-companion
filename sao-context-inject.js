@@ -7,6 +7,8 @@ import { getStore } from './sao-store-core.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getCharacterInfoFromSources, getFloorInfo } from './sao-tools.js';
+import { getDiscoveredGuilds, getPlayerGuild } from './sao-store-guild.js';
+import { getPlayerHousing, isPlayerAtHome } from './sao-store-housing.js';
 
 // ============================================================
 // 常量
@@ -42,6 +44,14 @@ export function buildContextualInjection(recentText) {
         // ──── 1. NPC 摘要块（始终注入，当前章节主要 NPC） ────
         const summaryBlock = buildNpcSummaryBlock(entries);
         if (summaryBlock) allParts.push(summaryBlock);
+
+        // ──── 1.5. 已发现公会摘要（始终注入已发现的公会） ────
+        const guildBlock = buildGuildBlock();
+        if (guildBlock) allParts.push(guildBlock);
+
+        // ──── 1.7. 住所信息（当玩家有房时注入） ────
+        const housingBlock = buildHousingBlock();
+        if (housingBlock) allParts.push(housingBlock);
 
         // ──── 2. 关键词触发 NPC 档案（上限 5） ────
         if (recentLower) {
@@ -227,6 +237,27 @@ function buildRuleBlocks(entries) {
 }
 
 /**
+ * 已发现公会摘要块。
+ * @returns {string}
+ */
+function buildGuildBlock() {
+    const discovered = getDiscoveredGuilds();
+    if (!discovered || discovered.length === 0) return '';
+
+    const playerGuild = getPlayerGuild();
+    const lines = ['[公会信息]'];
+    for (const g of discovered) {
+        const isPlayerGuild = playerGuild && playerGuild.guild_id === g.guild_id;
+        const marker = isPlayerGuild ? '★' : g.hostile ? '⚠' : '·';
+        const buffInfo = g.buff ? ` [${g.buff.name}]` : '';
+        const hqInfo = g.headquarters ? ` 据点:${g.headquarters.floor_id}F` : '';
+        const memberCount = g.members.length;
+        lines.push(`${marker}${g.name} (会长:${g.leader || '?'}, 成员:${memberCount}${buffInfo}${hqInfo})${isPlayerGuild ? ' ← 你的公会' : ''}`);
+    }
+    return lines.join('\n');
+}
+
+/**
  * 日历 ±7天事件块（上限 30 事件）。
  * @returns {string}
  */
@@ -265,4 +296,32 @@ function buildCalendarBlock() {
     if (calEvents.length > 30) calEvents.length = 30;
 
     return calEvents.length ? '[近期日历]\n' + calEvents.join('\n') : '';
+}
+
+/**
+ * 住房信息块（当玩家有房时注入）。
+ * @returns {string}
+ */
+function buildHousingBlock() {
+    const housing = getPlayerHousing();
+    if (!housing) return '';
+
+    const atHome = isPlayerAtHome();
+    const lines = ['[住所信息]'];
+    lines.push(`类型: ${housing.type}`);
+    lines.push(`位置: ${housing.location || (housing.floor_id ? housing.floor_id + 'F' : '未知')}`);
+    if (housing.description) lines.push(`描述: ${housing.description}`);
+    if (housing.decorations && housing.decorations.length > 0) {
+        lines.push('装修:');
+        housing.decorations.forEach(d => lines.push(`  - ${d}`));
+    }
+    if (housing.furniture && housing.furniture.length > 0) {
+        lines.push('家具:');
+        housing.furniture.forEach(f => {
+            const buffInfo = f.buff ? ` [${f.buff.name}]` : '';
+            lines.push(`  - ${f.name}${buffInfo}`);
+        });
+    }
+    if (atHome) lines.push('状态: 现在在家，家具buff生效中');
+    return lines.join('\n');
 }

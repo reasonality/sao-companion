@@ -36,6 +36,8 @@ import {
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
+import { expireBuffs } from './sao-buff.js';
+import { initPresetGuilds, checkGuildDiscovery } from './sao-store-guild.js';
 import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
@@ -561,6 +563,14 @@ function bindEvents() {
                 }
                 log(`Pre-parser 完成: ${entries.length} 条目`);
             }
+
+            // Phase 2: Initialize preset guilds and check discovery
+            initPresetGuilds();
+            const calStore = getStore()?.calendarStore;
+            if (calStore?.currentDate) {
+                checkGuildDiscovery(calStore.currentDate);
+            }
+
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
                 refreshStatus();
@@ -679,6 +689,14 @@ function bindEvents() {
             // Phase 1: 传 messageId 以便写入 calendarPanels[messageId] 瞬时 grid
             await updateCalendarIncremental(rawText, messageId);
 
+            // Phase 2: Check guild discovery with new date
+            {
+                const _calStore = getStore()?.calendarStore;
+                if (_calStore?.currentDate) {
+                    checkGuildDiscovery(_calStore.currentDate);
+                }
+            }
+
             // P4b: Combat resolution (no DOM dependency)
             const combatResult = resolveCombatRound(rawText);
             if (combatResult) {
@@ -709,6 +727,16 @@ function bindEvents() {
                 const hintData = getSaoData();
                 if (hintData?.runtime?.lastCombatHint) {
                     delete hintData.runtime.lastCombatHint;
+                }
+            }
+
+            // Expire temporary buffs after combat
+            {
+                const _saoData = getSaoData();
+                if (_saoData) {
+                    const _player = getPlayerStore();
+                    const _expired = expireBuffs(_player, _saoData.runtime?.calendarTurnCounter || 0, 'next_combat');
+                    if (_expired.length > 0) log(`Buff 过期: ${_expired.join(', ')}`);
                 }
             }
 
