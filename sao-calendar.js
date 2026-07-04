@@ -11,10 +11,11 @@ function getCalendarStore() {
     const store = getStore();
     if (!store) return null;
     if (!store.calendarStore) {
-        store.calendarStore = { currentDate: null, events: {}, appointments: [] };
+        store.calendarStore = { currentDate: null, events: {}, appointments: [], eventOverrides: {} };
     }
     if (!store.calendarStore.events) store.calendarStore.events = {};
     if (!Array.isArray(store.calendarStore.appointments)) store.calendarStore.appointments = [];
+    if (!store.calendarStore.eventOverrides) store.calendarStore.eventOverrides = {};
     return store.calendarStore;
 }
 
@@ -94,8 +95,87 @@ function addDays(dateObj, n) {
 const CANON_DATA_VERSION = 7;
 
 // === 渲染专用：干净数据缓存（绕过可能被污染的 cal.days） ===
+// 两级缓存：_rawWorldbookDays 缓存世界书原始解析(昂贵,按角色卡名keying),
+// buildCleanCalendarDays 每次调用时取原始缓存 + 应用 eventOverrides 覆盖层(便宜,实时)。
+let _rawWorldbookDays = null;
+let _rawWorldbookDaysKey = null;
 let _cleanDaysCache = null;
 let _cleanDaysCacheKey = null;
+
+/** 使干净日历数据缓存失效（eventOverrides 变化时调用）。 */
+export function invalidateCleanDaysCache() {
+    _cleanDaysCache = null;
+    _cleanDaysCacheKey = null;
+}
+
+/** 使世界书原始解析缓存失效（切换角色卡时自动触发，也可手动调用）。 */
+export function invalidateRawWorldbookDays() {
+    _rawWorldbookDays = null;
+    _rawWorldbookDaysKey = null;
+    invalidateCleanDaysCache();
+}
+
+/**
+ * 应用 LLM event_changes 到 calendarStore.eventOverrides 覆盖层。
+ * 覆盖层按 chatMetadata 自动隔离（每聊天独立）。
+ * @param {object} calStore - calendarStore
+ * @param {object} changes - { added: [...], deleted: [...], modified: [...] }
+ * @returns {number} 应用的变更数
+ */
+export function applyEventChanges(calStore, changes) {
+    if (!calStore || !changes) return 0;
+    if (!calStore.eventOverrides) calStore.eventOverrides = {};
+    const overrides = calStore.eventOverrides;
+    let count = 0;
+    if (Array.isArray(changes.added)) {
+        for (const ev of changes.added) {
+            if (!ev || !ev.date || !ev.title) continue;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
+            if (!overrides[ev.date]) overrides[ev.date] = {};
+            if (!Array.isArray(overrides[ev.date].added)) overrides[ev.date].added = [];
+            overrides[ev.date].added.push({
+                title: ev.title,
+                description: ev.description || ev.title,
+                type: ev.type || 'custom',
+                time: ev.time || '',
+                source: 'llm',
+            });
+            count++;
+        }
+    }
+    if (Array.isArray(changes.deleted)) {
+        for (const ev of changes.deleted) {
+            if (!ev || !ev.date || !ev.title) continue;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
+            if (!overrides[ev.date]) overrides[ev.date] = {};
+            if (Array.isArray(overrides[ev.date].added)) {
+                const before = overrides[ev.date].added.length;
+                overrides[ev.date].added = overrides[ev.date].added.filter(a => a.title !== ev.title);
+                if (overrides[ev.date].added.length < before) { count++; continue; }
+            }
+            if (!overrides[ev.date].hideCanonTitles) overrides[ev.date].hideCanonTitles = [];
+            if (!overrides[ev.date].hideCanonTitles.includes(ev.title)) {
+                overrides[ev.date].hideCanonTitles.push(ev.title);
+                count++;
+            }
+        }
+    }
+    if (Array.isArray(changes.modified)) {
+        for (const ev of changes.modified) {
+            if (!ev || !ev.date || !ev.old_title) continue;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
+            if (!overrides[ev.date]) overrides[ev.date] = {};
+            if (!overrides[ev.date].modifiedCanon) overrides[ev.date].modifiedCanon = {};
+            overrides[ev.date].modifiedCanon[ev.old_title] = {
+                title: ev.new_title || ev.old_title,
+                description: ev.new_description || '',
+            };
+            count++;
+        }
+    }
+    if (count > 0) invalidateCleanDaysCache();
+    return count;
+}
 
 /**
  * 从世界书重新解析事件，返回干净的 days 对象（{ "YYYY-MM-DD": { events: [...] } }）。
@@ -105,27 +185,66 @@ let _cleanDaysCacheKey = null;
  */
 export function buildCleanCalendarDays(currentDate) {
     const char = getCurrentCharacter();
-    // 一次性全读世界书时间线（不再按 currentDate 限制月份窗口），允许随意切换任意月份查看。
-    // 缓存仅按角色卡名 keying（与 currentDate 无关，因为不再过滤）。
-    const cacheKey = char?.name || '';
-    if (_cleanDaysCache && _cleanDaysCacheKey === cacheKey) return _cleanDaysCache;
-
-    const events = _filterTimelineEntries(null, { monthWindow: null });
-    const days = {};
-    for (const ev of events) {
-        if (!days[ev.date]) days[ev.date] = { events: [] };
-        days[ev.date].events.push({
-            type: 'canon',
-            time: null,
-            title: ev.title,
-            description: ev.description || ev.title,
-            subEvents: ev.subEvents || [],
-            source: 'timeline',
-            date: ev.date,
-        });
+    // 两级缓存：原始世界书解析按角色卡名缓存(昂贵), 覆盖层合并每次实时(便宜)。
+    const rawKey = char?.name || '';
+    if (!_rawWorldbookDays || _rawWorldbookDaysKey !== rawKey) {
+        const events = _filterTimelineEntries(null, { monthWindow: null });
+        const days = {};
+        for (const ev of events) {
+            if (!days[ev.date]) days[ev.date] = { events: [] };
+            days[ev.date].events.push({
+                type: 'canon',
+                time: null,
+                title: ev.title,
+                description: ev.description || ev.title,
+                subEvents: ev.subEvents || [],
+                source: 'timeline',
+                date: ev.date,
+            });
+        }
+        _rawWorldbookDays = days;
+        _rawWorldbookDaysKey = rawKey;
+    }
+    // 应用 eventOverrides 覆盖层（LLM 增删改 canon 事件，按 chatMetadata 自动隔离）
+    const overrides = getCalendarStore()?.eventOverrides || {};
+    const days = JSON.parse(JSON.stringify(_rawWorldbookDays)); // 浅拷贝足够(只改 events 数组引用)
+    for (const [dateStr, ov] of Object.entries(overrides)) {
+        if (!days[dateStr]) days[dateStr] = { events: [] };
+        // 1. 隐藏 canon: 按标题隐藏特定 canon 事件 (hideCanonTitles) 或全隐藏 (hideCanon)
+        if (ov.hideCanon) {
+            days[dateStr].events = days[dateStr].events.filter(ev => ev.type !== 'canon');
+        } else if (Array.isArray(ov.hideCanonTitles) && ov.hideCanonTitles.length > 0) {
+            days[dateStr].events = days[dateStr].events.filter(ev =>
+                ev.type !== 'canon' || !ov.hideCanonTitles.includes(ev.title)
+            );
+        }
+        // 2. 修改 canon: 按 title 匹配并替换字段
+        if (ov.modifiedCanon) {
+            for (const ev of days[dateStr].events) {
+                if (ev.type === 'canon' && ov.modifiedCanon[ev.title]) {
+                    const mod = ov.modifiedCanon[ev.title];
+                    if (mod.title) ev.title = mod.title;
+                    if (mod.description) ev.description = mod.description;
+                }
+            }
+        }
+        // 3. 新增事件: LLM 添加的 canon/custom 事件
+        if (Array.isArray(ov.added) && ov.added.length > 0) {
+            for (const addEv of ov.added) {
+                days[dateStr].events.push({
+                    type: addEv.type || 'custom',
+                    time: addEv.time || null,
+                    title: addEv.title || '',
+                    description: addEv.description || addEv.title || '',
+                    subEvents: addEv.subEvents || [],
+                    source: addEv.source || 'llm',
+                    date: dateStr,
+                });
+            }
+        }
     }
     _cleanDaysCache = days;
-    _cleanDaysCacheKey = cacheKey;
+    _cleanDaysCacheKey = rawKey + '|' + JSON.stringify(overrides);
     return days;
 }
 

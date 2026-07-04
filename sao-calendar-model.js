@@ -14,6 +14,7 @@ import {
     getTimelineForPrompt,
     detectTimeSkip,
     parseTimeTagDate,
+    applyEventChanges,
 } from './sao-calendar.js';
 
 /**
@@ -77,30 +78,33 @@ function buildCalendarPrompt(calendar, rawText) {
     const pendingLines = pending.map((a, i) => `[${i}] ${a.id || ''} | ${a.date || ''} ${(a.time || '').padEnd(5)} | ${a.description || ''}`);
     const calSummary = formatCalendarForLLM(calendar, currentDate, 5);
 
-    const systemPrompt = `你是 SAO 游戏日历管理器，负责从 AI 回复中提取约定记录、标记已完成约定，并输出当前游戏日历网格。
+    const systemPrompt = `你是 SAO 游戏日历管理器，负责从 AI 回复中提取约定记录、标记已完成约定、增删改事件，并输出当前游戏日历网格。
 
 ## 你的职责
 1. 从 AI 回复中提取**玩家（用户角色）与其他NPC角色之间**新产生的约定/会面/计划（正则可能遗漏的复杂场景）
 2. 标记已完成的约定（AI 回复中明确提到约定已履行）
-3. 输出当前游戏日历网格（grid），反映本回合结束时的日期与本月事件
+3. 增删改事件：根据剧情变化，添加新事件、删除不再适用的事件、修改已有事件的标题/描述
+4. 输出当前游戏日历网格（grid），反映本回合结束时的日期与本月事件
 
-> 日期推进不归你管——由系统正则独占。你只做约定提取、完成标记与网格输出。
+> 日期推进不归你管——由系统正则独占。你只做约定提取、完成标记、事件增删改与网格输出。
 
-## 严格排除：原作时间线事件
+## 严格排除：原作时间线事件的重复提取为约定
 - **原作时间线中的角色约定/会面不属于"新约定"**。这些已在原作事件数据中记录，不要重复提取为 appointments。
 - 仅提取**当前游戏中玩家与NPC新建立的约定**——即 AI 在本回合叙事中原创的、不属于原作时间线的约定。
-- 判断依据：若该约定内容与原作时间线描述高度相似，或属于原作已记载的剧情节点，则不提取。
+- 但你可以通过 event_changes 删除或修改不再适用的原作事件（当剧情偏离原作时）。
 
 ## 保守策略
 - 不确定时不修改任何数据，宁可漏报不错报
 - 仅当 AI 回复**明确**提及玩家与NPC之间的约定/会面/计划时才提取 appointments
 - 仅当 AI 回复**明确**提到约定已履行时才标记完成
+- 仅当 AI 回复**明确**表明剧情偏离原作（如角色提前死亡、事件未发生、新事件发生）时才增删改 event_changes
 - grid 反映"当前游戏日期"所在月份，current_day 为该日期的天数
 
 ## 日期处理
 - 日期推进由系统正则独占，不归你管。
 - appointments_detected 中的 date 由你从 AI 回复中直接提取（ISO YYYY-MM-DD），不做日期算术；AI 若用相对表述无法解析为绝对日期则该条不提取。
-- grid.year/month/current_day 从输入"当前游戏日期"派生；grid.days 列出该月有事件的天（含约定+原作事件），每天 events 为简短标题数组。
+- event_changes 中的 date 同样从 AI 回复或已知日期提取（ISO YYYY-MM-DD）。
+- grid.year/month/current_day 从输入"当前游戏日期"派生；grid.days 列出该月有事件的天（含约定+原作事件+新增事件），每天 events 为简短标题数组。
 
 ## 输出格式（严格 JSON，不要输出其他内容）
 {
@@ -108,6 +112,17 @@ function buildCalendarPrompt(calendar, rawText) {
     { "date": "YYYY-MM-DD", "time": "HH:MM 或空", "description": "约定内容" }
   ],
   "completed_appointment_indices": [0],
+  "event_changes": {
+    "added": [
+      { "date": "YYYY-MM-DD", "title": "事件名", "description": "事件描述", "type": "canon 或 custom", "time": "HH:MM 或空" }
+    ],
+    "deleted": [
+      { "date": "YYYY-MM-DD", "title": "要删除的事件标题" }
+    ],
+    "modified": [
+      { "date": "YYYY-MM-DD", "old_title": "原事件标题", "new_title": "新标题", "new_description": "新描述" }
+    ]
+  },
   "grid": {
     "year": 2024,
     "month": 12,
@@ -122,18 +137,23 @@ function buildCalendarPrompt(calendar, rawText) {
 ## 字段说明
 - appointments_detected: 新检测到的**玩家与NPC之间**的约定（排除原作时间线已有的角色约定）。date 从 AI 回复中提取（ISO YYYY-MM-DD）。若无新增，输出空数组 []
 - completed_appointment_indices: 输入 pending 列表中已完成的约定的**下标**（0-based 小整数，对应输入顺序）。直接输出数字，不要复述 id。若无完成，输出空数组 []
-- grid: 当前游戏日历网格。year/month/current_day 从当前游戏日期派生；days 列出本月有事件的天（每天 events ≤ 10 条，每条 ≤ 100 字符）。若无事件天，输出空数组 []。
+- event_changes: 事件增删改。当剧情偏离原作、或出现新的重要事件时填写。added 新增事件（type=canon 表示偏离原作的新剧情走向，type=custom 表示支线/自定义事件）；deleted 删除不再适用的事件（title 必须与已有事件标题完全匹配）；modified 修改已有事件（old_title 必须与已有事件标题完全匹配）。若无增删改，输出 {"added":[],"deleted":[],"modified":[]}
+- grid: 当前游戏日历网格。year/month/current_day 从当前游戏日期派生；days 列出本月有事件的天（每天 events ≤ 10 条，每条 ≤ 100 字符）。若无事件天，输出空数组 []
 
 ## 约定示例
 当前日期: 2024-12-16
 AI: "明天下午三点，我们在主城广场见。"
-输出: { "appointments_detected": [{"date":"2024-12-17","time":"15:00","description":"主城广场见面"}], "completed_appointment_indices": [], "grid": {"year":2024,"month":12,"current_day":17,"days":[{"day":17,"events":["主城广场见面"]}]} }
+输出: { "appointments_detected": [{"date":"2024-12-17","time":"15:00","description":"主城广场见面"}], "completed_appointment_indices": [], "event_changes": {"added":[],"deleted":[],"modified":[]}, "grid": {"year":2024,"month":12,"current_day":17,"days":[{"day":17,"events":["主城广场见面"]}]} }
 
 ## 完成约定示例
 pending 输入（带下标）:
   [0] apt_1718123456789_0 | 2024-12-16 18:00 | 与Asuna会面
 AI: "昨天和Asuna的会面很顺利。"
-输出: { "appointments_detected": [], "completed_appointment_indices": [0], "grid": {"year":2024,"month":12,"current_day":17,"days":[]} }`;
+输出: { "appointments_detected": [], "completed_appointment_indices": [0], "event_changes": {"added":[],"deleted":[],"modified":[]}, "grid": {"year":2024,"month":12,"current_day":17,"days":[]} }
+
+## 事件增删改示例
+AI: "在原定的宣告日，茅场晶彦并没有出现，取而代之的是一个新的神秘人宣布了游戏规则。"
+输出: { "appointments_detected": [], "completed_appointment_indices": [], "event_changes": {"added":[{"date":"2022-11-06","title":"神秘人的宣告","description":"神秘人代替茅场晶彦宣布游戏规则","type":"canon","time":""}],"deleted":[{"date":"2022-11-06","title":"宣告日"}],"modified":[]}, "grid": {"year":2022,"month":11,"current_day":6,"days":[]} }`;
 
     const userPrompt = `当前游戏日期: ${currentDate}
 
@@ -267,12 +287,21 @@ async function calendarModelUpdate(rawText) {
             log('日历模型 grid 校验失败跳过', 'warn');
         }
 
-        if (addedCount === 0 && completedCount === 0 && !gridApplied) {
-            log('日历模型无新增约定/完成标记/grid');
+        // Phase 1b: 应用 event_changes（增删改事件，写入 eventOverrides 覆盖层）
+        let eventChangeCount = 0;
+        if (parsed.event_changes && typeof parsed.event_changes === 'object') {
+            eventChangeCount = applyEventChanges(calStore, parsed.event_changes);
+            if (eventChangeCount > 0) {
+                log(`日历模型事件增删改: ${eventChangeCount} 条变更已写入覆盖层`);
+            }
+        }
+
+        if (addedCount === 0 && completedCount === 0 && !gridApplied && eventChangeCount === 0) {
+            log('日历模型无新增约定/完成标记/事件变更/grid');
             return;
         }
 
-        log(`日历模型应用完成: 新增约定=${addedCount}, 完成标记=${completedCount}, grid=${gridApplied ? '是' : '否'}`);
+        log(`日历模型应用完成: 新增约定=${addedCount}, 完成标记=${completedCount}, 事件变更=${eventChangeCount}, grid=${gridApplied ? '是' : '否'}`);
         await persistCalendar();
     } catch (e) {
         log('日历模型异步更新失败: ' + e.message, 'warn');

@@ -37,7 +37,7 @@ const DEFAULT_STORE = {
     inventoryStore: null,
     npcStore: { byId: {}, nameToId: {} },
     floorStore: { byId: {}, numberToId: {} },
-    calendarStore: { currentDate: null, events: {}, appointments: [] },
+    calendarStore: { currentDate: null, events: {}, appointments: [], eventOverrides: {} },
     questStore: { byId: {}, activeIds: [], completedIds: [] },
     worldStore: { currentWeather: null, areaStatus: null, worldEvents: [], _updatedAt: null },
     consumableStore: { byId: {}, nameToId: {} },

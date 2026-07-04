@@ -796,6 +796,19 @@ function bindEvents() {
             // 见 CALENDAR_MODEL_V2_DESIGN.md §3/§5.3
             if (shouldTriggerCalendarModel(rawText, saoData)) {
                 calendarModelUpdate(rawText)
+                    .then(() => {
+                        // 点3: LLM 事件同步 — calendarModelUpdate 完成后重新渲染聊天日历 + 插件日历。
+                        try {
+                            const el = getMessageElement(messageId);
+                            if (el) renderAllTags(el, rawText, messageId);
+                        } catch (_) {}
+                        // 插件控制台日历如果打开则重新渲染
+                        try {
+                            if (window.SaoPanel && typeof window.SaoPanel.refreshCalendar === 'function') {
+                                window.SaoPanel.refreshCalendar();
+                            }
+                        } catch (_) {}
+                    })
                     .catch(e => log('日历模型 fire-and-forget 失败: ' + e.message, 'warn'));
             }
 
@@ -1997,6 +2010,13 @@ function initPanelLogic() {
         },
         closeDetail() {
             closeDetailModal();
+        },
+        // 点3: LLM 事件同步后刷新插件日历（如果日历 tab 当前打开）
+        refreshCalendar() {
+            const calTab = document.querySelector('.sao-tab[data-tab="calendar"]');
+            if (calTab && calTab.classList.contains('active')) {
+                try { renderCalendarMonth(); } catch (e) { log('refreshCalendar 失败: ' + e.message, 'warn'); }
+            }
         },
         // 标签切换
         switchTab(tabName) {
