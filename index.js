@@ -1427,6 +1427,19 @@ function fieldLabel(key) {
     return _dataFieldLabels[key] || key;
 }
 
+/** 数字转中文数字（1→一, 10→十, 11→十一, 25→二十五, 100→一百）。用于楼层显示。 */
+function _toChineseNumeral(n) {
+    const digits = '零一二三四五六七八九';
+    if (n === 100) return '一百';
+    if (n >= 10 && n < 20) return '十' + (n > 10 ? digits[n - 10] : '');
+    if (n >= 20) {
+        const tens = Math.floor(n / 10);
+        const ones = n % 10;
+        return digits[tens] + '十' + (ones ? digits[ones] : '');
+    }
+    return digits[n];
+}
+
 // 递归渲染 fields (category: <fieldset> of <field row>)
 function _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, self) {
     if (!obj || typeof obj !== 'object') return '';
@@ -2419,22 +2432,26 @@ function initPanelLogic() {
             const searchVal = (this._dataSearches && this._dataSearches[storeKey]) || '';
             const entries = Object.values(data.byId || {});
             const filtered = entries.filter(e => !searchVal || JSON.stringify(e).toLowerCase().includes(searchVal.toLowerCase()));
-            filtered.sort((a, b) => String(this._entryLabelOf(a, def)).localeCompare(String(this._entryLabelOf(b, def)), 'zh'));
+            // 点16: 楼层按 floor_number 数字排序(1→100), 其他按中文名 localeCompare
+            if (storeKey === 'floor') {
+                filtered.sort((a, b) => (Number(a.floor_number) || 999) - (Number(b.floor_number) || 999));
+            } else {
+                filtered.sort((a, b) => String(this._entryLabelOf(a, def)).localeCompare(String(this._entryLabelOf(b, def)), 'zh'));
+            }
             const list = filtered.length === 0
                 ? '<div class="sao-store-empty">无匹配条目</div>'
                 : filtered.map(e => `<div class="sao-store-entry-row${this._activeEntryId === e[def.idField] ? ' active' : ''}" data-action="storeEntry" data-store-key="${esc(storeKey)}" data-entry-id="${esc(e[def.idField])}"><span class="sao-store-entry-row-main">${esc(this._entryLabelOf(e, def))}</span><span class="sao-store-entry-row-meta">${esc(e[def.idField] || '')}</span></div>`).join('');
             const searchBox = `<div class="sao-store-toolbar"><input type="text" class="sao-store-search" placeholder="搜索 ${esc(def.label)}..." value="${esc(searchVal)}" data-store-key="${esc(storeKey)}"></div>`;
-            const target = this._activeEntryId && data.byId[this._activeEntryId]
-                ? this._storeRenderEntryDetail(data.byId[this._activeEntryId], def.idField, storeKey)
-                : '<div class="sao-store-empty">从上方列表中选择一个条目以查看和编辑字段</div>';
-            return searchBox + `<div class="sao-store-entry-list">${list}</div>${target}`;
+            // 点16: 手风琴模式 — 点击行后就地展开详情, 再次点击收回
+            const target = '<div class="sao-store-empty">从上方列表中选择一个条目以查看和编辑字段</div>';
+            return searchBox + `<div class="sao-store-entry-list">${list}</div>${this._activeEntryId ? '' : target}`;
         },
 
         _entryLabelOf(entry, def) {
             if (!entry) return '';
             switch (def.key) {
                 case 'npc':        return entry.name || entry[def.idField];
-                case 'floor':      return entry.floor_number != null ? '第 ' + entry.floor_number + ' 层 · ' + (entry.name || '') : (entry.name || entry[def.idField]);
+                case 'floor':      return entry.floor_number != null ? `第${_toChineseNumeral(Number(entry.floor_number))}层-${entry.name || ''}` : (entry.name || entry[def.idField]);
                 case 'equipment':  return entry.name || entry[def.idField];
                 case 'skill':      return entry.name || entry[def.idField];
                 case 'consumable': return entry.name || entry[def.idField];
@@ -2529,7 +2546,6 @@ function initPanelLogic() {
         },
 
         renderStoreEntry(storeKey, entryId) {
-            this._activeEntryId = entryId;
             const def = _dataStoreDefs.find(d => d.key === storeKey);
             const main = document.getElementById('sao_store_main');
             if (!def || !main) return;
@@ -2537,18 +2553,25 @@ function initPanelLogic() {
             if (!data) return;
             if (def.kind === 'player' || def.kind === 'world' || def.kind === 'inventory' || def.kind === 'calendar') return this.renderStoreSection(storeKey);
             const entry = (data.byId || {})[entryId];
-            if (!entry) {
-                main.insertAdjacentHTML('beforeend', '<div class="sao-store-empty">条目不存在</div>');
+            if (!entry) return;
+            // 点16: 手风琴 — 找到点击的行, 切换展开/收回
+            const clickedRow = main.querySelector(`.sao-store-entry-row[data-entry-id="${CSS.escape(entryId)}"]`);
+            if (!clickedRow) return;
+            const existingDetail = main.querySelector('.sao-store-entry-detail');
+            const isAlreadyActive = clickedRow.classList.contains('active') && existingDetail && existingDetail.previousElementSibling === clickedRow;
+            // 先清除所有 active 和现有详情
+            document.querySelectorAll('.sao-store-entry-row').forEach(el => el.classList.remove('active'));
+            if (existingDetail) existingDetail.remove();
+            if (isAlreadyActive) {
+                // 再次点击 = 收回
+                this._activeEntryId = null;
                 return;
             }
-            document.querySelectorAll('.sao-store-entry-row').forEach(el => {
-                el.classList.toggle('active', el.getAttribute('data-entry-id') === entryId);
-            });
-            const existingDetail = main.querySelector('.sao-store-entry-detail');
-            if (existingDetail) existingDetail.remove();
+            // 展开: 标记 active, 在点击行后插入详情
+            this._activeEntryId = entryId;
+            clickedRow.classList.add('active');
             const html = this._storeRenderEntryDetail(entry, def.idField, storeKey);
-            main.insertAdjacentHTML('beforeend', html);
-            main.scrollTop = main.scrollHeight;
+            clickedRow.insertAdjacentHTML('afterend', html);
         },
 
         _storeActions(storeKey, entryId) {
