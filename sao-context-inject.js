@@ -122,8 +122,11 @@ function buildNpcSummaryBlock(entries) {
  * @returns {string[]}
  */
 function buildNpcKeywordProfiles(entries, recentLower) {
+    // 主动注入：仅处理 disabled 条目（enabled 条目由 ST 原生世界书注入，避免重复）。
+    // SAO NPC 档案在重排后是 disabled，由这里按关键词触发注入；
+    // 现实 NPC 档案是 enabled，由 ST 按 keys 触发注入。
     const npcEntries = entries.filter(e =>
-        e.disable !== true && (e.content || '').includes('characterProfile')
+        e.disable === true && (e.content || '').includes('characterProfile')
     );
 
     const matchedNpcs = [];
@@ -166,8 +169,9 @@ function buildNpcKeywordProfiles(entries, recentLower) {
  * @returns {string[]}
  */
 function buildFloorKeywordProfiles(entries, recentLower) {
+    // 主动注入：楼层条目在重排后全 disabled，由这里按关键词触发注入。
     const floorEntries = entries.filter(e =>
-        e.disable !== true && /第\d+层/.test(e.comment || '')
+        e.disable === true && /第\d+层/.test(e.comment || '')
     );
 
     const matchedFloors = [];
@@ -213,8 +217,10 @@ function buildFloorKeywordProfiles(entries, recentLower) {
  * @returns {string[]}
  */
 function buildRuleBlocks(entries) {
+    // 主动注入：仅注入 disabled 规则条目（enabled 规则如 sao-PK机制/经济/等级由 ST 注入，避免重复）。
+    // RULE_COMMENT_PATTERNS 中的 sao-技能/剑技获取/冥想/房屋 在重排后是 disabled，由这里注入。
     const ruleEntries = entries.filter(e =>
-        e.disable !== true &&
+        e.disable === true &&
         RULE_COMMENT_PATTERNS.some(p => (e.comment || '').trim().startsWith(p))
     );
     return ruleEntries.map(e => `[规则: ${(e.comment || '').trim()}]\n${e.content || ''}`);
