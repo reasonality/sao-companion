@@ -212,6 +212,42 @@ describe('runLorebookPreParser — Phase 2: Floor settings', () => {
         expect(getNpcByName('桐人')).toBeTruthy();
         expect(getFloorByNumber(1)).toBeTruthy();
     });
+
+    it('parses compacted floor format with 数据: line (no worldbook-data fence)', () => {
+        const entries = [
+            {
+                keys: ['第76层', '76F'],
+                comment: 'sao-第76层',
+                enabled: true,
+                content: [
+                    '[第76层 - 毒雾密林]',
+                    '',
+                    '后25层起点。沼泽与密林交错，持续毒雾削减HP...',
+                    '',
+                    '主城: 阿克索菲亚(Arc Sophia)',
+                    '密林高地要塞城镇，净化水晶阵列驱散毒雾...',
+                    '',
+                    'Boss: 凶兆凝视者(The Ghastlygaze)',
+                    '由毒雾凝聚而成的巨大眼球形怪物...',
+                    '',
+                    '数据: floor=76 theme=毒雾密林/沼泽 town=阿克索菲亚(Arc Sophia) labyrinth=毒雾密林(持续HP削减,需抗毒装备) boss=凶兆凝视者(The Ghastlygaze) notes=后25层起点 source=game_hollow_fragment',
+                ].join('\n'),
+            },
+        ];
+
+        const result = runLorebookPreParser(entries);
+        expect(result).toBeTruthy();
+        expect(result.floorCount).toBe(1);
+
+        const floor76 = getFloorByNumber(76);
+        expect(floor76).toBeTruthy();
+        expect(floor76.floor_id).toBe('floor_076');
+        expect(floor76.canon.theme).toBe('毒雾密林/沼泽');
+        expect(floor76.canon.mainTown).toBe('阿克索菲亚(Arc Sophia)');
+        expect(floor76.canon.labyrinth).toBe('毒雾密林(持续HP削减,需抗毒装备)');
+        expect(floor76.canon.boss).toBe('凶兆凝视者(The Ghastlygaze)');
+        expect(floor76.source).toBe('game_hollow_fragment');
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -541,6 +577,67 @@ describe('Phase 3: parseTimelineEntries', () => {
         expect(events[2].type).toBe('canon');
         expect(events[2].title).toContain('桐人');
     });
+
+    it('parses compacted timeline format (no # prefix, no * bullets)', () => {
+        const entries = [
+            {
+                comment: '2022年11月 - 艾恩葛朗特事件表',
+                enabled: true,
+                content: [
+                    '[2022年11月 - 艾恩葛朗特事件表]',
+                    '',
+                    '11月6日 (星期日) - 宣告日:',
+                    '',
+                    '正常游戏开服期。',
+                    '13:00: 《Sword Art Online》正式开服。',
+                    '',
+                    '11月7日 (星期一):',
+                    '',
+                    '情报商阿尔戈找到桐人。',
+                    '桐人与克莱因完成任务。',
+                    '',
+                    '11月21日 (星期一):',
+                    '',
+                    'PoH正式登入SAO。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(5); // 2 on 6th, 2 on 7th, 1 on 21st
+
+        const calStore = mockStore.calendarStore;
+        expect(calStore.events['2022-11-06']).toBeTruthy();
+        expect(calStore.events['2022-11-06'].length).toBe(2);
+        expect(calStore.events['2022-11-06'][0].type).toBe('canon');
+        expect(calStore.events['2022-11-06'][0].title).toContain('正常游戏开服期');
+        expect(calStore.events['2022-11-06'][1].title).toContain('Sword Art Online');
+
+        expect(calStore.events['2022-11-07']).toBeTruthy();
+        expect(calStore.events['2022-11-07'].length).toBe(2);
+
+        expect(calStore.events['2022-11-21']).toBeTruthy();
+        expect(calStore.events['2022-11-21'].length).toBe(1);
+        expect(calStore.events['2022-11-21'][0].title).toContain('PoH');
+    });
+
+    it('parses disabled timeline entries (Plan A: plugin disables after parsing)', () => {
+        const entries = [
+            {
+                comment: '2022年11月时间表',
+                disable: true,
+                content: [
+                    '#### **11月6日**',
+                    '*   SAO正式开服。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(1);
+        expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
+        expect(mockStore.calendarStore.events['2022-11-06'][0].title).toContain('SAO');
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -633,7 +730,7 @@ describe('Phase 4: parseWorldRules', () => {
         expect(mockStore.worldStore.rules.meditation).toContain('潜能更新版');
     });
 
-    it('skips disabled entries', () => {
+    it('parses disabled entries (Plan A: plugin disables after parsing)', () => {
         const entries = [
             {
                 comment: 'sao-房屋',
@@ -644,8 +741,8 @@ describe('Phase 4: parseWorldRules', () => {
         ];
 
         const count = parseWorldRules(entries);
-        expect(count).toBe(0);
-        expect(mockStore.worldStore.rules.housing).toBeUndefined();
+        expect(count).toBe(1);
+        expect(mockStore.worldStore.rules.housing).toContain('50-80万');
     });
 
     it('skips entries without <directive> tags', () => {
@@ -1115,8 +1212,8 @@ describe('runLorebookPreParser — Phase 5 integration (disable entries)', () =>
 // Stale data removal: disabled entries' canon data cleaned on re-parse
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('Stale data removal — timeline events from disabled entries', () => {
-    it('removes canon events from entries that become disabled on re-parse', () => {
+describe('Stale data removal — timeline events from removed entries', () => {
+    it('removes canon events from entries that are removed from the array', () => {
         const entries = [
             {
                 comment: '2022年11月时间表',
@@ -1134,8 +1231,8 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
         expect(mockStore.calendarStore.events['2022-11-06'][0].sourceEntryId).toBe('2022年11月时间表');
 
-        // Disable entry
-        entries[0].disable = true;
+        // Remove entry from array (not just disable — disabled entries are still parsed in Plan A)
+        entries.splice(0, 1);
 
         // Re-parse — stale events removed
         const count2 = parseTimelineEntries(entries);
@@ -1144,7 +1241,7 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(mockStore.calendarStore.events['2022-11-06']).toBeFalsy();
     });
 
-    it('preserves non-canon events when removing stale canon events from disabled entries', () => {
+    it('preserves non-canon events when removing stale canon events from removed entries', () => {
         const entries = [
             {
                 comment: '2022年11月时间表',
@@ -1169,8 +1266,8 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         });
         expect(mockStore.calendarStore.events['2022-11-06'].length).toBe(2);
 
-        // Disable entry
-        entries[0].disable = true;
+        // Remove entry from array
+        entries.splice(0, 1);
 
         // Re-parse
         parseTimelineEntries(entries);
@@ -1183,7 +1280,7 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(events[0].title).toBe('Meet Asuna');
     });
 
-    it('keeps canon events from still-enabled entries on re-parse (idempotent stale check)', () => {
+    it('keeps canon events from still-present entries on re-parse (idempotent stale check)', () => {
         const entries = [
             {
                 comment: '2022年11月时间表',
@@ -1208,8 +1305,8 @@ describe('Stale data removal — timeline events from disabled entries', () => {
         expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
         expect(mockStore.calendarStore.events['2022-12-01']).toBeTruthy();
 
-        // Disable only the November entry
-        entries[0].disable = true;
+        // Remove only the November entry from the array
+        entries.splice(0, 1);
 
         // Re-parse
         parseTimelineEntries(entries);
@@ -1249,8 +1346,8 @@ describe('Stale data removal — timeline events from disabled entries', () => {
 // Stale data removal: disabled entries' world rules cleaned on re-parse
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('Stale data removal — world rules from disabled entries', () => {
-    it('removes rules from entries that become disabled on re-parse', () => {
+describe('Stale data removal — world rules from removed entries', () => {
+    it('removes rules from entries that are removed from the array', () => {
         const entries = [
             {
                 comment: 'sao-PK机制',
@@ -1265,8 +1362,8 @@ describe('Stale data removal — world rules from disabled entries', () => {
         expect(count1).toBe(1);
         expect(mockStore.worldStore.rules.pk).toContain('安全区外');
 
-        // Disable entry
-        entries[0].disable = true;
+        // Remove entry from array (not just disable — disabled entries are still parsed in Plan A)
+        entries.splice(0, 1);
 
         // Re-parse
         const count2 = parseWorldRules(entries);
@@ -1276,7 +1373,7 @@ describe('Stale data removal — world rules from disabled entries', () => {
         expect(mockStore.worldStore._ruleSources.pk).toBeUndefined();
     });
 
-    it('preserves rules from still-enabled entries while removing stale ones', () => {
+    it('preserves rules from still-present entries while removing stale ones', () => {
         const entries = [
             {
                 comment: 'sao-PK机制',
@@ -1297,8 +1394,8 @@ describe('Stale data removal — world rules from disabled entries', () => {
         expect(mockStore.worldStore.rules.pk).toBeTruthy();
         expect(mockStore.worldStore.rules.economy).toBeTruthy();
 
-        // Disable only PK entry
-        entries[0].disable = true;
+        // Remove only PK entry from array
+        entries.splice(0, 1);
 
         // Re-parse
         parseWorldRules(entries);

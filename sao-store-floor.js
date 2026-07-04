@@ -208,6 +208,36 @@ export function initFloorFromWorldBook(entries) {
                 }
             }
 
+            // 回退：解析 "数据:" 行（精简格式，无 JSON 围栏时使用）
+            if (!floorJson) {
+                const dataLineMatch = content.match(/^数据:\s*(.+)$/m);
+                if (dataLineMatch) {
+                    const dataStr = dataLineMatch[1].trim();
+                    const fields = {};
+                    // 按 " key=" 模式分割：每个字段以 word= 开头
+                    const parts = dataStr.split(/\s+(?=\w+=)/);
+                    for (const part of parts) {
+                        const eqIdx = part.indexOf('=');
+                        if (eqIdx > 0) {
+                            const key = part.substring(0, eqIdx).trim();
+                            const val = part.substring(eqIdx + 1).trim();
+                            fields[key] = val;
+                        }
+                    }
+                    if (fields.floor) {
+                        floorJson = [{
+                            floor_number: parseInt(fields.floor),
+                            theme: fields.theme || '',
+                            mainTown: fields.town || '',
+                            labyrinth: fields.labyrinth || '',
+                            boss: fields.boss || '',
+                            notes: fields.notes || '',
+                            source: fields.source || 'worldbook',
+                        }];
+                    }
+                }
+            }
+
             // 辅助：构建 canon（JSON 优先，回退正则）
             const buildCanonFor = (fn) => {
                 if (floorJson) {

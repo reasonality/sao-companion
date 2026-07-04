@@ -89,15 +89,15 @@ export function parseTimelineEntries(entries) {
     if (!calStore) return 0;
     if (!calStore.events) calStore.events = {};
 
-    // Build set of enabled entry comments for stale data removal
+    // Build set of ALL entry comments for stale data removal.
+    // Include disabled entries — in Plan A the plugin disables them after parsing,
+    // but their data should still be kept until the entry is removed entirely.
     const enabledComments = new Set();
     for (const e of entries) {
-        if (e.disable !== true) {
-            enabledComments.add((e.comment || '').trim());
-        }
+        enabledComments.add((e.comment || '').trim());
     }
 
-    // Remove canon events whose source entry is now disabled or no longer exists.
+    // Remove canon events whose source entry no longer exists in the entries array.
     // Non-canon events (appointments, custom, etc.) are preserved.
     for (const [dateStr, evArr] of Object.entries(calStore.events)) {
         if (!Array.isArray(evArr)) continue;
@@ -115,9 +115,11 @@ export function parseTimelineEntries(entries) {
         }
     }
 
-    // Filter timeline entries
+    // Filter timeline entries — parse ALL entries (including disabled ones).
+    // In Plan A, the plugin disables data entries after parsing; the preparser
+    // must still parse them to populate stores.
     const timelineEntries = entries.filter(e =>
-        e.disable !== true && /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
+        /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
     );
 
     let totalCount = 0;
@@ -163,8 +165,8 @@ export function parseTimelineEntries(entries) {
             const trimmed = line.trim();
             if (!trimmed) continue;
 
-            // Date header: #### **11月6日 (星期日) - 宣告日** or ### **2月下旬**
-            const hdrM = trimmed.match(/^#{1,6}\s*\*{0,2}\s*(\d{1,2})月(\d{1,2})日/);
+            // Date header: old "#### **11月6日 (日) - 宣告日**" or new "11月6日 (日) - 宣告日:" or "11月6日(日) - 宣告日:"
+            const hdrM = trimmed.match(/^(?:#{1,6}\s*)?(?:\*{0,2}\s*)?(\d{1,2})月(\d{1,2})日/);
             if (hdrM) {
                 flushDay();
                 entryMonth = parseInt(hdrM[1]) || entryMonth;
@@ -173,19 +175,29 @@ export function parseTimelineEntries(entries) {
             }
 
             if (curDay > 0) {
-                // Top-level bullet: check indentation on RAW line (not trimmed)
-                // Top-level: 0-3 spaces; sub-bullets: 4+ spaces
+                // Skip sub-bullets / indented content (old format had 4+ space indented sub-bullets)
+                if (/^\s{4,}/.test(line)) continue;
+
+                // Handle both bullet format (old) and plain text (new compacted format)
                 const bulM = line.match(/^\s{0,3}[*\-+]\s+(.+)$/);
+                let txt;
                 if (bulM) {
-                    let txt = bulM[1]
-                        .replace(/\*\*([^*]+)\*\*/g, '$1')
-                        .replace(/\*([^*]+)\*/g, '$1')
-                        .replace(/^\[[^\]]*\]:\s*/, '')
-                        .replace(/\s*\[[^\]]*\]:\s*/g, ' ')
-                        .replace(/\s+/g, ' ')
-                        .trim();
-                    if (txt && txt.length > 1) eventBuf.push(txt);
+                    txt = bulM[1];
+                } else {
+                    // Plain text line (compacted format)
+                    txt = trimmed;
                 }
+
+                // Clean up old-format decorations if present
+                txt = txt
+                    .replace(/\*\*([^*]+)\*\*/g, '$1')
+                    .replace(/\*([^*]+)\*/g, '$1')
+                    .replace(/^\[[^\]]*\]:\s*/, '')
+                    .replace(/\s*\[[^\]]*\]:\s*/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                if (txt && txt.length > 1) eventBuf.push(txt);
             }
         }
         flushDay();
@@ -233,15 +245,14 @@ export function parseWorldRules(entries) {
     if (!ws._rulesHashes) ws._rulesHashes = {};
     if (!ws._ruleSources) ws._ruleSources = {};
 
-    // Build set of enabled entry comments for stale data removal
+    // Build set of ALL entry comments for stale data removal.
+    // Include disabled entries — in Plan A the plugin disables them after parsing.
     const enabledComments = new Set();
     for (const e of entries) {
-        if (e.disable !== true) {
-            enabledComments.add((e.comment || '').trim());
-        }
+        enabledComments.add((e.comment || '').trim());
     }
 
-    // Remove rules whose source entry is now disabled or no longer exists
+    // Remove rules whose source entry no longer exists in the entries array
     for (const [topic, sourceComment] of Object.entries(ws._ruleSources)) {
         if (!enabledComments.has(sourceComment)) {
             delete ws.rules[topic];
@@ -252,8 +263,10 @@ export function parseWorldRules(entries) {
 
     let count = 0;
 
+    // Parse ALL entries (including disabled ones).
+    // In Plan A, the plugin disables data entries after parsing; the preparser
+    // must still parse them to populate worldStore.rules.
     for (const entry of entries) {
-        if (entry.disable === true) continue;
         const comment = (entry.comment || '').trim();
         if (!comment) continue;
 
