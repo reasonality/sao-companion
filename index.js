@@ -1519,6 +1519,8 @@ function initPanelLogic() {
 
         const cal = getCalendar();
         const todayStr = cal?.currentDate || formatDate(new Date());
+        // 一次渲染只解析一次世界书时间线（避免每格重复解析）。缓存按角色名，切换角色自动失效。
+        const cleanDaysMap = buildCleanCalendarDays(cal?.currentDate);
 
         const headers = ['\u4e00', '\u4e8c', '\u4e09', '\u56db', '\u4e94', '\u516d', '\u65e5'].map(d =>
             `<div class="sao-cal-header">${d}</div>`
@@ -1532,30 +1534,31 @@ function initPanelLogic() {
         let cells = '';
         for (let i = startDay - 1; i >= 0; i--) {
             const d = prevMonthDays - i;
-            cells += buildCalCell(year, month - 2, d, false, todayStr);
+            cells += buildCalCell(year, month - 2, d, false, todayStr, cleanDaysMap);
         }
         for (let d = 1; d <= daysInMonth; d++) {
-            cells += buildCalCell(year, month - 1, d, true, todayStr);
+            cells += buildCalCell(year, month - 1, d, true, todayStr, cleanDaysMap);
         }
         const totalCells = startDay + daysInMonth;
         const remaining = (7 - (totalCells % 7)) % 7;
         for (let d = 1; d <= remaining; d++) {
-            cells += buildCalCell(year, month, d, false, todayStr);
+            cells += buildCalCell(year, month, d, false, todayStr, cleanDaysMap);
         }
 
         grid.innerHTML = headers + cells;
     }
 
-    function buildCalCell(year, monthIndex, day, isCurrentMonth, todayStr) {
+    function buildCalCell(year, monthIndex, day, isCurrentMonth, todayStr, cleanDaysMap) {
         const date = new Date(year, monthIndex, day);
         const dateStr = formatDate(date);
         const cal = getCalendar();
         // M2: 控制台格子改用与详情弹窗一致的 clean+apt 合并，而非直接读可能污染的 cal.days。
         // 干净 canon 从世界书重新解析(buildCleanCalendarDays)，约定/自定义从 cal.days 取非 canon 类。
-        const cleanDays = buildCleanCalendarDays(cal?.currentDate);
+        // 优化：cleanDaysMap 由 renderCalendarMonth 传入，避免每格重复解析世界书。
+        const cleanDays = cleanDaysMap || buildCleanCalendarDays(cal?.currentDate);
         const cleanEvents = cleanDays?.[dateStr]?.events || [];
         const dirtyEvents = cal?.days?.[dateStr]?.events || [];
-        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon');
+        const aptEvents = dirtyEvents.filter(ev => ev.type !== 'canon' && ev.date === dateStr);
         const events = [...cleanEvents, ...aptEvents];
 
         // 共享格子构建：与聊天栏同一份代码，保证两边样式/绿点/正文一致。
