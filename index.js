@@ -1374,6 +1374,59 @@ const _dataCalEventSchema = {
 };
 const _dataCalEventDefaults = { event_id: '', type: 'custom', title: '', description: '', time: '', source: '' };
 
+// 数据存储字段中文名映射：英文 → 中文(英文)。未列出的字段直接显示英文。
+const _dataFieldLabels = {
+    // 玩家
+    player_id: '玩家ID(player_id)', name: '名称(name)', title: '称号(title)', level: '等级(level)',
+    totalExp: '总经验(totalExp)', exp: '经验(exp)', str: '力量(str)', agi: '敏捷(agi)',
+    vit: '体力(vit)', dex: '灵巧(dex)', luk: '幸运(luk)', int: '智力(int)',
+    hp: '生命值(hp)', mp: '法力值(mp)', sp: '体力值(sp)',
+    currentHp: '当前生命(currentHp)', currentMp: '当前法力(currentMp)', currentSp: '当前体力(currentSp)',
+    maxHp: '最大生命(maxHp)', maxMp: '最大法力(maxMp)', maxSp: '最大体力(maxSp)',
+    atk: '攻击力(atk)', def: '防御力(def)', hitRate: '命中率(hitRate)', critRate: '暴击率(critRate)',
+    evasion: '闪避率(evasion)', attacksPerTurn: '每回合攻击次数(attacksPerTurn)',
+    skillPoints: '技能点(skillPoints)', statusEffects: '状态效果(statusEffects)',
+    equipment: '装备(equipment)', skills: '技能(skills)', inventory: '背包(inventory)',
+    location: '位置(location)', coordinates: '坐标(coordinates)',
+    col: '珂尔(col)', currency: '货币(currency)',
+    // 世界
+    currentWeather: '当前天气(currentWeather)', condition: '天气状况(condition)',
+    temperature: '温度(temperature)', areaStatus: '区域状态(areaStatus)',
+    danger_level: '危险等级(danger_level)', zone_type: '区域类型(zone_type)',
+    description: '描述(description)', worldEvents: '世界事件(worldEvents)',
+    event: '事件(event)', date: '日期(date)', floor_id: '楼层ID(floor_id)',
+    // NPC
+    npc_id: 'NPC ID(npc_id)', relationship: '关系(relationship)', status: '状态(status)',
+    // 楼层
+    floor_number: '楼层数(floor_number)', boss: 'Boss(boss)', cleared: '已通关(cleared)',
+    // 装备
+    equipment_id: '装备ID(equipment_id)', rarity: '稀有度(rarity)', slot: '槽位(slot)',
+    type: '类型(type)',
+    // 技能
+    skill_id: '技能ID(skill_id)', damage: '伤害(damage)', cost: '消耗(cost)',
+    cooldown: '冷却时间(cooldown)',
+    // 消耗品
+    consumable_id: '消耗品ID(consumable_id)', qty: '数量(qty)', effect: '效果(effect)',
+    // 任务
+    quest_id: '任务ID(quest_id)', objectives: '目标(objectives)', rewards: '奖励(rewards)',
+    // 公会
+    guild_id: '公会ID(guild_id)', members: '成员(members)', leader: '会长(leader)',
+    // 日历
+    currentDate: '当前日期(currentDate)', appointments: '约定(appointments)',
+    events: '事件列表(events)', time: '时间(time)', participants: '参与人(participants)',
+    event_id: '事件ID(event_id)', source: '来源(source)',
+    // 背包
+    owner_id: '所有者ID(owner_id)', items: '物品列表(items)', item_id: '物品ID(item_id)',
+    // 通用
+    id: 'ID(id)', createdAt: '创建时间(createdAt)', updatedAt: '更新时间(updatedAt)',
+    related_npc_ids: '关联NPC(related_npc_ids)', related_quest_ids: '关联任务(related_quest_ids)',
+};
+
+/** 字段标签：有中文名则返回 中文(英文)，否则返回原文。 */
+function fieldLabel(key) {
+    return _dataFieldLabels[key] || key;
+}
+
 // 递归渲染 fields (category: <fieldset> of <field row>)
 function _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, self) {
     if (!obj || typeof obj !== 'object') return '';
@@ -1382,33 +1435,34 @@ function _dataRenderFields(obj, pathPrefix, storeKey, schema, allowNested, self)
     const html = keys.map(key => {
         const val = obj[key];
         const fullPath = pathPrefix ? pathPrefix + '|' + key : key;
+        const label = fieldLabel(key);
         if (isReadOnlyKey(key)) {
-            return rowHtml(key, '<div class="sao-store-field-readonly" title="' + esc(key) + '">' + esc(formatValAsText(val)) + '</div>');
+            return rowHtml(label, '<div class="sao-store-field-readonly" title="' + esc(key) + '">' + esc(formatValAsText(val)) + '</div>');
         }
         if (val === null || typeof val === 'undefined') {
-            return rowHtml(key, '<input type="text" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="scalar-null" value="" placeholder="(空)">');
+            return rowHtml(label, '<input type="text" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="scalar-null" value="" placeholder="(空)">');
         }
         if (typeof val === 'boolean') {
-            return rowScalar(key, '<label class="sao-store-field-bool"><input type="checkbox" data-field-path="' + esc(fullPath) + '" data-field-type="bool" ' + (val ? 'checked' : '') + '> ' + (val ? '启用' : '关闭') + '</label>', true);
+            return rowScalar(label, '<label class="sao-store-field-bool"><input type="checkbox" data-field-path="' + esc(fullPath) + '" data-field-type="bool" ' + (val ? 'checked' : '') + '> ' + (val ? '启用' : '关闭') + '</label>', true);
         }
         if (typeof val === 'number') {
-            return rowHtml(key, '<input type="number" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="number" value="' + esc(val) + '">');
+            return rowHtml(label, '<input type="number" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="number" value="' + esc(val) + '">');
         }
         if (typeof val === 'string') {
             if (val.length > 80) {
-                return rowHtmlMulti(key, '<textarea class="sao-store-field-textarea" data-field-path="' + esc(fullPath) + '" data-field-type="string" rows="3">' + esc(val) + '</textarea>');
+                return rowHtmlMulti(label, '<textarea class="sao-store-field-textarea" data-field-path="' + esc(fullPath) + '" data-field-type="string" rows="3">' + esc(val) + '</textarea>');
             }
-            return rowHtml(key, '<input type="text" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="string" value="' + esc(val) + '">');
+            return rowHtml(label, '<input type="text" class="sao-store-field-input" data-field-path="' + esc(fullPath) + '" data-field-type="string" value="' + esc(val) + '">');
         }
         if (Array.isArray(val)) {
-            return _dataRenderArrayField(fullPath, val, { storeKey, topLabel: key }, self);
+            return _dataRenderArrayField(fullPath, val, { storeKey, topLabel: label }, self);
         }
         if (typeof val === 'object') {
             const innerSchema = (schemaFor && typeof schemaFor === 'object' && !Array.isArray(schemaFor)) ? (schemaFor[key]) : null;
             const nested = _dataRenderFields(val, fullPath, storeKey, innerSchema, true, self);
-            return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(key) + '</div>' + nested + '</div>';
+            return '<div class="sao-store-sub-section"><div class="sao-store-sub-section-title">' + esc(label) + '</div>' + nested + '</div>';
         }
-        return rowHtml(key, '<div class="sao-store-field-readonly">' + esc(String(val)) + '</div>');
+        return rowHtml(label, '<div class="sao-store-field-readonly">' + esc(String(val)) + '</div>');
     }).join('');
     return html;
 }
