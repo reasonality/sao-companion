@@ -3299,6 +3299,28 @@ export function init() {
     });
 
     document.body.classList.toggle('sao-card-active', isSaoCard());
+
+    // ─── 点4: 悬浮球 ─── 固定在 ST 聊天界面右下角，点击打开插件面板（默认模型配置 tab）
+    if (!document.getElementById('sao_floating_ball')) {
+        const ball = document.createElement('div');
+        ball.id = 'sao_floating_ball';
+        ball.style.cssText = 'position:fixed;bottom:20px;right:20px;width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#00d2ff 0%,#0096c7 100%);box-shadow:0 4px 14px rgba(0,210,255,0.4);cursor:pointer;z-index:99998;display:flex;align-items:center;justify-content:center;font-size:1.4em;color:#0a0e1a;font-family:"Rajdhani","Noto Sans SC",sans-serif;font-weight:700;transition:transform 0.2s ease,box-shadow 0.2s ease;user-select:none;';
+        ball.innerHTML = '⚔';
+        ball.title = 'SAO Companion 控制台';
+        ball.addEventListener('mouseenter', () => { ball.style.transform = 'scale(1.1)'; ball.style.boxShadow = '0 6px 20px rgba(0,210,255,0.5)'; });
+        ball.addEventListener('mouseleave', () => { ball.style.transform = 'scale(1)'; ball.style.boxShadow = '0 4px 14px rgba(0,210,255,0.4)'; });
+        ball.addEventListener('click', async () => {
+            try {
+                await loadPanelHTML();
+                if (!window.SaoPanel) initPanelLogic();
+                window.SaoPanel.open();
+                // 点4: 默认打开模型配置 tab
+                if (typeof window.SaoPanel.switchTab === 'function') window.SaoPanel.switchTab('models');
+            } catch (e) { console.error('[SAO Companion] 悬浮球打开失败:', e); }
+        });
+        document.body.appendChild(ball);
+    }
+
     console.log('[SAO Companion] 初始化完成');
 }
 
