@@ -23,6 +23,9 @@ export const SAO_CALENDAR_CSS = `
 .sao-cal-dot-canon{background:#00d68a!important;}
 .sao-cal-dot-apt{background:#ffb800!important;}
 .sao-cal-event-text{font-family:"Rajdhani","Noto Sans SC",sans-serif!important;font-size:0.62em!important;font-weight:500!important;line-height:1.2!important;color:rgba(232,238,255,0.85)!important;white-space:normal!important;word-break:break-word!important;display:block!important;flex:1!important;overflow:hidden!important;}
+.sao-cal-event-line{font-family:"Rajdhani","Noto Sans SC",sans-serif!important;font-size:0.62em!important;font-weight:500!important;line-height:1.25!important;color:rgba(232,238,255,0.85)!important;word-break:break-word!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;margin-top:1px!important;padding-left:5px!important;border-left:2px solid rgba(0,210,255,0.35)!important;}
+.sao-cal-event-sub{color:rgba(180,200,230,0.7)!important;font-size:0.58em!important;font-weight:400!important;border-left-color:rgba(0,210,255,0.2)!important;}
+.sao-cal-event-more{font-family:"Rajdhani","Noto Sans SC",sans-serif!important;font-size:0.56em!important;color:rgba(0,210,255,0.7)!important;font-weight:600!important;margin-top:1px!important;padding-left:7px!important;}
 .sao-cal-details>summary{cursor:pointer;color:#00d2ff;font-family:"Rajdhani","Noto Sans SC",sans-serif;font-weight:700;font-size:0.9em;padding:6px 10px;background:rgba(15,21,34,0.6);border:1px solid rgba(0,210,255,0.2);border-radius:6px;list-style:none;display:flex;align-items:center;gap:6px;}
 .sao-cal-details>summary::-webkit-details-marker{display:none;}
 .sao-cal-details>summary::before{content:"\\25B6";font-size:0.7em;transition:transform 0.2s;}

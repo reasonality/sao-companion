@@ -117,6 +117,7 @@ export function buildCleanCalendarDays(currentDate) {
             time: null,
             title: ev.title,
             description: ev.description || ev.title,
+            subEvents: ev.subEvents || [],
             source: 'timeline',
             date: ev.date,
         });
@@ -395,7 +396,19 @@ function _filterTimelineEntries(currentDate, options = {}) {
                     const firstLine = desc.split('\n')[0] || '';
                     title = firstLine.replace(/^事件标题[:：]\s*/, '').slice(0, 40).trim() || (entryMonth + '月' + curDay + '日');
                 }
-                if (title) events.push({ date: dateStr, title, description: desc });
+                // 提取子事件标题（供格子多行展示）：正文里 "标签: 内容" 形式的行，标签作子事件名。
+                // 时间格式标签（如 "13:00: 开服"）保留 "13:00" 作标题；含时间范围的标签（如 "13:00 - 14:00 之间 [现实世界]: ..."）
+                // 取最后一个冒号前的全部文本，去 [括号] 后作标题。
+                const subEvents = [];
+                for (const line of desc.split('\n')) {
+                    let m = line.match(/^(\d{1,2}:\d{2})[:：]\s*(.+)$/);
+                    if (!m) m = line.match(/^(.{2,25})[:：]\s*(\S.*)$/);
+                    if (m) {
+                        let st = m[1].replace(/\[[^\]]*\]/g, '').replace(/\*+/g, '').replace(/\s+/g, ' ').trim();
+                        if (st && st.length >= 2 && st.length <= 22) subEvents.push(st);
+                    }
+                }
+                if (title) events.push({ date: dateStr, title, description: desc, subEvents: subEvents.slice(0, 8) });
             }
             curDay = 0; nameBuf = ''; descBuf = [];
         };
