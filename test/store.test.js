@@ -1047,9 +1047,10 @@ describe('useConsumable', () => {
         expect(inv.items.find(i => i.item_id === itemId)).toBeUndefined();
     });
 
-    it('returns empty array for nonexistent item', async () => {
+    it('returns informative message for nonexistent item (was empty array, now returns message)', async () => {
         const results = await useConsumable('inv_999');
-        expect(results).toEqual([]);
+        expect(results.length).toBeGreaterThan(0);
+        expect(results[0]).toContain('inv_999');
     });
 
     it('appends actionLog on use', async () => {

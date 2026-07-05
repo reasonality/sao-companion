@@ -1659,11 +1659,15 @@ function _attachStatusPanelListeners(shadow) {
             try {
                 const results = await useConsumable(itemId);
                 if (results.length === 0) {
-                    if (typeof toastr !== 'undefined') toastr.warning('物品不存在或非消耗品', 'SAO Companion');
+                    if (typeof toastr !== 'undefined') toastr.warning('使用失败：未知原因', 'SAO Companion');
                     return;
                 }
-                _refreshStatusPanelContent(shadow);
-                if (typeof toastr !== 'undefined' && results.length > 0) toastr.success(results.join(', '), '使用成功');
+                const isFail = results.some(r => /不在背包|未注册|已满|失败/.test(r));
+                if (!isFail) _refreshStatusPanelContent(shadow);
+                if (typeof toastr !== 'undefined') {
+                    if (isFail) toastr.warning(results.join(', '), 'SAO Companion');
+                    else toastr.success(results.join(', '), '使用成功');
+                }
             } catch (err) {
                 log(`使用消耗品失败: ${err.message}`, 'warn');
                 if (typeof toastr !== 'undefined') toastr.error('使用失败: ' + err.message, 'SAO Companion');

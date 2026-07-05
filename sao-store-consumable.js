@@ -198,15 +198,22 @@ export async function useConsumable(itemId) {
     }
 
     const invStore = getInventoryStore();
-    // 点8: 放宽查找条件 — item_id 或 consumable_id 匹配均可，type 不限 consumable
-    // （旧逻辑仅匹配 type==='consumable' || consumable_id，部分物品 type 可能缺失或不匹配）
-    const item = invStore.items.find(i =>
-        (i.item_id === itemId || i.consumable_id === itemId) &&
-        (i.type === 'consumable' || i.consumable_id || i.type === 'material')
-    );
+    // 点8: 多路径查找 — 先按 item_id 精确查，再按 consumable_id 查，最后放宽 type 条件
+    const allItems = invStore.items || [];
+    let item = allItems.find(i => i.item_id === itemId);
     if (!item) {
-        log(`useConsumable: 物品 ${itemId} 不存在于背包`, 'warn');
-        return [];
+        // 按 consumable_id 回退查找
+        item = allItems.find(i => i.consumable_id === itemId);
+        if (item) log(`useConsumable: item_id ${itemId} 未匹配，按 consumable_id 找到`, 'warn');
+    }
+    if (!item) {
+        // 最后回退：找任何 consumable 类型且 qty>0 的物品（可能 item_id 字段缺失）
+        item = allItems.find(i => (i.type === 'consumable' || i.consumable_id) && i.qty > 0);
+        if (item) log(`useConsumable: item_id ${itemId} 未匹配，回退到第一个消耗品 ${item.consumable_id}`, 'warn');
+    }
+    if (!item) {
+        log(`useConsumable: 物品 ${itemId} 不存在于背包（共 ${allItems.length} 个物品，item_id 列表: ${allItems.map(i=>i.item_id||'(空)').join(',')}）`, 'warn');
+        return [`物品 ${itemId} 不在背包中`];
     }
 
     const def = getConsumableById(item.consumable_id);
@@ -266,6 +273,11 @@ export async function useConsumable(itemId) {
     // 点8: 所有效果都因满血/满蓝跳过时, 返回提示而非空数组(避免误报'物品不存在')
     if (results.length === 0 && skippedFull) {
         return ['HP/MP 已满，无需使用'];
+    }
+    // 额外保护：无任何生效效果(results 全空)时不消耗物品
+    if (results.length === 0) {
+        log(`useConsumable: ${def.name} 无生效效果，不消耗物品`, 'warn');
+        return [`物品 ${def.name} 无可应用效果`];
     }
 
     // 4. 减少数量（Bug4b: 防御 qty 为 undefined/NaN）
