@@ -1780,12 +1780,11 @@ function initPanelLogic() {
                         </div>
                         ${editBtns}
                     </div>
-                    ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
                     ${(evt.subEvents && evt.subEvents.length > 0) ? evt.subEvents.map(s => {
                         const lab = s.label ? `<div style="font-size:0.95em;font-weight:600;color:#00d2ff;margin-bottom:3px;">${esc(s.label)}</div>` : '';
                         const body = s.body ? `<div style="font-size:0.92em;color:#b8c8e0;white-space:pre-line;line-height:1.5;">${esc(s.body)}</div>` : '';
                         return `<div style="padding:8px 10px;margin-top:6px;background:rgba(0,210,255,0.05);border-left:2px solid rgba(0,210,255,0.4);border-radius:4px;">${lab}${body}</div>`;
-                    }).join('') : ''}
+                    }).join('') : (evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta" style="font-size:0.92em;color:#b8c8e0;margin-top:4px;white-space:pre-line;line-height:1.5;">${esc(evt.description)}</div>` : '')}
                 </div>`;
             }).join('');
         } else {
