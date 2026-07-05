@@ -1354,6 +1354,34 @@ const _dataFieldLabels = {
     // 通用
     id: 'ID(id)', createdAt: '创建时间(createdAt)', updatedAt: '更新时间(updatedAt)',
     related_npc_ids: '关联NPC(related_npc_ids)', related_quest_ids: '关联任务(related_quest_ids)',
+    // 楼层 canon 子对象
+    canon: '原作数据(canon)', theme: '主题(theme)', mainTown: '主城(mainTown)',
+    labyrinth: '迷宫(labyrinth)',
+    // 楼层 state 子对象
+    state: '状态(state)', unlocked: '已解锁(unlocked)', discovered_locations: '已发现地点(discovered_locations)',
+    notes: '笔记(notes)',
+    // 玩家子对象
+    vitals: '生命体征(vitals)', attributes: '属性(attributes)', progression: '成长(progression)',
+    position: '位置(position)', cursor_type: '光标类型(cursor_type)',
+    // 装备槽位
+    weapon: '武器(weapon)', off_hand: '副手(off_hand)', head: '头部(head)',
+    chest: '胸部(chest)', hands: '手部(hands)', legs: '腿部(legs)', accessory: '饰品(accessory)',
+    // 装备/技能额外字段
+    proficiency: '熟练度(proficiency)', affixes: '附魔(affixes)', item_level: '物品等级(item_level)',
+    effects: '效果(effects)', stats: '属性(stats)', max_hp: '最大HP(max_hp)',
+    combat: '战斗(combat)',
+    // 技能 effects 子字段
+    wn: '核心功能(wn)', en: '词条(en)',
+    // 房屋
+    playerHousing: '玩家房屋(playerHousing)', housing: '房屋(housing)',
+    // quest
+    title: '标题(title)',
+    // affixes/store
+    affix: '词条(affix)', affix_id: '词条ID(affix_id)',
+    // runtime/其他
+    runtime: '运行时(runtime)', panels: '面板(panels)',
+    // 世界 events 子字段
+    floor_id: '楼层ID(floor_id)',
 };
 
 /** 字段标签：有中文名则返回 中文(英文)，否则返回原文。 */
@@ -1745,7 +1773,7 @@ function initPanelLogic() {
                         <button class="sao-btn sao-btn-sm sao-btn-secondary" data-action="calDeleteEvent" data-date="${dateStr}" data-idx="${meta.rawIdx}" style="padding:2px 8px;font-size:0.75em;">\u5220\u9664</button>
                     </div>`
                     : '';
-                return `<div class="${cls.join(' ')}">
+            return `<div class="${cls.join(' ')}">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
                         <div style="flex:1;">
                             <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}
@@ -1753,6 +1781,11 @@ function initPanelLogic() {
                         ${editBtns}
                     </div>
                     ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
+                    ${(evt.subEvents && evt.subEvents.length > 0) ? evt.subEvents.map(s => {
+                        const lab = s.label ? `<div style="font-size:0.95em;font-weight:600;color:#00d2ff;margin-bottom:3px;">${esc(s.label)}</div>` : '';
+                        const body = s.body ? `<div style="font-size:0.92em;color:#b8c8e0;white-space:pre-line;line-height:1.5;">${esc(s.body)}</div>` : '';
+                        return `<div style="padding:8px 10px;margin-top:6px;background:rgba(0,210,255,0.05);border-left:2px solid rgba(0,210,255,0.4);border-radius:4px;">${lab}${body}</div>`;
+                    }).join('') : ''}
                 </div>`;
             }).join('');
         } else {
@@ -2370,7 +2403,7 @@ function initPanelLogic() {
             if (!entry) return '';
             switch (def.key) {
                 case 'npc':        return entry.name || entry[def.idField];
-                case 'floor':      return entry.floor_number != null ? `第${_toChineseNumeral(Number(entry.floor_number))}层-${entry.name || ''}` : (entry.name || entry[def.idField]);
+                case 'floor':      return entry.floor_number != null ? `第${_toChineseNumeral(Number(entry.floor_number))}层-${entry.canon?.theme || entry.name || ''}` : (entry.name || entry[def.idField]);
                 case 'equipment':  return entry.name || entry[def.idField];
                 case 'skill':      return entry.name || entry[def.idField];
                 case 'consumable': return entry.name || entry[def.idField];

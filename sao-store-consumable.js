@@ -211,8 +211,8 @@ export async function useConsumable(itemId) {
 
     const def = getConsumableById(item.consumable_id);
     if (!def) {
-        log(`useConsumable: 消耗品定义 ${item.consumable_id} 不存在`, 'warn');
-        return [];
+        log(`useConsumable: 消耗品定义 ${item.consumable_id} 不存在（物品 ${itemId} 在背包中但定义未注册）`, 'warn');
+        return [`物品 ${item.name || itemId} 定义未注册，无法使用`];
     }
 
     const playerStore = getPlayerStore();

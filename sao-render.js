@@ -1880,6 +1880,18 @@ function _showShadowModal(shadow, title, html) {
     overlay.className = 'sao-shadow-modal';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(8,12,20,0.75);z-index:100001;display:flex;justify-content:center;align-items:center;padding:20px;box-sizing:border-box;backdrop-filter:blur(8px);';
     overlay.innerHTML = `
+        <style>
+            .sao-detail-row{display:flex!important;justify-content:space-between!important;padding:7px 0!important;border-bottom:1px solid rgba(255,255,255,0.05)!important;gap:12px!important;}
+            .sao-detail-label{opacity:0.7!important;font-size:0.85em!important;color:#9fb0cc!important;font-family:"Rajdhani","Noto Sans SC",sans-serif!important;}
+            .sao-detail-value{font-weight:700!important;color:#eaf2ff!important;text-align:right!important;}
+            .sao-rarity-common{color:#9fb0cc!important;}
+            .sao-rarity-uncommon{color:#4ade80!important;}
+            .sao-rarity-rare{color:#60a5fa!important;}
+            .sao-rarity-epic{color:#c084fc!important;}
+            .sao-rarity-legendary{color:#fbbf24!important;text-shadow:0 0 10px rgba(255,184,0,0.35)!important;}
+            .sao-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.78em;background:rgba(0,210,255,0.1);border:1px solid rgba(0,210,255,0.2);color:#66e8ff;margin:2px;}
+            .sao-tag-affix{background:rgba(168,85,247,0.1);border-color:rgba(168,85,247,0.3);color:#c084fc;}
+        </style>
         <div style="position:relative;max-width:520px;width:90%;max-height:78vh;overflow-y:auto;background:rgba(20,28,44,0.72);border:1px solid rgba(0,210,255,0.35);border-radius:14px;box-shadow:0 0 18px rgba(0,210,255,0.25),0 8px 32px rgba(0,0,0,0.45);color:#eaf2ff;font-family:'Exo 2','Noto Sans SC',sans-serif;animation:sao-scale-in 0.25s ease-out;backdrop-filter:blur(16px) saturate(120%);">
             <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent 0%,#00d2ff 20%,#66e8ff 50%,#00d2ff 80%,transparent 100%);pointer-events:none;border-radius:14px 14px 0 0;"></div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(8,12,20,0.4);position:relative;">

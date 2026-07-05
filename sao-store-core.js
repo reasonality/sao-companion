@@ -14,8 +14,10 @@ const SIZE_WARNING_THRESHOLD = 200 * 1024;
 /** 严重阈值：500KB — log error + 建议清理 */
 const SIZE_CRITICAL_THRESHOLD = 500 * 1024;
 
-/** 面板缓存最大条目数（panels / calendarPanels 各自独立限制） */
-const MAX_PANEL_ENTRIES = 50;
+/** 面板缓存最大条目数（panels / calendarPanels 各自独立限制）
+ *  从50降到20，减少 store 体积（每条 specialist 面板 HTML 较大，
+ *  50条易累积到 265KB+ 触发警告；20条够覆盖最近会话回看） */
+const MAX_PANEL_ENTRIES = 20;
 
 /** actionLog 最大条目数（FIFO cap） */
 const ACTION_LOG_CAP = 20;
