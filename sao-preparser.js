@@ -82,6 +82,7 @@ export function parseTimelineEntries(entries) {
     const calStore = store.calendarStore;
     if (!calStore) return 0;
     if (!calStore.events) calStore.events = {};
+    if (!calStore.monthNotes) calStore.monthNotes = {};
 
     // Build set of ALL entry comments for stale data removal.
     const enabledComments = new Set();
@@ -106,193 +107,58 @@ export function parseTimelineEntries(entries) {
         }
     }
 
-    // Filter timeline entries
+    // Filter timeline entries — parse ALL entries (including disabled ones).
     const timelineEntries = entries.filter(e =>
         /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
     );
 
     let totalCount = 0;
 
-    // Helper: strip markdown decorations
-    const cleanText = (txt) => txt
-        .replace(/^###\s+/, '')   // strip leading ### (if line leaked as plain text)
-        .replace(/^##\s+/, '')    // strip leading ##
-        .replace(/^#\s+/, '')     // strip leading #
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\*([^*]+)\*/g, '$1')
-        .replace(/^\[[^\]]*\]:\s*/, '')
-        .replace(/\s*\[[^\]]*\]:\s*/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    // Helper: extract HH:MM time from text
-    const extractTime = (text) => {
-        const tm = text.match(/(\d{1,2}):(\d{2})/);
-        return tm ? tm[0] : null;
-    };
-
     for (const entry of timelineEntries) {
         const comment = (entry.comment || '').trim();
+
+        // Parse JSON content; skip non-JSON entries
+        let data;
+        try {
+            data = JSON.parse(entry.content);
+        } catch (e) {
+            continue; // non-JSON format — skip
+        }
+
+        // Extract year-month from comment for notes storage
         const ymMatch = comment.match(/(\d{4})年(\d{1,2})月/);
-        if (!ymMatch) continue;
+        if (data.notes && ymMatch) {
+            const yearMonth = ymMatch[1] + '-' + String(parseInt(ymMatch[2])).padStart(2, '0');
+            calStore.monthNotes[yearMonth] = data.notes;
+        }
 
-        const year = parseInt(ymMatch[1]);
-        const entryMonthFromComment = parseInt(ymMatch[2]);
-        const content = entry.content || '';
+        // Parse events
+        const events = data.events || {};
+        for (const [dateStr, eventArr] of Object.entries(events)) {
+            if (!Array.isArray(eventArr)) continue;
 
-        let entryMonth = entryMonthFromComment;
-        let curDay = 0;
-        let headerTitle = '';
+            if (!calStore.events[dateStr]) calStore.events[dateStr] = [];
 
-        // Sub-event buffer: each sub-event is { title, description, time }
-        // For ### format: each ### = one sub-event
-        // For bullet format: each bullet = one sub-event
-        // For compact format (no ###, no bullets): entire day = one event
-        let subEvents = [];       // array of { title, description, time }
-        let hasBullets = false;
-        let hasSubHeaders = false; // ### format detected
+            for (const ev of eventArr) {
+                if (!ev.description || typeof ev.description !== 'string') continue;
 
-        // Current sub-event being accumulated (for ### format)
-        let curSubTitle = '';
-        let curSubTime = null;
-        let curSubBuf = [];
+                // Dedup by normalized description (first 20 chars)
+                const evKey = _dedupKey(ev.description);
+                const dup = calStore.events[dateStr].some(e =>
+                    e.sourceEntryId === comment && _dedupKey(e.description || '') === evKey
+                );
+                if (dup) continue;
 
-        const flushSubEvent = () => {
-            if (curSubTitle && curSubBuf.length > 0) {
-                subEvents.push({
-                    title: curSubTitle,
-                    description: curSubBuf.join('\n'),
-                    time: curSubTime,
-                });
-            }
-            curSubTitle = '';
-            curSubTime = null;
-            curSubBuf = [];
-        };
-
-        const flushDay = () => {
-            flushSubEvent();
-
-            if (curDay > 0 && subEvents.length > 0 && entryMonth > 0 && year) {
-                const dateStr = year + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
-                if (!calStore.events[dateStr]) calStore.events[dateStr] = [];
-
-                for (const se of subEvents) {
-                    const evKey = _dedupKey(se.title);
-                    const dup = calStore.events[dateStr].some(e => _dedupKey(e.title) === evKey);
-                    if (dup) continue;
-
-                    const evt = toCalendarStoreEvent({
-                        type: 'canon',
-                        title: se.title,
-                        description: se.description || '',
-                        time: se.time,
-                    }, dateStr, calStore.events[dateStr].length);
-                    evt.sourceEntryId = comment;
-                    calStore.events[dateStr].push(evt);
-                    totalCount++;
-                }
-            }
-            subEvents = [];
-            headerTitle = '';
-            hasBullets = false;
-            hasSubHeaders = false;
-        };
-
-        for (const line of content.split(/\r?\n/)) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-
-            // Date header
-            const hdrM = trimmed.match(/^(?:#{1,6}\s*)?(?:\*{0,2}\s*)?(\d{1,2})月(\d{1,2})日/);
-            if (hdrM) {
-                flushDay();
-                entryMonth = parseInt(hdrM[1]) || entryMonth;
-                curDay = parseInt(hdrM[2]);
-
-                // Extract optional title from header
-                const afterDate = trimmed.replace(/^(?:#{1,6}\s*)?(?:\*{0,2}\s*)?\d{1,2}月\d{1,2}日\s*(?:\([^)]*\)\s*)?/, '');
-                const titleMatch = afterDate.match(/^[-—–]\s*(.+?)[：:]?\s*$/);
-                if (titleMatch) {
-                    headerTitle = cleanText(titleMatch[1]);
-                }
-                continue;
-            }
-
-            if (curDay > 0) {
-                // Skip sub-bullets (4+ spaces indentation)
-                if (/^\s{4,}/.test(line)) continue;
-
-                // ── ### Sub-event header format (new) ──
-                // Format: "### 时间 标题 [标签]" or "### 标题"
-                // Time is extracted from leading "HH:MM" or "HH:MM-HH:MM"
-                const subHdrM = trimmed.match(/^###\s+(.+)$/);
-                if (subHdrM) {
-                    flushSubEvent();
-                    hasSubHeaders = true;
-                    let subTitleRaw = cleanText(subHdrM[1]);
-                    // Extract time from beginning: "13:00 标题" or "13:00-14:00 标题"
-                    const timeM = subTitleRaw.match(/^(\d{1,2}:\d{2}(?:\s*[-–—]\s*\d{1,2}:\d{2})?)\s+(.+)$/);
-                    if (timeM) {
-                        curSubTime = timeM[1].split(/[-–—]/)[0].trim(); // take start time
-                        curSubTitle = timeM[2];
-                    } else {
-                        curSubTime = extractTime(subTitleRaw);
-                        curSubTitle = subTitleRaw;
-                    }
-                    continue;
-                }
-
-                // ── Bullet format ──
-                const bulM = line.match(/^\s{0,3}[*\-+]\s+(.+)$/);
-                if (bulM) {
-                    hasBullets = true;
-                    const txt = cleanText(bulM[1]);
-                    if (txt && txt.length > 1) {
-                        if (hasSubHeaders) {
-                            // Inside ### format, bullets become description content
-                            curSubBuf.push(txt);
-                        } else {
-                            // Pure bullet format: each bullet = one event
-                            subEvents.push({ title: txt, description: '', time: extractTime(txt) });
-                        }
-                    }
-                    continue;
-                }
-
-                // ── Plain text line ──
-                const txt = cleanText(trimmed);
-                if (txt && txt.length > 1) {
-                    if (hasSubHeaders) {
-                        // Inside ### format: accumulate as description
-                        curSubBuf.push(txt);
-                    } else if (hasBullets) {
-                        // Mixed format: treat as part of previous bullet's description
-                        if (subEvents.length > 0) {
-                            const last = subEvents[subEvents.length - 1];
-                            last.description = last.description ? last.description + '\n' + txt : txt;
-                        }
-                    } else {
-                        // Pure compact format: accumulate as one event
-                        // If no sub-events yet, start one with headerTitle or first line as title
-                        if (subEvents.length === 0) {
-                            const title = headerTitle || txt;
-                            subEvents.push({ title: title, description: '', time: null });
-                        }
-                        // Append to description (skip if it's the same as title)
-                        const last = subEvents[subEvents.length - 1];
-                        if (txt !== last.title) {
-                            last.description = last.description ? last.description + '\n' + txt : txt;
-                        }
-                        // Extract time if not yet set
-                        if (!last.time) {
-                            last.time = extractTime(txt);
-                        }
-                    }
-                }
+                const evt = toCalendarStoreEvent({
+                    type: 'canon',
+                    description: ev.description,
+                    time: ev.time || null,
+                }, dateStr, calStore.events[dateStr].length);
+                evt.sourceEntryId = comment;
+                calStore.events[dateStr].push(evt);
+                totalCount++;
             }
         }
-        flushDay();
     }
 
     return totalCount;

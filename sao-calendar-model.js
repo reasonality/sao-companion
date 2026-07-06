@@ -113,13 +113,13 @@ function buildCalendarPrompt(calendar, rawText) {
   "completed_appointment_indices": [0],
   "event_changes": {
     "added": [
-      { "date": "YYYY-MM-DD", "title": "事件名", "description": "事件描述", "type": "canon 或 custom", "time": "HH:MM 或空" }
+      { "date": "YYYY-MM-DD", "description": "事件描述", "type": "canon 或 custom", "time": "HH:MM 或 null" }
     ],
     "deleted": [
-      { "date": "YYYY-MM-DD", "title": "要删除的事件标题" }
+      { "date": "YYYY-MM-DD", "description": "要删除的事件描述首句" }
     ],
     "modified": [
-      { "date": "YYYY-MM-DD", "old_title": "原事件标题", "new_title": "新标题", "new_description": "新描述" }
+      { "date": "YYYY-MM-DD", "old_description": "原事件描述首句", "new_description": "新描述" }
     ]
   },
   "grid": {
@@ -136,7 +136,7 @@ function buildCalendarPrompt(calendar, rawText) {
 ## 字段说明
 - appointments_detected: 新检测到的**玩家与NPC之间**的约定（排除原作时间线已有的角色约定）。date 从 AI 回复中提取（ISO YYYY-MM-DD）。若无新增，输出空数组 []
 - completed_appointment_indices: 输入 pending 列表中已完成的约定的**下标**（0-based 小整数，对应输入顺序）。直接输出数字，不要复述 id。若无完成，输出空数组 []
-- event_changes: 事件增删改。当剧情偏离原作、或出现新的重要事件时填写。added 新增事件（type=canon 表示偏离原作的新剧情走向，type=custom 表示支线/自定义事件）；deleted 删除不再适用的事件（title 必须与已有事件标题完全匹配）；modified 修改已有事件（old_title 必须与已有事件标题完全匹配）。若无增删改，输出 {"added":[],"deleted":[],"modified":[]}
+- event_changes: 事件增删改。当剧情偏离原作、或出现新的重要事件时填写。added 新增事件（type=canon 表示偏离原作的新剧情走向，type=custom 表示支线/自定义事件）；deleted 删除不再适用的事件（description 必须与已有事件描述首句完全匹配）；modified 修改已有事件（old_description 必须与已有事件描述首句完全匹配）。若无增删改，输出 {"added":[],"deleted":[],"modified":[]}
 - grid: 当前游戏日历网格。year/month/current_day 从当前游戏日期派生；days 列出本月有事件的天（每天 events ≤ 10 条，每条 ≤ 100 字符）。若无事件天，输出空数组 []
 
 ## 约定示例
@@ -152,7 +152,7 @@ AI: "昨天和Asuna的会面很顺利。"
 
 ## 事件增删改示例
 AI: "在原定的宣告日，茅场晶彦并没有出现，取而代之的是一个新的神秘人宣布了游戏规则。"
-输出: { "appointments_detected": [], "completed_appointment_indices": [], "event_changes": {"added":[{"date":"2022-11-06","title":"神秘人的宣告","description":"神秘人代替茅场晶彦宣布游戏规则","type":"canon","time":""}],"deleted":[{"date":"2022-11-06","title":"宣告日"}],"modified":[]}, "grid": {"year":2022,"month":11,"current_day":6,"days":[]} }`;
+输出: { "appointments_detected": [], "completed_appointment_indices": [], "event_changes": {"added":[{"date":"2022-11-06","description":"神秘人代替茅场晶彦宣布游戏规则","type":"canon","time":null}],"deleted":[{"date":"2022-11-06","description":"宣告日"}],"modified":[]}, "grid": {"year":2022,"month":11,"current_day":6,"days":[]} }`;
 
     const userPrompt = `当前游戏日期: ${currentDate}
 

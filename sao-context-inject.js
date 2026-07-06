@@ -287,15 +287,23 @@ function buildCalendarBlock() {
                     ev.type === 'canon' ? '[原作]' :
                     ev.type === 'appointment' ? '[约定]' :
                     '[事件]';
-                calEvents.push(`${dateStr} ${typeLabel} ${ev.title || ev.description || ''}`);
+                const timeStr = ev.time ? ` ${ev.time}` : '';
+                calEvents.push(`${dateStr}${timeStr} ${typeLabel} ${ev.description || ''}`);
             }
         }
     }
 
     calEvents.sort((a, b) => a.localeCompare(b));
-    if (calEvents.length > 30) calEvents.length = 30;
 
-    return calEvents.length ? '[近期日历]\n' + calEvents.join('\n') : '';
+    const parts = [];
+    if (calEvents.length) parts.push('[近期日历]\n' + calEvents.join('\n'));
+
+    // Inject current month's notes
+    const ym = currentDate.substring(0, 7); // YYYY-MM
+    const monthNote = calStore.monthNotes?.[ym];
+    if (monthNote) parts.push('[本月备注]\n' + monthNote);
+
+    return parts.length ? parts.join('\n\n') : '';
 }
 
 /**

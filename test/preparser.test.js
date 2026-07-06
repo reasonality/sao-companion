@@ -416,56 +416,61 @@ describe('runLorebookPreParser — loreParsed flag', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('Phase 3: parseTimelineEntries', () => {
-    it('parses timeline entries into calendarStore.events on correct dates', () => {
+    it('parses JSON timeline entries into calendarStore.events', () => {
         const entries = [
             {
                 id: 50,
                 comment: '2022年11月时间表',
                 enabled: true,
-                content: [
-                    '### **【世界历史背景：2022年11月】**',
-                    '',
-                    '#### **11月6日 (星期日) - 宣告日**',
-                    '*   SAO正式开服，所有玩家被困。',
-                    '*   桐人教导克莱因基础操作。',
-                    '',
-                    '#### **11月7日 (星期一)**',
-                    '*   情报商阿尔戈找到桐人。',
-                    '*   桐人与克莱因完成任务。',
-                    '',
-                    '#### **11月21日 (星期一)**',
-                    '*   PoH正式登入SAO。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    notes: '',
+                    events: {
+                        '2022-11-06': [
+                            { time: null, description: 'SAO正式开服，所有玩家被困。' },
+                            { time: null, description: '桐人教导克莱因基础操作。' },
+                        ],
+                        '2022-11-07': [
+                            { time: null, description: '情报商阿尔戈找到桐人。' },
+                            { time: null, description: '桐人与克莱因完成任务。' },
+                        ],
+                        '2022-11-21': [
+                            { time: null, description: 'PoH正式登入SAO。' },
+                        ],
+                    },
+                }),
             },
         ];
 
         const count = parseTimelineEntries(entries);
-        expect(count).toBe(5); // 2 on 6th, 2 on 7th, 1 on 21st
+        expect(count).toBe(5);
 
         const calStore = mockStore.calendarStore;
         expect(calStore.events['2022-11-06']).toBeTruthy();
         expect(calStore.events['2022-11-06'].length).toBe(2);
         expect(calStore.events['2022-11-06'][0].type).toBe('canon');
-        expect(calStore.events['2022-11-06'][0].title).toContain('SAO');
+        expect(calStore.events['2022-11-06'][0].description).toContain('SAO');
 
         expect(calStore.events['2022-11-07']).toBeTruthy();
         expect(calStore.events['2022-11-07'].length).toBe(2);
 
         expect(calStore.events['2022-11-21']).toBeTruthy();
         expect(calStore.events['2022-11-21'].length).toBe(1);
-        expect(calStore.events['2022-11-21'][0].title).toContain('PoH');
+        expect(calStore.events['2022-11-21'][0].description).toContain('PoH');
     });
 
-    it('strips markdown formatting from event titles', () => {
+    it('parses timeline with time field', () => {
         const entries = [
             {
                 comment: '2023年1月时间线',
                 enabled: true,
-                content: [
-                    '#### **1月15日 (星期日)**',
-                    '*   **[关键事件]:** 桐人与**亚丝娜**在*广场*相遇。',
-                    '*   **情报商**阿尔戈发布《阿尔戈周报》。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2023-01-15': [
+                            { time: '15:00', description: '桐人与亚丝娜在广场相遇。' },
+                            { time: null, description: '阿尔戈发布阿尔戈周报。' },
+                        ],
+                    },
+                }),
             },
         ];
 
@@ -473,31 +478,23 @@ describe('Phase 3: parseTimelineEntries', () => {
         expect(count).toBe(2);
         const events = mockStore.calendarStore.events['2023-01-15'];
         expect(events).toBeTruthy();
-        expect(events[0].title).not.toContain('**');
-        expect(events[0].title).toContain('桐人');
-        expect(events[0].title).toContain('亚丝娜');
-        expect(events[1].title).toContain('阿尔戈周报');
+        expect(events[0].description).toContain('桐人');
+        expect(events[0].description).toContain('亚丝娜');
+        expect(events[0].time).toBe('15:00');
+        expect(events[1].description).toContain('阿尔戈周报');
     });
 
-    it('skips sub-bullets (4+ spaces indentation)', () => {
+    it('skips non-JSON timeline entries', () => {
         const entries = [
             {
                 comment: '2022年12月时间表',
                 enabled: true,
-                content: [
-                    '#### **12月1日**',
-                    '*   桐人出发前往下一层。',
-                    '    *   他带上了足够的药水。',
-                    '    *   他的装备已经修理完毕。',
-                    '*   亚丝娜留守起始之镇。',
-                ].join('\n'),
+                content: '这不是JSON格式的内容。',
             },
         ];
 
         const count = parseTimelineEntries(entries);
-        expect(count).toBe(2); // only top-level bullets
-        const events = mockStore.calendarStore.events['2022-12-01'];
-        expect(events.length).toBe(2);
+        expect(count).toBe(0);
     });
 
     it('idempotency: running twice does not duplicate events', () => {
@@ -505,10 +502,13 @@ describe('Phase 3: parseTimelineEntries', () => {
             {
                 comment: '2024年1月时间线',
                 enabled: true,
-                content: [
-                    '#### **1月6日**',
-                    '*   亚丝娜挑战绝剑。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2024-01-06': [
+                            { time: null, description: '亚丝娜挑战绝剑。' },
+                        ],
+                    },
+                }),
             },
         ];
 
@@ -521,31 +521,47 @@ describe('Phase 3: parseTimelineEntries', () => {
         expect(mockStore.calendarStore.events['2024-01-06'].length).toBe(1);
     });
 
+    it('stores monthNotes from JSON notes field', () => {
+        const entries = [
+            {
+                comment: '2025年2月时间线',
+                enabled: true,
+                content: JSON.stringify({
+                    notes: '本月发生重大事件。',
+                    events: {
+                        '2025-02-15': [
+                            { time: null, description: '某事件发生。' },
+                        ],
+                    },
+                }),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        expect(count).toBe(1);
+        expect(mockStore.calendarStore.monthNotes['2025-02']).toBe('本月发生重大事件。');
+    });
+
     it('handles month-only date markers (no specific day)', () => {
         const entries = [
             {
                 comment: '2025年2月时间线',
                 enabled: true,
-                content: [
-                    '#### **2月下旬**',
-                    '*   The World Seed正式发布。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {},
+                }),
             },
         ];
 
-        // "2月下旬" has no specific day, so the header regex for "X月X日" won't match.
-        // curDay stays 0, so no events extracted. This is expected.
         const count = parseTimelineEntries(entries);
         expect(count).toBe(0);
     });
 
     it('preserves pre-existing non-canon events when adding canon events', () => {
-        // Pre-populate with a non-canon appointment on the same date
         mockStore.calendarStore.events['2022-11-06'] = [
             {
                 event_id: 'evt_20221106_0',
                 type: 'appointment',
-                title: 'Meet Asuna',
                 description: 'Meet Asuna',
                 date: '2022-11-06',
             },
@@ -555,141 +571,28 @@ describe('Phase 3: parseTimelineEntries', () => {
             {
                 comment: '2022年11月时间表',
                 enabled: true,
-                content: [
-                    '#### **11月6日 (星期日) - 宣告日**',
-                    '*   SAO正式开服，所有玩家被困。',
-                    '*   桐人教导克莱因基础操作。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2022-11-06': [
+                            { time: null, description: 'SAO正式开服。' },
+                            { time: null, description: '桐人教导克莱因。' },
+                        ],
+                    },
+                }),
             },
         ];
 
         const count = parseTimelineEntries(entries);
-        expect(count).toBe(2); // 2 new canon events added
+        expect(count).toBe(2);
 
         const events = mockStore.calendarStore.events['2022-11-06'];
-        expect(events.length).toBe(3); // 1 appointment + 2 canon
-        // Appointment survives as the first event
+        expect(events.length).toBe(3);
         expect(events[0].type).toBe('appointment');
-        expect(events[0].title).toBe('Meet Asuna');
-        // Canon events follow
+        expect(events[0].description).toBe('Meet Asuna');
         expect(events[1].type).toBe('canon');
-        expect(events[1].title).toContain('SAO');
+        expect(events[1].description).toContain('SAO');
         expect(events[2].type).toBe('canon');
-        expect(events[2].title).toContain('桐人');
-    });
-
-    it('parses compacted timeline format (no # prefix, no * bullets)', () => {
-        const entries = [
-            {
-                comment: '2022年11月 - 艾恩葛朗特事件表',
-                enabled: true,
-                content: [
-                    '[2022年11月 - 艾恩葛朗特事件表]',
-                    '',
-                    '11月6日 (星期日) - 宣告日:',
-                    '',
-                    '正常游戏开服期。',
-                    '13:00: 《Sword Art Online》正式开服。',
-                    '',
-                    '11月7日 (星期一):',
-                    '',
-                    '情报商阿尔戈找到桐人。',
-                    '桐人与克莱因完成任务。',
-                    '',
-                    '11月21日 (星期一):',
-                    '',
-                    'PoH正式登入SAO。',
-                ].join('\n'),
-            },
-        ];
-
-        const count = parseTimelineEntries(entries);
-        // Compacted format: one event per date (title from header or first line,
-        // description = all content, time extracted from HH:MM patterns)
-        expect(count).toBe(3); // 1 on 6th, 1 on 7th, 1 on 21st
-
-        const calStore = mockStore.calendarStore;
-        expect(calStore.events['2022-11-06']).toBeTruthy();
-        expect(calStore.events['2022-11-06'].length).toBe(1);
-        expect(calStore.events['2022-11-06'][0].type).toBe('canon');
-        // Title from header " - 宣告日"
-        expect(calStore.events['2022-11-06'][0].title).toBe('宣告日');
-        // Description = all content lines joined
-        expect(calStore.events['2022-11-06'][0].description).toContain('正常游戏开服期');
-        expect(calStore.events['2022-11-06'][0].description).toContain('Sword Art Online');
-        // Time extracted from "13:00:" pattern
-        expect(calStore.events['2022-11-06'][0].time).toBe('13:00');
-
-        expect(calStore.events['2022-11-07']).toBeTruthy();
-        expect(calStore.events['2022-11-07'].length).toBe(1);
-        // No header title — first content line used as title
-        expect(calStore.events['2022-11-07'][0].title).toContain('情报商阿尔戈');
-        expect(calStore.events['2022-11-07'][0].description).toContain('桐人与克莱因');
-
-        expect(calStore.events['2022-11-21']).toBeTruthy();
-        expect(calStore.events['2022-11-21'].length).toBe(1);
-        expect(calStore.events['2022-11-21'][0].title).toContain('PoH');
-    });
-
-    it('parses ### sub-event format (each ### = one event with title/description/time)', () => {
-        const entries = [
-            {
-                comment: '2022年11月 - 艾恩葛朗特事件表',
-                enabled: true,
-                content: [
-                    '[2022年11月 - 艾恩葛朗特事件表]',
-                    '',
-                    '11月6日 (星期日) - 宣告日:',
-                    '',
-                    '### 正常游戏开服期',
-                    '所有人都认为这是一款划时代的VRMMORPG。',
-                    '',
-                    '### 13:00 正式开服',
-                    '《Sword Art Online》正式开服。',
-                    '',
-                    '### 13:00-14:00 犯罪宣言',
-                    '茅场晶彦向现实世界发布犯罪宣言。',
-                    '',
-                    '### 傍晚 霍伦卡村',
-                    '桐人遭遇柯贝尔。',
-                    '',
-                    '11月7日 (星期一):',
-                    '',
-                    '### 情报商阿尔戈',
-                    '阿尔戈找到桐人。',
-                ].join('\n'),
-            },
-        ];
-
-        const count = parseTimelineEntries(entries);
-        // 4 sub-events on 6th + 1 sub-event on 7th = 5 total
-        expect(count).toBe(5);
-
-        const calStore = mockStore.calendarStore;
-        expect(calStore.events['2022-11-06']).toBeTruthy();
-        expect(calStore.events['2022-11-06'].length).toBe(4);
-
-        // First sub-event: title from ###, description = content, no time
-        expect(calStore.events['2022-11-06'][0].title).toBe('正常游戏开服期');
-        expect(calStore.events['2022-11-06'][0].description).toContain('划时代的VRMMORPG');
-        expect(calStore.events['2022-11-06'][0].time).toBeNull();
-
-        // Second sub-event: time extracted from "13:00 正式开服"
-        expect(calStore.events['2022-11-06'][1].title).toBe('正式开服');
-        expect(calStore.events['2022-11-06'][1].time).toBe('13:00');
-        expect(calStore.events['2022-11-06'][1].description).toContain('Sword Art Online');
-
-        // Third sub-event: time range "13:00-14:00" → start time "13:00"
-        expect(calStore.events['2022-11-06'][2].title).toBe('犯罪宣言');
-        expect(calStore.events['2022-11-06'][2].time).toBe('13:00');
-
-        // Fourth sub-event: "傍晚" is not HH:MM, so title = "傍晚 霍伦卡村"
-        expect(calStore.events['2022-11-06'][3].title).toBe('傍晚 霍伦卡村');
-        expect(calStore.events['2022-11-06'][3].time).toBeNull();
-
-        expect(calStore.events['2022-11-07']).toBeTruthy();
-        expect(calStore.events['2022-11-07'].length).toBe(1);
-        expect(calStore.events['2022-11-07'][0].title).toBe('情报商阿尔戈');
+        expect(events[2].description).toContain('桐人');
     });
 
     it('parses floor format with ## 元数据 section (new integrated format)', () => {
@@ -736,17 +639,20 @@ describe('Phase 3: parseTimelineEntries', () => {
             {
                 comment: '2022年11月时间表',
                 disable: true,
-                content: [
-                    '#### **11月6日**',
-                    '*   SAO正式开服。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2022-11-06': [
+                            { time: null, description: 'SAO正式开服。' },
+                        ],
+                    },
+                }),
             },
         ];
 
         const count = parseTimelineEntries(entries);
         expect(count).toBe(1);
         expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
-        expect(mockStore.calendarStore.events['2022-11-06'][0].title).toContain('SAO');
+        expect(mockStore.calendarStore.events['2022-11-06'][0].description).toContain('SAO');
     });
 });
 
@@ -911,7 +817,12 @@ describe('runLorebookPreParser — Phase 3+4 integration', () => {
             {
                 comment: '2022年11月时间表',
                 enabled: true,
-                content: '#### **11月6日**\n*   SAO正式开服。\n#### **11月7日**\n*   桐人探索。',
+                content: JSON.stringify({
+                    events: {
+                        '2022-11-06': [{ time: null, description: 'SAO正式开服。' }],
+                        '2022-11-07': [{ time: null, description: '桐人探索。' }],
+                    },
+                }),
             },
             {
                 comment: 'sao-PK机制',
@@ -942,7 +853,12 @@ describe('runLorebookPreParser — Phase 3+4 integration', () => {
             {
                 comment: '2023年3月时间线',
                 enabled: true,
-                content: '#### **3月1日**\n*   事件A。\n#### **3月15日**\n*   事件B。',
+                content: JSON.stringify({
+                    events: {
+                        '2023-03-01': [{ time: null, description: '事件A。' }],
+                        '2023-03-15': [{ time: null, description: '事件B。' }],
+                    },
+                }),
             },
             {
                 comment: 'sao-房屋',
@@ -1328,10 +1244,11 @@ describe('Stale data removal — timeline events from removed entries', () => {
             {
                 comment: '2022年11月时间表',
                 enabled: true,
-                content: [
-                    '#### **11月6日 (星期日) - 宣告日**',
-                    '*   SAO正式开服，所有玩家被困。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2022-11-06': [{ time: null, description: 'SAO正式开服，所有玩家被困。' }],
+                    },
+                }),
             },
         ];
 
@@ -1341,13 +1258,12 @@ describe('Stale data removal — timeline events from removed entries', () => {
         expect(mockStore.calendarStore.events['2022-11-06']).toBeTruthy();
         expect(mockStore.calendarStore.events['2022-11-06'][0].sourceEntryId).toBe('2022年11月时间表');
 
-        // Remove entry from array (not just disable — disabled entries are still parsed in Plan A)
+        // Remove entry from array
         entries.splice(0, 1);
 
         // Re-parse — stale events removed
         const count2 = parseTimelineEntries(entries);
         expect(count2).toBe(0);
-        // Date removed entirely (no events left)
         expect(mockStore.calendarStore.events['2022-11-06']).toBeFalsy();
     });
 
@@ -1356,10 +1272,11 @@ describe('Stale data removal — timeline events from removed entries', () => {
             {
                 comment: '2022年11月时间表',
                 enabled: true,
-                content: [
-                    '#### **11月6日**',
-                    '*   SAO正式开服。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2022-11-06': [{ time: null, description: 'SAO正式开服。' }],
+                    },
+                }),
             },
         ];
 
@@ -1367,11 +1284,10 @@ describe('Stale data removal — timeline events from removed entries', () => {
         parseTimelineEntries(entries);
         expect(mockStore.calendarStore.events['2022-11-06'].length).toBe(1);
 
-        // Add appointment on the same date (simulates runtime appointment)
+        // Add appointment on the same date
         mockStore.calendarStore.events['2022-11-06'].push({
             event_id: 'evt_20221106_apt',
             type: 'appointment',
-            title: 'Meet Asuna',
             description: 'Meet Asuna',
         });
         expect(mockStore.calendarStore.events['2022-11-06'].length).toBe(2);
@@ -1387,7 +1303,7 @@ describe('Stale data removal — timeline events from removed entries', () => {
         expect(events).toBeTruthy();
         expect(events.length).toBe(1);
         expect(events[0].type).toBe('appointment');
-        expect(events[0].title).toBe('Meet Asuna');
+        expect(events[0].description).toBe('Meet Asuna');
     });
 
     it('keeps canon events from still-present entries on re-parse (idempotent stale check)', () => {
@@ -1395,18 +1311,20 @@ describe('Stale data removal — timeline events from removed entries', () => {
             {
                 comment: '2022年11月时间表',
                 enabled: true,
-                content: [
-                    '#### **11月6日**',
-                    '*   SAO正式开服。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2022-11-06': [{ time: null, description: 'SAO正式开服。' }],
+                    },
+                }),
             },
             {
                 comment: '2022年12月时间表',
                 enabled: true,
-                content: [
-                    '#### **12月1日**',
-                    '*   攻略会议召开。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2022-12-01': [{ time: null, description: '攻略会议召开。' }],
+                    },
+                }),
             },
         ];
 
@@ -1424,7 +1342,7 @@ describe('Stale data removal — timeline events from removed entries', () => {
         // November events removed, December kept
         expect(mockStore.calendarStore.events['2022-11-06']).toBeFalsy();
         expect(mockStore.calendarStore.events['2022-12-01']).toBeTruthy();
-        expect(mockStore.calendarStore.events['2022-12-01'][0].title).toContain('攻略');
+        expect(mockStore.calendarStore.events['2022-12-01'][0].description).toContain('攻略');
     });
 
     it('adds sourceEntryId to all newly parsed canon events', () => {
@@ -1432,13 +1350,17 @@ describe('Stale data removal — timeline events from removed entries', () => {
             {
                 comment: '2023年3月时间线',
                 enabled: true,
-                content: [
-                    '#### **3月10日**',
-                    '*   事件A。',
-                    '*   事件B。',
-                    '#### **3月20日**',
-                    '*   事件C。',
-                ].join('\n'),
+                content: JSON.stringify({
+                    events: {
+                        '2023-03-10': [
+                            { time: null, description: '事件A。' },
+                            { time: null, description: '事件B。' },
+                        ],
+                        '2023-03-20': [
+                            { time: null, description: '事件C。' },
+                        ],
+                    },
+                }),
             },
         ];
 

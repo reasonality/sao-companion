@@ -11,11 +11,12 @@ function getCalendarStore() {
     const store = getStore();
     if (!store) return null;
     if (!store.calendarStore) {
-        store.calendarStore = { currentDate: null, events: {}, appointments: [], eventOverrides: {} };
+        store.calendarStore = { currentDate: null, events: {}, appointments: [], eventOverrides: {}, monthNotes: {} };
     }
     if (!store.calendarStore.events) store.calendarStore.events = {};
     if (!Array.isArray(store.calendarStore.appointments)) store.calendarStore.appointments = [];
     if (!store.calendarStore.eventOverrides) store.calendarStore.eventOverrides = {};
+    if (!store.calendarStore.monthNotes) store.calendarStore.monthNotes = {};
     return store.calendarStore;
 }
 
@@ -30,8 +31,7 @@ export function toCalendarStoreEvent(legacyEvent, date, index) {
     return {
         event_id: generateEventId(date, index),
         type: legacyEvent.type || 'custom',
-        title: legacyEvent.title || '',
-        description: legacyEvent.description || '',
+        description: legacyEvent.description || legacyEvent.title || '',
         time: legacyEvent.time || null,
         source: legacyEvent.source || '',
         related_npc_ids: legacyEvent.related_npc_ids || [],
@@ -92,7 +92,7 @@ function addDays(dateObj, n) {
 
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。
  * v7: 解析器改为捕获干净事件名 + 正文段落作为 description（原仅捕获整行作为 title，description=title）。 */
-const CANON_DATA_VERSION = 9;
+const CANON_DATA_VERSION = 10;
 
 // === 渲染专用：干净数据缓存（绕过可能被污染的 cal.days） ===
 // 两级缓存：_rawWorldbookDays 缓存世界书原始解析(昂贵,按角色卡名keying),

@@ -1304,9 +1304,9 @@ const _dataAppointmentSchema = {
 const _dataAppointmentDefaults = { id: '', date: '', title: '', type: 'custom', description: '', participants: '', location: '', status: 'pending' };
 // 日历事件字段 schema（数据存储编辑器用，字段化而非 JSON）
 const _dataCalEventSchema = {
-    event_id: 'string', type: 'string', title: 'string', description: 'string', time: 'string', source: 'string',
+    event_id: 'string', type: 'string', description: 'string', time: 'string', source: 'string',
 };
-const _dataCalEventDefaults = { event_id: '', type: 'custom', title: '', description: '', time: '', source: '' };
+const _dataCalEventDefaults = { event_id: '', type: 'custom', description: '', time: '', source: '' };
 
 // 数据存储字段中文名映射：英文 → 中文(英文)。未列出的字段直接显示英文。
 const _dataFieldLabels = {

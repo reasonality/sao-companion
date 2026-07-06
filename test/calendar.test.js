@@ -922,7 +922,7 @@ describe('toCalendarStoreEvent', () => {
         }, '2024-12-20', 0);
         expect(result.event_id).toBe('evt_20241220_0');
         expect(result.type).toBe('appointment');
-        expect(result.title).toBe('训练');
+        // title field removed — title falls back to description
         expect(result.description).toBe('训练描述');
         expect(result.time).toBe('15:00');
         expect(result.source).toBe('auto');
@@ -934,7 +934,6 @@ describe('toCalendarStoreEvent', () => {
         const result = toCalendarStoreEvent({}, '2024-12-20', 1);
         expect(result.event_id).toBe('evt_20241220_1');
         expect(result.type).toBe('custom');
-        expect(result.title).toBe('');
         expect(result.description).toBe('');
         expect(result.time).toBeNull();
         expect(result.source).toBe('');
