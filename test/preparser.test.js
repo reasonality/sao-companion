@@ -367,7 +367,7 @@ describe('runLorebookPreParser — loreParsed flag', () => {
         runLorebookPreParser(entries);
 
         expect(mockStore.loreParsed).toBeTruthy();
-        expect(mockStore.loreParsed.version).toBe(4);
+        expect(mockStore.loreParsed.version).toBe(5);
         expect(mockStore.loreParsed.npcCount).toBe(1);
         expect(mockStore.loreParsed.floorCount).toBe(1);
         expect(mockStore.loreParsed.timelineCount).toBe(0);
