@@ -7,7 +7,7 @@ import { getStore, saveStore } from './sao-store-core.js';
 // === calendarStore 访问辅助 ===
 
 /** 获取 calendarStore 引用（惰性初始化） */
-function getCalendarStore() {
+export function getCalendarStore() {
     const store = getStore();
     if (!store) return null;
     if (!store.calendarStore) {
@@ -92,7 +92,7 @@ function addDays(dateObj, n) {
 
 /** canon 数据版本：世界书解析逻辑变更时递增，触发旧数据清除+重新提取。与 calendarVersion（并发控制）分离。
  * v7: 解析器改为捕获干净事件名 + 正文段落作为 description（原仅捕获整行作为 title，description=title）。 */
-const CANON_DATA_VERSION = 10;
+const CANON_DATA_VERSION = 11;
 
 // === 渲染专用：干净数据缓存（绕过可能被污染的 cal.days） ===
 // 两级缓存：_rawWorldbookDays 缓存世界书原始解析(昂贵,按角色卡名keying),
@@ -736,7 +736,15 @@ export function initCalendarIfNeeded() {
                 }
             }
             // canon 数据版本升级：清除旧 canon 事件（可能跨月污染/截断），保留 appointment/custom，重新提取
-            if (calVer < CANON_DATA_VERSION) {
+            // 但如果 pre-parser 已经正确提取了 JSON 格式的时间线，跳过清除（避免删除已正确解析的数据）
+            const loreParsed = getStore()?.loreParsed;
+            if (calVer < CANON_DATA_VERSION && loreParsed?.timelineCount > 0) {
+                console.log('[SAO Calendar] canon 版本升级: ' + calVer + ' → ' + CANON_DATA_VERSION + '，但 pre-parser 已提取 ' + loreParsed.timelineCount + ' 个事件，跳过清除');
+                log('日历 canon 数据版本升级: ' + calVer + ' → ' + CANON_DATA_VERSION + '，pre-parser 已提取 ' + loreParsed.timelineCount + ' 个事件，跳过清除');
+                data.calendar.canonDataVersion = CANON_DATA_VERSION;
+                data.calendar.lastCalUpdateDate = calStore.currentDate;
+                return;
+            } else if (calVer < CANON_DATA_VERSION) {
                 console.log('[SAO Calendar] canon 版本升级: ' + calVer + ' → ' + CANON_DATA_VERSION + '，清除旧 canon 事件');
                 log('\u65e5\u5386 canon \u6570\u636e\u7248\u672c\u5347\u7ea7: ' + calVer + ' \u2192 ' + CANON_DATA_VERSION + '\uff0c\u6e05\u9664\u65e7 canon \u4e8b\u4ef6\u91cd\u65b0\u63d0\u53d6');
                 let removedCount = 0;

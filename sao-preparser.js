@@ -9,7 +9,7 @@ import { getStore } from './sao-store-core.js';
 import { initNpcFromWorldBook } from './sao-store-npc.js';
 import { initFloorFromWorldBook, ensureAllFloorsExist } from './sao-store-floor.js';
 import { getWorldStore } from './sao-store-world.js';
-import { toCalendarStoreEvent } from './sao-calendar.js';
+import { toCalendarStoreEvent, getCalendarStore } from './sao-calendar.js';
 import { log } from './sao-core.js';
 
 // ============================================================
@@ -79,7 +79,7 @@ export function parseTimelineEntries(entries) {
     const store = getStore();
     if (!store || !entries || !Array.isArray(entries)) return 0;
 
-    const calStore = store.calendarStore;
+    const calStore = getCalendarStore();
     if (!calStore) return 0;
     if (!calStore.events) calStore.events = {};
     if (!calStore.monthNotes) calStore.monthNotes = {};
