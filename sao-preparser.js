@@ -87,6 +87,11 @@ export function parseTimelineEntries(entries) {
     if (!calStore.events) calStore.events = {};
     if (!calStore.monthNotes) calStore.monthNotes = {};
 
+    // Debug: log existing events count
+    const existingEventCount = Object.keys(calStore.events).length;
+    const existingTotal = Object.values(calStore.events).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
+    log(`parseTimelineEntries: calStore有${existingEventCount}个日期${existingTotal}个已有事件`);
+
     // Build set of ALL entry comments for stale data removal.
     const enabledComments = new Set();
     for (const e of entries) {
@@ -141,6 +146,23 @@ export function parseTimelineEntries(entries) {
 
         // Parse events
         const events = data.events || {};
+        const eventDates = Object.keys(events);
+        if (parsedCount === 1) {
+            log(`parseTimelineEntries: 第一条目"${comment}"有${eventDates.length}个日期`);
+            if (eventDates.length > 0) {
+                const firstDate = eventDates[0];
+                const firstArr = events[firstDate];
+                log(`parseTimelineEntries: 第一日期${firstDate}有${Array.isArray(firstArr) ? firstArr.length : '非数组'}个事件`);
+                if (Array.isArray(firstArr) && firstArr.length > 0) {
+                    const ev = firstArr[0];
+                    log(`parseTimelineEntries: 第一事件 desc类型=${typeof ev.description} desc长度=${(ev.description||'').length} desc前40="${(ev.description||'').slice(0,40)}"`);
+                    const evKey = _dedupKey(ev.description || '');
+                    const existing = calStore.events[firstDate] || [];
+                    const dup = existing.some(e => e.sourceEntryId === comment && _dedupKey(e.description || '') === evKey);
+                    log(`parseTimelineEntries: 去重检查 existing=${existing.length} dup=${dup} evKey="${evKey}"`);
+                }
+            }
+        }
         for (const [dateStr, eventArr] of Object.entries(events)) {
             if (!Array.isArray(eventArr)) continue;
 
