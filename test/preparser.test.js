@@ -604,17 +604,27 @@ describe('Phase 3: parseTimelineEntries', () => {
         ];
 
         const count = parseTimelineEntries(entries);
-        expect(count).toBe(5); // 2 on 6th, 2 on 7th, 1 on 21st
+        // Compacted format: one event per date (title from header or first line,
+        // description = all content, time extracted from HH:MM patterns)
+        expect(count).toBe(3); // 1 on 6th, 1 on 7th, 1 on 21st
 
         const calStore = mockStore.calendarStore;
         expect(calStore.events['2022-11-06']).toBeTruthy();
-        expect(calStore.events['2022-11-06'].length).toBe(2);
+        expect(calStore.events['2022-11-06'].length).toBe(1);
         expect(calStore.events['2022-11-06'][0].type).toBe('canon');
-        expect(calStore.events['2022-11-06'][0].title).toContain('正常游戏开服期');
-        expect(calStore.events['2022-11-06'][1].title).toContain('Sword Art Online');
+        // Title from header " - 宣告日"
+        expect(calStore.events['2022-11-06'][0].title).toBe('宣告日');
+        // Description = all content lines joined
+        expect(calStore.events['2022-11-06'][0].description).toContain('正常游戏开服期');
+        expect(calStore.events['2022-11-06'][0].description).toContain('Sword Art Online');
+        // Time extracted from "13:00:" pattern
+        expect(calStore.events['2022-11-06'][0].time).toBe('13:00');
 
         expect(calStore.events['2022-11-07']).toBeTruthy();
-        expect(calStore.events['2022-11-07'].length).toBe(2);
+        expect(calStore.events['2022-11-07'].length).toBe(1);
+        // No header title — first content line used as title
+        expect(calStore.events['2022-11-07'][0].title).toContain('情报商阿尔戈');
+        expect(calStore.events['2022-11-07'][0].description).toContain('桐人与克莱因');
 
         expect(calStore.events['2022-11-21']).toBeTruthy();
         expect(calStore.events['2022-11-21'].length).toBe(1);

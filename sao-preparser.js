@@ -75,12 +75,6 @@ function _dedupKey(str) {
     return String(str || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
 }
 
-/**
- * Parse timeline entries (YYYY年M月 keyed) and write events to calendarStore.events.
- * Extracts top-level bullets as events under each date header.
- * @param {Array} entries - character_book.entries
- * @returns {number} count of events parsed
- */
 export function parseTimelineEntries(entries) {
     const store = getStore();
     if (!store || !entries || !Array.isArray(entries)) return 0;
@@ -135,30 +129,80 @@ export function parseTimelineEntries(entries) {
 
         let entryMonth = entryMonthFromComment;
         let curDay = 0;
-        let eventBuf = [];
+        let headerTitle = '';        // title extracted from date header (e.g. "宣告日")
+        let eventBuf = [];            // accumulated content lines for current day
+        let hasBullets = false;       // whether content uses bullet format
+
+        // Helper: strip markdown decorations from a text fragment
+        const cleanText = (txt) => txt
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/\*([^*]+)\*/g, '$1')
+            .replace(/^\[[^\]]*\]:\s*/, '')
+            .replace(/\s*\[[^\]]*\]:\s*/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // Helper: extract HH:MM time from text
+        const extractTime = (text) => {
+            const tm = text.match(/(\d{1,2}):(\d{2})/);
+            return tm ? tm[0] : null;
+        };
 
         const flushDay = () => {
             if (curDay > 0 && eventBuf.length > 0 && entryMonth > 0 && year) {
                 const dateStr = year + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
                 if (!calStore.events[dateStr]) calStore.events[dateStr] = [];
 
-                for (const txt of eventBuf) {
-                    // Dedup: normalize prefix match (same as _dedupKey)
-                    const evKey = _dedupKey(txt);
-                    const dup = calStore.events[dateStr].some(e => _dedupKey(e.title) === evKey);
-                    if (dup) continue;
+                if (hasBullets) {
+                    // ── Bullet format: each bullet = one event (backward compatible) ──
+                    for (const txt of eventBuf) {
+                        const evKey = _dedupKey(txt);
+                        const dup = calStore.events[dateStr].some(e => _dedupKey(e.title) === evKey);
+                        if (dup) continue;
 
-                    const evt = toCalendarStoreEvent({
-                        type: 'canon',
-                        title: txt,
-                        description: '',
-                    }, dateStr, calStore.events[dateStr].length);
-                    evt.sourceEntryId = comment;
-                    calStore.events[dateStr].push(evt);
-                    totalCount++;
+                        const evt = toCalendarStoreEvent({
+                            type: 'canon',
+                            title: txt,
+                            description: '',
+                        }, dateStr, calStore.events[dateStr].length);
+                        evt.sourceEntryId = comment;
+                        calStore.events[dateStr].push(evt);
+                        totalCount++;
+                    }
+                } else {
+                    // ── Compacted/plain-text format: one event per date ──
+                    // title = header title (e.g. "宣告日") or first content line
+                    // description = all content lines (preserving paragraph breaks)
+                    // time = first HH:MM found in content
+                    let title, description;
+                    if (headerTitle) {
+                        title = headerTitle;
+                        description = eventBuf.join('\n');
+                    } else {
+                        // No header title — use first line as title, rest as description
+                        title = eventBuf[0];
+                        description = eventBuf.length > 1 ? eventBuf.slice(1).join('\n') : '';
+                    }
+                    const time = extractTime(description);
+
+                    const evKey = _dedupKey(title);
+                    const dup = calStore.events[dateStr].some(e => _dedupKey(e.title) === evKey);
+                    if (!dup) {
+                        const evt = toCalendarStoreEvent({
+                            type: 'canon',
+                            title: title,
+                            description: description,
+                            time: time,
+                        }, dateStr, calStore.events[dateStr].length);
+                        evt.sourceEntryId = comment;
+                        calStore.events[dateStr].push(evt);
+                        totalCount++;
+                    }
                 }
             }
             eventBuf = [];
+            headerTitle = '';
+            hasBullets = false;
         };
 
         for (const line of content.split(/\r?\n/)) {
@@ -171,6 +215,16 @@ export function parseTimelineEntries(entries) {
                 flushDay();
                 entryMonth = parseInt(hdrM[1]) || entryMonth;
                 curDay = parseInt(hdrM[2]);
+
+                // Extract optional title from header: everything after the date+weekday,
+                // looking for " - Title" or " - Title:" pattern
+                // Strip the date portion: "11月6日 (星期日) - 宣告日:" → " - 宣告日:"
+                const afterDate = trimmed.replace(/^(?:#{1,6}\s*)?(?:\*{0,2}\s*)?\d{1,2}月\d{1,2}日\s*(?:\([^)]*\)\s*)?/, '');
+                // Match " - Title" or " — Title" (with optional trailing : or ：)
+                const titleMatch = afterDate.match(/^[-—–]\s*(.+?)[：:]?\s*$/);
+                if (titleMatch) {
+                    headerTitle = cleanText(titleMatch[1]);
+                }
                 continue;
             }
 
@@ -178,26 +232,17 @@ export function parseTimelineEntries(entries) {
                 // Skip sub-bullets / indented content (old format had 4+ space indented sub-bullets)
                 if (/^\s{4,}/.test(line)) continue;
 
-                // Handle both bullet format (old) and plain text (new compacted format)
+                // Detect bullet format
                 const bulM = line.match(/^\s{0,3}[*\-+]\s+(.+)$/);
-                let txt;
                 if (bulM) {
-                    txt = bulM[1];
+                    hasBullets = true;
+                    const txt = cleanText(bulM[1]);
+                    if (txt && txt.length > 1) eventBuf.push(txt);
                 } else {
                     // Plain text line (compacted format)
-                    txt = trimmed;
+                    const txt = cleanText(trimmed);
+                    if (txt && txt.length > 1) eventBuf.push(txt);
                 }
-
-                // Clean up old-format decorations if present
-                txt = txt
-                    .replace(/\*\*([^*]+)\*\*/g, '$1')
-                    .replace(/\*([^*]+)\*/g, '$1')
-                    .replace(/^\[[^\]]*\]:\s*/, '')
-                    .replace(/\s*\[[^\]]*\]:\s*/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-
-                if (txt && txt.length > 1) eventBuf.push(txt);
             }
         }
         flushDay();
