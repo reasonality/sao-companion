@@ -115,6 +115,9 @@ export function parseTimelineEntries(entries) {
 
     // Helper: strip markdown decorations
     const cleanText = (txt) => txt
+        .replace(/^###\s+/, '')   // strip leading ### (if line leaked as plain text)
+        .replace(/^##\s+/, '')    // strip leading ##
+        .replace(/^#\s+/, '')     // strip leading #
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .replace(/\*([^*]+)\*/g, '$1')
         .replace(/^\[[^\]]*\]:\s*/, '')
