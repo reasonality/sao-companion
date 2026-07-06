@@ -16,7 +16,7 @@ import { log } from './sao-core.js';
 // Constants
 // ============================================================
 
-const CURRENT_LORE_PARSER_VERSION = 5;
+const CURRENT_LORE_PARSER_VERSION = 6;
 
 // ============================================================
 // Hash helper
@@ -87,32 +87,22 @@ export function parseTimelineEntries(entries) {
     if (!calStore.events) calStore.events = {};
     if (!calStore.monthNotes) calStore.monthNotes = {};
 
-    // Debug: log existing events count
-    const existingEventCount = Object.keys(calStore.events).length;
-    const existingTotal = Object.values(calStore.events).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
-    log(`parseTimelineEntries: calStore有${existingEventCount}个日期${existingTotal}个已有事件`);
-
-    // Build set of ALL entry comments for stale data removal.
-    const enabledComments = new Set();
-    for (const e of entries) {
-        enabledComments.add((e.comment || '').trim());
-    }
-
-    // Remove canon events whose source entry no longer exists.
+    // Unconditionally clear ALL canon events before re-parsing.
+    // This ensures stale data from previous runs doesn't block fresh extraction.
+    // canon events are always re-derived from world book, so clearing is safe.
+    let cleared = 0;
     for (const [dateStr, evArr] of Object.entries(calStore.events)) {
         if (!Array.isArray(evArr)) continue;
-        const filtered = evArr.filter(ev => {
-            if (ev.type !== 'canon') return true;
-            if (!ev.sourceEntryId) return true;
-            return enabledComments.has(ev.sourceEntryId);
-        });
-        if (filtered.length !== evArr.length) {
-            if (filtered.length === 0) {
-                delete calStore.events[dateStr];
-            } else {
-                calStore.events[dateStr] = filtered;
-            }
+        const filtered = evArr.filter(ev => ev.type !== 'canon');
+        cleared += evArr.length - filtered.length;
+        if (filtered.length === 0) {
+            delete calStore.events[dateStr];
+        } else {
+            calStore.events[dateStr] = filtered;
         }
+    }
+    if (cleared > 0) {
+        log(`parseTimelineEntries: cleared ${cleared} old canon events`);
     }
 
     // Filter timeline entries — parse ALL entries (including disabled ones).
@@ -120,6 +110,9 @@ export function parseTimelineEntries(entries) {
         /^\d{4}年\d{1,2}月/.test((e.comment || '').trim()) && (e.content || '').length > 10
     );
 
+    // Track what we've added in THIS run (for intra-run dedup only).
+    // We do NOT check against existing events — those were just cleared above.
+    const addedKeys = new Set();
     let totalCount = 0;
     let parsedCount = 0;
     let skippedCount = 0;
@@ -134,7 +127,7 @@ export function parseTimelineEntries(entries) {
             parsedCount++;
         } catch (e) {
             skippedCount++;
-            continue; // non-JSON format — skip
+            continue;
         }
 
         // Extract year-month from comment for notes storage
@@ -146,37 +139,18 @@ export function parseTimelineEntries(entries) {
 
         // Parse events
         const events = data.events || {};
-        const eventDates = Object.keys(events);
-        if (parsedCount === 1) {
-            log(`parseTimelineEntries: 第一条目"${comment}"有${eventDates.length}个日期`);
-            if (eventDates.length > 0) {
-                const firstDate = eventDates[0];
-                const firstArr = events[firstDate];
-                log(`parseTimelineEntries: 第一日期${firstDate}有${Array.isArray(firstArr) ? firstArr.length : '非数组'}个事件`);
-                if (Array.isArray(firstArr) && firstArr.length > 0) {
-                    const ev = firstArr[0];
-                    log(`parseTimelineEntries: 第一事件 desc类型=${typeof ev.description} desc长度=${(ev.description||'').length} desc前40="${(ev.description||'').slice(0,40)}"`);
-                    const evKey = _dedupKey(ev.description || '');
-                    const existing = calStore.events[firstDate] || [];
-                    const dup = existing.some(e => e.sourceEntryId === comment && _dedupKey(e.description || '') === evKey);
-                    log(`parseTimelineEntries: 去重检查 existing=${existing.length} dup=${dup} evKey="${evKey}"`);
-                }
-            }
-        }
         for (const [dateStr, eventArr] of Object.entries(events)) {
             if (!Array.isArray(eventArr)) continue;
-
             if (!calStore.events[dateStr]) calStore.events[dateStr] = [];
 
             for (const ev of eventArr) {
                 if (!ev.description || typeof ev.description !== 'string') continue;
 
-                // Dedup by normalized description (first 20 chars)
-                const evKey = _dedupKey(ev.description);
-                const dup = calStore.events[dateStr].some(e =>
-                    e.sourceEntryId === comment && _dedupKey(e.description || '') === evKey
-                );
-                if (dup) continue;
+                // Intra-run dedup only: check if we already added this exact event
+                // in this parse run (same date + same description prefix).
+                const evKey = dateStr + '|' + _dedupKey(ev.description);
+                if (addedKeys.has(evKey)) continue;
+                addedKeys.add(evKey);
 
                 const evt = toCalendarStoreEvent({
                     type: 'canon',
@@ -190,7 +164,7 @@ export function parseTimelineEntries(entries) {
         }
     }
 
-    log(`parseTimelineEntries: ${timelineEntries.length}条目, JSON解析${parsedCount}成功/${skippedCount}跳过, 提取${totalCount}事件`);
+    log(`parseTimelineEntries: ${timelineEntries.length}条目, JSON解析${parsedCount}成功/${skippedCount}跳过, 清除${cleared}旧事件, 提取${totalCount}新事件`);
 
     return totalCount;
 }
@@ -461,22 +435,9 @@ export function runLorebookPreParser(entries) {
 
     // Version change or content change: clear old canon events from calendarStore
     // to prevent dedup from skipping all events as "duplicates" of stale data
-    if (store.calendarStore?.events) {
-        let cleared = 0;
-        for (const [dateStr, evArr] of Object.entries(store.calendarStore.events)) {
-            if (!Array.isArray(evArr)) continue;
-            const filtered = evArr.filter(ev => ev.type !== 'canon');
-            cleared += evArr.length - filtered.length;
-            if (filtered.length === 0) {
-                delete store.calendarStore.events[dateStr];
-            } else {
-                store.calendarStore.events[dateStr] = filtered;
-            }
-        }
-        if (cleared > 0) {
-            log(`Lore pre-parser: cleared ${cleared} old canon events before re-parsing`);
-        }
-    }
+    // NOTE: This is now also done unconditionally inside parseTimelineEntries itself,
+    // but we keep it here as a belt-and-suspenders measure.
+    // (Intentionally left empty — parseTimelineEntries handles clearing internally.)
 
     // Phase 1: Character profiles → npcStore
     const npcCount = initNpcFromWorldBook(entries);

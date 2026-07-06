@@ -367,7 +367,7 @@ describe('runLorebookPreParser — loreParsed flag', () => {
         runLorebookPreParser(entries);
 
         expect(mockStore.loreParsed).toBeTruthy();
-        expect(mockStore.loreParsed.version).toBe(5);
+        expect(mockStore.loreParsed.version).toBe(6);
         expect(mockStore.loreParsed.npcCount).toBe(1);
         expect(mockStore.loreParsed.floorCount).toBe(1);
         expect(mockStore.loreParsed.timelineCount).toBe(0);
@@ -516,8 +516,10 @@ describe('Phase 3: parseTimelineEntries', () => {
         expect(count1).toBe(1);
         expect(mockStore.calendarStore.events['2024-01-06'].length).toBe(1);
 
+        // Second run: clears all canon events, then re-parses fresh.
+        // count2 should be 1 (re-added after clearing), total still 1 (not duplicated).
         const count2 = parseTimelineEntries(entries);
-        expect(count2).toBe(0); // deduped
+        expect(count2).toBe(1);
         expect(mockStore.calendarStore.events['2024-01-06'].length).toBe(1);
     });
 
