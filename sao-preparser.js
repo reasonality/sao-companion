@@ -16,7 +16,7 @@ import { log } from './sao-core.js';
 // Constants
 // ============================================================
 
-const CURRENT_LORE_PARSER_VERSION = 3;
+const CURRENT_LORE_PARSER_VERSION = 4;
 
 // ============================================================
 // Hash helper
