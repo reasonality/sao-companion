@@ -90,7 +90,7 @@ function extractBoss(content) {
 /**
  * 构建楼层 canon 对象。
  * @param {string} content - 世界书原始内容
- * @returns {{ theme: string, mainTown: string, labyrinth: string, boss: string }}
+ * @returns {{ theme: string, mainTown: string, mainCityDesc: string, labyrinth: string, labyrinthLocation: string, labyrinthDesc: string, boss: string, bossDesc: string, intro: string, notes: string, landmarks: Array, villages: Array, attackPoint: object|null }}
  */
 function _buildCanon(content) {
     return {
@@ -195,9 +195,38 @@ export function initFloorFromWorldBook(entries) {
             const content = entry.content || '';
             const contentHash = simpleHash(content);
 
-            // 优先：提取 worldbook-data JSON 围栏
-            const fenceMatch = content.match(/```worldbook-data\s*([\s\S]*?)```/);
             let floorJson = null;
+
+            // 优先0：直接JSON格式（新格式）
+            try {
+                const parsed = JSON.parse(content);
+                const arr = Array.isArray(parsed) ? parsed : [parsed];
+                if (arr[0] && typeof arr[0].floor === 'number') {
+                    floorJson = arr.map(p => ({
+                        floor_number: p.floor,
+                        theme: p.theme || '',
+                        mainTown: p.mainCity ? p.mainCity.name : '',
+                        mainCityDesc: p.mainCity ? (p.mainCity.description || '') : '',
+                        labyrinth: p.labyrinth ? (p.labyrinth.location ? p.labyrinth.location + ' ' + (p.labyrinth.description || '') : (p.labyrinth.description || '')) : '',
+                        labyrinthLocation: p.labyrinth ? (p.labyrinth.location || '') : '',
+                        labyrinthDesc: p.labyrinth ? (p.labyrinth.description || '') : '',
+                        boss: p.boss ? p.boss.name : '',
+                        bossDesc: p.boss ? (p.boss.description || '') : '',
+                        intro: p.intro || '',
+                        notes: p.notes || '',
+                        landmarks: p.landmarks || [],
+                        villages: p.villages || [],
+                        attackPoint: p.attackPoint || null,
+                        source: 'worldbook',
+                    }));
+                }
+            } catch (e) {
+                // 非 JSON 格式，继续回退
+            }
+
+            // 优先1：提取 worldbook-data JSON 围栏
+            if (!floorJson) {
+            const fenceMatch = content.match(/```worldbook-data\s*([\s\S]*?)```/);
             if (fenceMatch) {
                 try {
                     const parsed = JSON.parse(fenceMatch[1].trim());
@@ -207,6 +236,8 @@ export function initFloorFromWorldBook(entries) {
                     log(`楼层 ${floorNums[0]} worldbook-data JSON 解析失败: ${e.message}`, 'warn');
                 }
             }
+
+            } // end if (!floorJson) for fenceMatch
 
             // 回退1：解析 "## 元数据" 段（新格式，融入正文结构）
             if (!floorJson) {
@@ -279,8 +310,17 @@ export function initFloorFromWorldBook(entries) {
                         return {
                             theme: fd.theme || '',
                             mainTown: fd.mainTown || '',
+                            mainCityDesc: fd.mainCityDesc || '',
                             labyrinth: fd.labyrinth || '',
+                            labyrinthLocation: fd.labyrinthLocation || '',
+                            labyrinthDesc: fd.labyrinthDesc || '',
                             boss: fd.boss || '',
+                            bossDesc: fd.bossDesc || '',
+                            intro: fd.intro || '',
+                            notes: fd.notes || '',
+                            landmarks: fd.landmarks || [],
+                            villages: fd.villages || [],
+                            attackPoint: fd.attackPoint || null,
                         };
                     }
                 }
