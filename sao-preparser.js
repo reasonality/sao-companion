@@ -80,7 +80,10 @@ export function parseTimelineEntries(entries) {
     if (!store || !entries || !Array.isArray(entries)) return 0;
 
     const calStore = getCalendarStore();
-    if (!calStore) return 0;
+    if (!calStore) {
+        log('parseTimelineEntries: calendarStore为null，无法解析', 'warn');
+        return 0;
+    }
     if (!calStore.events) calStore.events = {};
     if (!calStore.monthNotes) calStore.monthNotes = {};
 
@@ -113,6 +116,8 @@ export function parseTimelineEntries(entries) {
     );
 
     let totalCount = 0;
+    let parsedCount = 0;
+    let skippedCount = 0;
 
     for (const entry of timelineEntries) {
         const comment = (entry.comment || '').trim();
@@ -121,7 +126,9 @@ export function parseTimelineEntries(entries) {
         let data;
         try {
             data = JSON.parse(entry.content);
+            parsedCount++;
         } catch (e) {
+            skippedCount++;
             continue; // non-JSON format — skip
         }
 
@@ -160,6 +167,8 @@ export function parseTimelineEntries(entries) {
             }
         }
     }
+
+    log(`parseTimelineEntries: ${timelineEntries.length}条目, JSON解析${parsedCount}成功/${skippedCount}跳过, 提取${totalCount}事件`);
 
     return totalCount;
 }
