@@ -552,10 +552,9 @@ function bindEvents() {
             log('聊天切换，加载 per-chat 数据');
             stabilizeSaoRegexScripts();
             enableCompatMode();
-            injectMemoryAndState();
-            initCalendarIfNeeded();
-
-            // B3 + Pre-parser: Initialize stores from world book (Phase 1: NPCs, Phase 2: Floors)
+            // B3 + Pre-parser: Initialize stores from world book (Phase 1: NPCs, Phase 2: Floors, Phase 3: Timeline)
+            // MUST run before initCalendarIfNeeded() so that loreParsed.timelineCount > 0
+            // and calendar init skips the legacy _filterTimelineEntries path.
             const char = getCurrentCharacter();
             if (char?.data?.character_book?.entries) {
                 const entries = char.data.character_book.entries;
@@ -565,6 +564,9 @@ function bindEvents() {
                 }
                 log(`Pre-parser 完成: ${entries.length} 条目`);
             }
+
+            injectMemoryAndState();
+            initCalendarIfNeeded();
 
             // Phase 2: Initialize preset guilds and check discovery
             initPresetGuilds();
