@@ -631,6 +631,106 @@ describe('Phase 3: parseTimelineEntries', () => {
         expect(calStore.events['2022-11-21'][0].title).toContain('PoH');
     });
 
+    it('parses ### sub-event format (each ### = one event with title/description/time)', () => {
+        const entries = [
+            {
+                comment: '2022年11月 - 艾恩葛朗特事件表',
+                enabled: true,
+                content: [
+                    '[2022年11月 - 艾恩葛朗特事件表]',
+                    '',
+                    '11月6日 (星期日) - 宣告日:',
+                    '',
+                    '### 正常游戏开服期',
+                    '所有人都认为这是一款划时代的VRMMORPG。',
+                    '',
+                    '### 13:00 正式开服',
+                    '《Sword Art Online》正式开服。',
+                    '',
+                    '### 13:00-14:00 犯罪宣言',
+                    '茅场晶彦向现实世界发布犯罪宣言。',
+                    '',
+                    '### 傍晚 霍伦卡村',
+                    '桐人遭遇柯贝尔。',
+                    '',
+                    '11月7日 (星期一):',
+                    '',
+                    '### 情报商阿尔戈',
+                    '阿尔戈找到桐人。',
+                ].join('\n'),
+            },
+        ];
+
+        const count = parseTimelineEntries(entries);
+        // 4 sub-events on 6th + 1 sub-event on 7th = 5 total
+        expect(count).toBe(5);
+
+        const calStore = mockStore.calendarStore;
+        expect(calStore.events['2022-11-06']).toBeTruthy();
+        expect(calStore.events['2022-11-06'].length).toBe(4);
+
+        // First sub-event: title from ###, description = content, no time
+        expect(calStore.events['2022-11-06'][0].title).toBe('正常游戏开服期');
+        expect(calStore.events['2022-11-06'][0].description).toContain('划时代的VRMMORPG');
+        expect(calStore.events['2022-11-06'][0].time).toBeNull();
+
+        // Second sub-event: time extracted from "13:00 正式开服"
+        expect(calStore.events['2022-11-06'][1].title).toBe('正式开服');
+        expect(calStore.events['2022-11-06'][1].time).toBe('13:00');
+        expect(calStore.events['2022-11-06'][1].description).toContain('Sword Art Online');
+
+        // Third sub-event: time range "13:00-14:00" → start time "13:00"
+        expect(calStore.events['2022-11-06'][2].title).toBe('犯罪宣言');
+        expect(calStore.events['2022-11-06'][2].time).toBe('13:00');
+
+        // Fourth sub-event: "傍晚" is not HH:MM, so title = "傍晚 霍伦卡村"
+        expect(calStore.events['2022-11-06'][3].title).toBe('傍晚 霍伦卡村');
+        expect(calStore.events['2022-11-06'][3].time).toBeNull();
+
+        expect(calStore.events['2022-11-07']).toBeTruthy();
+        expect(calStore.events['2022-11-07'].length).toBe(1);
+        expect(calStore.events['2022-11-07'][0].title).toBe('情报商阿尔戈');
+    });
+
+    it('parses floor format with ## 元数据 section (new integrated format)', () => {
+        const entries = [
+            {
+                keys: ['第13层', '第 13层', '第十三层'],
+                comment: 'sao-第13层',
+                enabled: true,
+                content: [
+                    '[第十三层世界设定 - 焦热荒野与烈焰射手]',
+                    '',
+                    '第十三层是攻略组在突破前十层之后遭遇的第一片恶劣环境。',
+                    '',
+                    '## 主城: 阿什拉尔 (Ashralar)',
+                    '描述: 一座建在冷却熔岩平原上的灰黑色城镇。',
+                    '',
+                    '## 迷宫区',
+                    '位置: 活火山的内部。',
+                    '描述: 迷宫区沿火山内壁盘旋而下。',
+                    '',
+                    '## Boss: 阿拉兹·烈焰射手 (Allaz the Blaze Shooter)',
+                    '描述: 一具由凝固熔岩与烈焰构成的人形魔像。',
+                    '',
+                    '## 元数据',
+                    '楼层: 13 | 主题: 火山荒野/恶劣环境 | 主城: 阿什拉尔(Ashralar) | 迷宫: 活火山内部熔岩通道 | Boss: 阿拉兹·烈焰射手(Allaz the Blaze Shooter) | 来源: external+original | 备注: IF手游Nautilus首次登场',
+                ].join('\n'),
+            },
+        ];
+
+        const result = runLorebookPreParser(entries);
+        expect(result).toBeTruthy();
+        expect(result.floorCount).toBe(1);
+
+        const floor13 = getFloorByNumber(13);
+        expect(floor13).toBeTruthy();
+        expect(floor13.floor_id).toBe('floor_013');
+        expect(floor13.canon.theme).toBe('火山荒野/恶劣环境');
+        expect(floor13.canon.boss).toBe('阿拉兹·烈焰射手(Allaz the Blaze Shooter)');
+        expect(floor13.source).toBe('external+original');
+    });
+
     it('parses disabled timeline entries (Plan A: plugin disables after parsing)', () => {
         const entries = [
             {

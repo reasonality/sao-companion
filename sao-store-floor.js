@@ -208,7 +208,40 @@ export function initFloorFromWorldBook(entries) {
                 }
             }
 
-            // 回退：解析 "数据:" 行（精简格式，无 JSON 围栏时使用）
+            // 回退1：解析 "## 元数据" 段（新格式，融入正文结构）
+            if (!floorJson) {
+                const metaMatch = content.match(/^##\s*元数据\s*\n([\s\S]*?)(?:\n##\s|$)/m);
+                if (metaMatch) {
+                    const metaStr = metaMatch[1].trim();
+                    // 格式: "楼层: 13 | 主题: 火山荒野 | 来源: external+original | 备注: ..."
+                    const fields = {};
+                    const parts = metaStr.split(/\s*\|\s*/);
+                    for (const part of parts) {
+                        const colonIdx = part.indexOf(':');
+                        if (colonIdx > 0) {
+                            const key = part.substring(0, colonIdx).trim();
+                            const val = part.substring(colonIdx + 1).trim();
+                            // Map Chinese keys to field names
+                            const keyMap = { '楼层': 'floor', '主题': 'theme', '来源': 'source', '备注': 'notes', '主城': 'town', '迷宫': 'labyrinth', 'Boss': 'boss' };
+                            const mappedKey = keyMap[key] || key;
+                            fields[mappedKey] = val;
+                        }
+                    }
+                    if (fields.floor) {
+                        floorJson = [{
+                            floor_number: parseInt(fields.floor),
+                            theme: fields.theme || '',
+                            mainTown: fields.town || '',
+                            labyrinth: fields.labyrinth || '',
+                            boss: fields.boss || '',
+                            notes: fields.notes || '',
+                            source: fields.source || 'worldbook',
+                        }];
+                    }
+                }
+            }
+
+            // 回退2：解析 "数据:" 行（旧格式，向后兼容）
             if (!floorJson) {
                 const dataLineMatch = content.match(/^数据:\s*(.+)$/m);
                 if (dataLineMatch) {
