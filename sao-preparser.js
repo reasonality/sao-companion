@@ -437,6 +437,25 @@ export function runLorebookPreParser(entries) {
         log('Lore pre-parser: card content changed, re-parsing');
     }
 
+    // Version change or content change: clear old canon events from calendarStore
+    // to prevent dedup from skipping all events as "duplicates" of stale data
+    if (store.calendarStore?.events) {
+        let cleared = 0;
+        for (const [dateStr, evArr] of Object.entries(store.calendarStore.events)) {
+            if (!Array.isArray(evArr)) continue;
+            const filtered = evArr.filter(ev => ev.type !== 'canon');
+            cleared += evArr.length - filtered.length;
+            if (filtered.length === 0) {
+                delete store.calendarStore.events[dateStr];
+            } else {
+                store.calendarStore.events[dateStr] = filtered;
+            }
+        }
+        if (cleared > 0) {
+            log(`Lore pre-parser: cleared ${cleared} old canon events before re-parsing`);
+        }
+    }
+
     // Phase 1: Character profiles → npcStore
     const npcCount = initNpcFromWorldBook(entries);
 
