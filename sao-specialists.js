@@ -271,7 +271,7 @@ function _validateStatus(parsed) {
     const s = parsed.state;
     if (!s || typeof s !== 'object') return false;
     // 标量数值字段：若存在必须是 number
-    const numFields = ['hp','max_hp','mp','max_mp','str','agi','int','vit','level','exp','cor','floor'];
+    const numFields = ['hp','max_hp','mp','max_mp','str','agi','int','vit','level','exp','cor','floor','meditationProficiency'];
     for (const f of numFields) {
         if (s[f] != null && typeof s[f] !== 'number') return false;
     }
@@ -309,6 +309,9 @@ function _validateStatus(parsed) {
         if (typeof parsed.state.cursor_type !== 'string') return false;
         if (!['green', 'orange', 'red'].includes(parsed.state.cursor_type)) return false;
     }
+    // 月蚀系统字段校验
+    if (s.uniqueSkillProficiency != null && typeof s.uniqueSkillProficiency !== 'object') return false;
+    if (s.incapacitated != null && typeof s.incapacitated !== 'boolean') return false;
     return true;
 }
 
@@ -358,6 +361,11 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 - 装备槽位：weapon/off_hand/head/chest/hands/legs/accessory
 - 技能字段：base_damage=ATK, hit_rate=Hit%, crit_rate=Crit%, mp_cost=MPCost, cooldown=CD, hits=APT, targets=TPA, core_code=WN, affix_codes=EN（数组）
 - cursor_type：光标类型，根据玩家行为状态判断。green=普通玩家/友方，orange=可攻击/敌对，red=红名PK者。若无法确定则不输出（保持当前值）
+
+4. 输出月蚀独特技能相关字段（仅在叙事涉及这些内容时输出）：
+- 如果叙事中提到冥想修炼，输出 meditationProficiency (number, 当前冥想熟练度)
+- 如果叙事中提到使用了月蚀子技，输出 uniqueSkillProficiency (object: {"子技ID": 熟练度})。子技ID: genmu, tsuki_no_shizuku, mangekyou, kami_no_inori, shisou_rennai, sanzen_sekai
+- 如果主角因释放三千世界陷入无法战斗状态，输出 incapacitated: true；恢复后输出 false
 
 3. 输出 npcUpdates：识别叙事中出现的 NPC，更新其状态
 

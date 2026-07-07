@@ -38,6 +38,11 @@ vi.mock('../sao-context-inject.js', () => ({
     buildContextualInjection: vi.fn(() => ''),
     injectContextualCanon: vi.fn(() => ''),
 }));
+vi.mock('../sao-skills.js', () => ({
+    getUniqueSkill: vi.fn(() => null),
+    getUniqueSkillBuffLevel: vi.fn(() => ({ buffLevel: 0, buffPercent: 0 })),
+    getVisualStage: vi.fn(() => ''),
+}));
 
 // Import after mocks
 import { projectCompactState, projectFullState, projectEquipmentSummary, projectSkillSummary, projectStateHint } from '../sao-state-projection.js';

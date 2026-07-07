@@ -75,6 +75,12 @@ vi.mock('../sao-store-housing.js', () => ({
     getHousingStore: vi.fn(() => mockStore?.housingStore || { playerHousing: null }),
 }));
 
+vi.mock('../sao-skills.js', () => ({
+    getUniqueSkill: vi.fn(() => null),
+    getUniqueSkillBuffLevel: vi.fn(() => ({ buffLevel: 0, buffPercent: 0 })),
+    getVisualStage: vi.fn(() => ''),
+}));
+
 // Import AFTER mocks
 import { projectStatusPanelHtml, projectQuestSummary } from '../sao-state-projection.js';
 

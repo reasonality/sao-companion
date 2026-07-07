@@ -18,7 +18,7 @@ export const CURSOR_LABELS = { green: '🟢 普通', orange: '🟠 敌对', red:
 
 const DEFAULT_PLAYER = Object.freeze({
     player_id: 'player',
-    identity: { name: '桐人', title: null },
+    identity: { name: null, title: null },
     progression: { level: 1, totalExp: 0 },
     attributes: { str: 0, agi: 0, int: 0, vit: 0 },
     vitals: { hp: 100, maxHp: 100, mp: 20, maxMp: 20 },
@@ -34,7 +34,11 @@ const DEFAULT_PLAYER = Object.freeze({
     },
     skills: [],
     customSkills: [],
-    cursor_type: 'green'
+    cursor_type: 'green',
+    // 月蚀独特技能系统
+    meditationProficiency: 0,  // 冥想熟练度 0-2000
+    uniqueSkill: null,          // 月蚀技能对象（现梦解锁时创建）
+    incapacitated: false,       // 三千世界副作用：计算过载无法战斗
 });
 
 // ============================================================
@@ -55,6 +59,10 @@ export function getPlayerStore() {
     if (!store.playerStore.buffs) store.playerStore.buffs = { temporary: [], permanent: [] };
     // Guild: 兼容旧数据补全
     if (store.playerStore.guild_id === undefined) store.playerStore.guild_id = null;
+    // 月蚀系统: 兼容旧数据补全
+    if (store.playerStore.meditationProficiency === undefined) store.playerStore.meditationProficiency = 0;
+    if (store.playerStore.uniqueSkill === undefined) store.playerStore.uniqueSkill = null;
+    if (store.playerStore.incapacitated === undefined) store.playerStore.incapacitated = false;
     return store.playerStore;
 }
 
@@ -243,6 +251,12 @@ export async function updatePlayerVitals(vitals, skipSave) {
         if (vitals.maxMp != null) playerStore._baseVitals.maxMp = vitals.maxMp - bonuses.maxMp;
     }
 
+    // 月蚀：HP 恢复满时清除计算过载
+    if (playerStore.incapacitated && playerStore.vitals.hp >= playerStore.vitals.maxHp && playerStore.vitals.maxHp > 0) {
+        playerStore.incapacitated = false;
+        log('[月蚀] 计算过载解除 — HP 已恢复满');
+    }
+
     if (skipSave !== true) await saveStore();
 }
 
@@ -419,3 +433,48 @@ export async function unequipItem(slot, skipSave) {
 }
 
 // validatePlayerEntry removed — genuinely dead code (no production or test imports)
+
+// ============================================================
+// 月蚀独特技能系统 (Lunar Eclipse)
+// ============================================================
+
+/**
+ * 获取独特技能对象（月蚀）。
+ * @returns {object|null} uniqueSkill 对象，未解锁时返回 null
+ */
+export function getUniqueSkill() {
+    return getPlayerStore()?.uniqueSkill || null;
+}
+
+/**
+ * 设置独特技能对象。
+ * @param {object} skillObj - uniqueSkill 对象
+ */
+export function setUniqueSkill(skillObj) {
+    const player = getPlayerStore();
+    player.uniqueSkill = skillObj;
+    saveStore();
+}
+
+/**
+ * 更新冥想熟练度。
+ * @param {number} value - 新值（clamp 0-2000）
+ */
+export function updateMeditationProficiency(value) {
+    const player = getPlayerStore();
+    player.meditationProficiency = Math.max(0, Math.min(2000, Number(value) || 0));
+    saveStore();
+}
+
+/**
+ * 更新月蚀子技熟练度。
+ * @param {string} techId - 子技 ID（genmu/tsuki_no_shizuku/...）
+ * @param {number} prof - 熟练度值
+ */
+export function updateSubTechniqueProficiency(techId, prof) {
+    const player = getPlayerStore();
+    if (!player.uniqueSkill?.subTechniques?.[techId]) return;
+    if (!player.uniqueSkill.subTechniques[techId].unlocked) return;
+    player.uniqueSkill.subTechniques[techId].proficiency = Math.max(0, Number(prof) || 0);
+    saveStore();
+}

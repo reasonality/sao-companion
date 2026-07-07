@@ -4,7 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -695,6 +695,25 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                 // Add/update player skill reference with proficiency
                 const proficiency = sk.skill_level || sk.proficiency || 0;
                 await addPlayerSkill(skillId, sk.name, proficiency, true);
+            }
+        }
+
+        // 4b. 月蚀系统：冥想熟练度 / 子技熟练度 / 计算过载
+        if (s.meditationProficiency != null) {
+            updateMeditationProficiency(s.meditationProficiency);
+        }
+        if (s.uniqueSkillProficiency && typeof s.uniqueSkillProficiency === 'object') {
+            for (const [techId, prof] of Object.entries(s.uniqueSkillProficiency)) {
+                if (prof != null) updateSubTechniqueProficiency(techId, prof);
+            }
+        }
+        if (s.incapacitated != null) {
+            const player = getPlayerStore();
+            player.incapacitated = !!s.incapacitated;
+            if (s.incapacitated) {
+                log('[月蚀] 计算过载 — 无法战斗状态激活');
+            } else {
+                log('[月蚀] 计算过载解除');
             }
         }
 

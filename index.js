@@ -37,7 +37,7 @@ import { buildCalCellHtml } from './sao-calendar-cell.js';
 import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-detail-popup.js';
 
 import { extractAll, applyExtractedData } from './sao-extract.js';
-import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
+import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks, checkUniqueSkillUnlocks } from './sao-skills.js';
 import { expireBuffs } from './sao-buff.js';
 import { initPresetGuilds, checkGuildDiscovery } from './sao-store-guild.js';
 import {
@@ -635,6 +635,9 @@ function bindEvents() {
 
             // P4c: Custom skill unlock check
             checkCustomSkillUnlocks(rawText);
+
+            // 月蚀独特技能解锁检查
+            checkUniqueSkillUnlocks();
 
             // Centralized turn counter increment (per spec §4.4, at end of chain before save)
             const saoData = getSaoData();

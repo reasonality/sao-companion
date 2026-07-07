@@ -16,6 +16,7 @@ import { log, esc, safe } from './sao-core.js';
 import { calculateBuffTotals, formatBuffsForDisplay } from './sao-buff.js';
 import { getPlayerGuild } from './sao-store-guild.js';
 import { getPlayerHousing, getActiveFurnitureBuffs } from './sao-store-housing.js';
+import { getUniqueSkill, getUniqueSkillBuffLevel, getVisualStage } from './sao-skills.js';
 
 /** 区域危险度 → 中文标签（与面板侧栏 index.js DANGER_LABEL 对齐） */
 const DANGER_LABEL = { safe: '安全', low: '低危', medium: '中危', high: '高危', extreme: '极危' };
@@ -314,6 +315,26 @@ export function projectFullState() {
         sections.push({ label: '住所', text: housingText, priority: 2.7 });
     }
 
+    // ---- 月蚀独特技能展示（仅有独特技能时显示） ----
+    const uniqueSkill = getUniqueSkill();
+    if (uniqueSkill) {
+        const { buffLevel, buffPercent } = getUniqueSkillBuffLevel();
+        const unlocked = Object.entries(uniqueSkill.subTechniques)
+            .filter(([_, t]) => t.unlocked)
+            .map(([id, t]) => `${t.name}(熟练${t.proficiency})`);
+        const visualStage = getVisualStage(buffLevel);
+        const usParts = [
+            `月蚀(称号:${uniqueSkill.title || '无'})`,
+            `已解锁: ${unlocked.join(' | ')}`,
+            `月蝕の残光: +${buffPercent}% (${buffLevel}/6层, 满层+60%) — ${visualStage}`,
+        ];
+        // 计算过载状态
+        if (player.incapacitated) {
+            usParts.push('【状态】计算过载 — 无法战斗');
+        }
+        sections.push({ label: '独特技能', text: usParts.join(' | '), priority: 2.8 });
+    }
+
     // ---- 3. 装备 ----
     const equipLines = [];
     const equip = player.equipment;
@@ -486,6 +507,17 @@ export function projectStateHint() {
         });
         if (skills.length > 3) shown.push('...');
         mainParts.push(`技能:${shown.join(',')}`);
+    }
+
+    // 月蚀独特技能（最高熟练度已解锁子技）
+    const uniqueSkill = getUniqueSkill();
+    if (uniqueSkill) {
+        const best = Object.entries(uniqueSkill.subTechniques)
+            .filter(([_, t]) => t.unlocked)
+            .sort((a, b) => (b[1].proficiency || 0) - (a[1].proficiency || 0))[0];
+        if (best) {
+            mainParts.push(`独特技能:月蚀·${best[1].name}(熟练${best[1].proficiency || 0})`);
+        }
     }
 
     return stripIds(mainParts.join(' | '));

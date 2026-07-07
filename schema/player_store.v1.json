@@ -9,7 +9,7 @@
       "type": "object",
       "required": ["name"],
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": ["string", "null"] },
         "title": { "type": ["string", "null"] }
       }
     },
@@ -77,6 +77,18 @@
     "customSkills": {
       "type": "array",
       "items": { "type": "string" }
-    }
+    },
+    "meditationProficiency": { "type": "number", "minimum": 0, "maximum": 2000 },
+    "uniqueSkill": {
+      "type": ["object", "null"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "buffLevel": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "subTechniques": { "type": "object" }
+      }
+    },
+    "incapacitated": { "type": "boolean" }
   }
 }

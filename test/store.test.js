@@ -33,6 +33,12 @@ vi.mock('../sao-store-core.js', () => ({
     }),
 }));
 
+vi.mock('../sao-skills.js', () => ({
+    getUniqueSkill: vi.fn(() => null),
+    getUniqueSkillBuffLevel: vi.fn(() => ({ buffLevel: 0, buffPercent: 0 })),
+    getVisualStage: vi.fn(() => ''),
+}));
+
 // Import AFTER mocks — real store modules will call the mocked getStore
 import {
     findOrCreateSkill,
@@ -341,7 +347,7 @@ describe('Player Store', () => {
         expect(mockStore.playerStore).toBeNull();
         const player = getPlayerStore();
         expect(player).toBeTruthy();
-        expect(player.identity.name).toBe('桐人');
+        expect(player.identity.name).toBeNull();
         expect(player.vitals.hp).toBe(100);
         expect(player.vitals.maxHp).toBe(100);
         expect(player.equipment.weapon).toBeNull();
