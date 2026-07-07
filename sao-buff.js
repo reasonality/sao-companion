@@ -176,7 +176,7 @@ export function removeBuff(entity, buffId) {
  * 检查并过期临时 buff。
  * @param {object} entity - 任意实体对象
  * @param {number} currentTurn - 当前回合数
- * @param {string} trigger - 'next_combat' | 'turn'（触发过期检查的上下文）
+ * @param {string} trigger - 'turn'（触发过期检查的上下文）
  * @returns {string[]} 被移除 buff 的 name 列表（用于日志）
  */
 export function expireBuffs(entity, currentTurn, trigger) {
@@ -188,9 +188,7 @@ export function expireBuffs(entity, currentTurn, trigger) {
     for (const buff of entity.buffs.temporary) {
         let expired = false;
 
-        if (buff.expires === 'next_combat' && trigger === 'next_combat') {
-            expired = true;
-        } else if (typeof buff.expires === 'string' && buff.expires.startsWith('turn_')) {
+        if (typeof buff.expires === 'string' && buff.expires.startsWith('turn_')) {
             const expireTurn = parseInt(buff.expires.slice(5), 10);
             if (!isNaN(expireTurn) && expireTurn <= currentTurn) {
                 expired = true;

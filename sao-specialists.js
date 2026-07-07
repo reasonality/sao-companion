@@ -313,7 +313,7 @@ function _validateStatus(parsed) {
 }
 
 /**
- * P3: status 专家——输出结构化 state（供 extractAll/applyExtractedData）+ zdText（供 renderBattlePanel）。
+ * P3: status 专家——输出结构化 state（供 extractAll/applyExtractedData）。
  * 主 LLM 不再发 <zd_status>/<user_status>；本专家接管全部状态生成。
  * 注意：status 专家不 fire-and-forget——extractAll 依赖其输出作为主数据源，须 await。
  * @param {number|string} messageId

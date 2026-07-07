@@ -65,14 +65,6 @@ export function renderDetailSkill(sk, describeEnFn) {
     if (sk.weapon_type) rows.push(detailRow('武器类型', esc(sk.weapon_type)));
     if (sk.proficiency != null) rows.push(detailRow('技能等级', 'Lv' + esc(sk.proficiency)));
     if (sk.rarity) rows.push(detailRow('稀有度', esc(sk.rarity), rarityClass(sk.rarity)));
-    const c = sk.combat || {};
-    if (c.atk != null) rows.push(detailRow('基础伤害', esc(c.atk)));
-    if (c.hit != null) rows.push(detailRow('命中率', esc(c.hit) + '%'));
-    if (c.crit != null) rows.push(detailRow('暴击率', esc(c.crit) + '%'));
-    if (c.mpCost != null) rows.push(detailRow('MP消耗', esc(c.mpCost)));
-    if (c.cd != null) rows.push(detailRow('冷却', esc(c.cd) + '回合'));
-    if (c.apt != null) rows.push(detailRow('连击数', esc(c.apt)));
-    if (c.tpa != null) rows.push(detailRow('目标数', esc(c.tpa)));
     if (sk.effects && sk.effects.wn) rows.push(detailRow('核心功能', esc(coreCodeLabel(sk.effects.wn))));
     if (sk.effects && sk.effects.en && sk.effects.en.length > 0) {
         const affixHtml = sk.effects.en.map(raw => {

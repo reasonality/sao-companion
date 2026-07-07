@@ -81,7 +81,7 @@ export function unbindAllSaoEvents() {
 
 /**
  * v1→v2 模型配置迁移：旧 5 槽（narrative/combat/extract/calendar/specialist）→ 新 3 主档 + 子角色。
- * 旧 extract → state 主档 + extract 子角色保留；旧 combat → equipment 主档 + combat 子角色保留；
+ * 旧 extract → state 主档 + extract 子角色保留；
  * 旧 calendar → world 主档 + calendar 子角色保留；旧 narrative/specialist 丢弃（无消费者）。
  * 幂等：已迁移（_modelConfigVersion >= 2）则跳过。
  */
@@ -93,15 +93,13 @@ function _migrateModelSettingsV1ToV2(s) {
     if (!m.state && (m.extract || m.specialist)) {
         m.state = structuredClone(m.extract || m.specialist);
     }
-    if (!m.equipment && m.combat) {
-        m.equipment = structuredClone(m.combat);
-    }
     if (!m.world && m.calendar) {
         m.world = structuredClone(m.calendar);
     }
     // 清理废弃键
     delete m.narrative;
     delete m.specialist;
+    delete m.combat;
     s._modelConfigVersion = 2;
 }
 

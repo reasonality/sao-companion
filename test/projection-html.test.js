@@ -429,7 +429,7 @@ describe('projectStatusPanelHtml', () => {
         expect(html).toContain('data-sao-action="show-completed-quests"');
     });
 
-    it('uses combat HP during active combat (soft-guard)', () => {
+    it('uses store HP (combat HP override removed)', () => {
         mockStore = {
             playerStore: {
                 identity: { name: '桐人', title: null },
@@ -454,9 +454,8 @@ describe('projectStatusPanelHtml', () => {
         };
 
         const html = projectStatusPanelHtml();
-        // Should show combat HP (300/585), not store HP (585/585)
-        expect(html).toContain('300/585');
-        // compact HUD 不再单独渲染 '战斗中' meta，但 HP 数据本身已切换
+        // Combat HP override removed — shows store HP (585/585)
+        expect(html).toContain('585/585');
         // sao-hud-lv 仍然渲染
         expect(html).toContain('sao-hud-lv');
     });

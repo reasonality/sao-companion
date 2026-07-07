@@ -791,9 +791,9 @@ describe('Phase 4: parseWorldRules', () => {
         ];
 
         const count = parseWorldRules(entries);
-        expect(count).toBe(8);
+        expect(count).toBe(7);
         expect(Object.keys(mockStore.worldStore.rules)).toEqual(
-            expect.arrayContaining(['pk', 'economy', 'leveling', 'skills', 'combat', 'meditation', 'housing', 'npc_rules'])
+            expect.arrayContaining(['pk', 'economy', 'leveling', 'skills', 'meditation', 'housing', 'npc_rules'])
         );
     });
 });
@@ -1451,6 +1451,7 @@ describe('Stale data removal — world rules from removed entries', () => {
         ];
 
         parseWorldRules(entries);
-        expect(mockStore.worldStore._ruleSources.combat).toBe('sao-剑技获取');
+        // 'combat' topic removed — 剑技获取 entry no longer parsed as a rule
+        expect(mockStore.worldStore._ruleSources.combat).toBeUndefined();
     });
 });

@@ -82,7 +82,7 @@ describe('projectCompactState', () => {
         expect(result).not.toContain('skill_');
     });
 
-    it('HP soft-guard reads from runtime._zd_parsed during combat', () => {
+    it('uses store HP (combat HP override removed)', () => {
         mockStore = {
             playerStore: {
                 identity: { name: '桐人', title: null },
@@ -105,9 +105,8 @@ describe('projectCompactState', () => {
             },
         };
         const result = projectCompactState();
-        // Should show combat HP (300), not store HP (585)
-        expect(result).toContain('300');
-        expect(result).toContain('战斗中');
+        // Combat HP override removed — shows store HP (585)
+        expect(result).toContain('585/585');
     });
 });
 

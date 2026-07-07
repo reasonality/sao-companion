@@ -184,28 +184,3 @@ export function validateSkillEntry(data) {
 
     return { valid: errors.length === 0, errors };
 }
-
-/**
- * 更新技能 combat 字段（normalize 层调用，当 status 专家输出更新值时）。
- * @param {string} skillId
- * @param {object} combatData - 部分或全部 combat 字段
- * @returns {boolean} 是否更新成功
- */
-export async function updateSkillCombat(skillId, combatData, skipSave) {
-    const store = getSkillStore();
-    const skill = store.byId[skillId];
-    if (!skill) {
-        log(`updateSkillCombat: 技能 ${skillId} 不存在`, 'warn');
-        return false;
-    }
-
-    if (!combatData || typeof combatData !== 'object') {
-        log('updateSkillCombat: combatData 无效', 'warn');
-        return false;
-    }
-
-    skill.combat = { ...skill.combat, ...combatData };
-    if (skipSave !== true) await saveStore();
-    log(`技能 combat 更新: ${skillId}`);
-    return true;
-}

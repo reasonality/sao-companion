@@ -189,7 +189,6 @@ export function parseWorldRules(entries) {
         { pattern: /经济系统/, topic: 'economy' },
         { pattern: /等级|成长规则/, topic: 'leveling' },
         { pattern: /技能/, topic: 'skills' },
-        { pattern: /剑技获取/, topic: 'combat' },
         { pattern: /冥想/, topic: 'meditation' },
         { pattern: /房屋/, topic: 'housing' },
         { pattern: /NPC档案构建/, topic: 'npc_rules' },

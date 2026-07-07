@@ -125,35 +125,6 @@ function keyStats(equip, slot, maxStats = 2) {
 }
 
 /**
- * 检测是否处于活跃战斗中（有 hp > 0 的敌人）。
- * @returns {boolean}
- */
-function isInCombat() {
-    try {
-        const store = getStore();
-        const enemies = store?.runtime?._zd_parsed?.enemies;
-        return Array.isArray(enemies) && enemies.some(e => e.hp > 0);
-    } catch {
-        return false;
-    }
-}
-
-/**
- * 获取战斗中玩家 HP（从 runtime._zd_parsed.player 读取）。
- * @returns {{ hp: number, maxHp: number }|null}
- */
-function getCombatHp() {
-    try {
-        const player = getStore()?.runtime?._zd_parsed?.player;
-        if (player?.hp != null) {
-            // parseZdStatus 存 max_hp (snake_case)，非 maxHp。两个名字都兜底。
-            return { hp: player.hp, maxHp: player.maxHp ?? player.max_hp ?? player.hp };
-        }
-    } catch { /* ignore */ }
-    return null;
-}
-
-/**
  * 自检：移除字符串中可能泄露的内部 ID 前缀。
  * @param {string} text
  * @returns {string}
@@ -184,14 +155,10 @@ export function projectCompactState() {
     if (name) base.push(`[玩家]${name}`);
     if (player.progression?.level != null) base.push(`Lv${player.progression.level}`);
 
-    // HP / MP（含战斗软守卫）
+    // HP / MP
     if (player.vitals) {
-        const combat = isInCombat();
-        const combatHp = combat ? getCombatHp() : null;
         const v = player.vitals;
-        const hp    = combatHp?.hp    ?? v.hp    ?? 0;
-        const maxHp = combatHp?.maxHp ?? v.maxHp ?? 0;
-        base.push(`HP:${hp}/${maxHp}${combat ? ' (战斗中)' : ''}`);
+        base.push(`HP:${v.hp ?? 0}/${v.maxHp ?? 0}`);
         base.push(`MP:${v.mp ?? 0}/${v.maxMp ?? 0}`);
     }
 
@@ -304,14 +271,10 @@ export function projectFullState() {
         if (attr.vit != null) parts.push(`VIT:${attr.vit + (buffTotals.vit || 0)}`);
         if (parts.length) stats.push(parts.join(' '));
     }
-    // HP / MP（含战斗软守卫）
+    // HP / MP
     if (player.vitals) {
-        const combat = isInCombat();
-        const combatHp = combat ? getCombatHp() : null;
         const v = player.vitals;
-        const hp    = combatHp?.hp    ?? v.hp    ?? 0;
-        const maxHp = combatHp?.maxHp ?? v.maxHp ?? 0;
-        stats.push(`HP:${hp}/${maxHp}${combat ? ' (战斗中)' : ''} MP:${v.mp ?? 0}/${v.maxMp ?? 0}`);
+        stats.push(`HP:${v.hp ?? 0}/${v.maxHp ?? 0} MP:${v.mp ?? 0}/${v.maxMp ?? 0}`);
     }
     // 位置
     const pos = player.position;
@@ -484,14 +447,10 @@ export function projectStateHint() {
     if (player.identity?.name) parts.push(player.identity.name);
     if (player.progression?.level != null) parts.push(`Lv${player.progression.level}`);
 
-    // HP / MP（含战斗软守卫）
+    // HP / MP
     if (player.vitals) {
-        const combat = isInCombat();
-        const combatHp = combat ? getCombatHp() : null;
         const v = player.vitals;
-        const hp    = combatHp?.hp    ?? v.hp    ?? 0;
-        const maxHp = combatHp?.maxHp ?? v.maxHp ?? 0;
-        parts.push(`HP:${hp}/${maxHp}${combat ? ' (战斗中)' : ''}`);
+        parts.push(`HP:${v.hp ?? 0}/${v.maxHp ?? 0}`);
         parts.push(`MP:${v.mp ?? 0}/${v.maxMp ?? 0}`);
     }
 
@@ -637,14 +596,12 @@ export function renderPlayerStatusPanel() {
 }
 
 /**
- * 投影等级与属性（返回数据对象，含战斗软守卫）。
+ * 投影等级与属性（返回数据对象）。
  * @returns {object|null}
  */
 export function renderLevelAttributesPanel() {
     const player = safe(() => getPlayerStore(), 'getPlayerStore');
     if (!player) return null;
-    const combat = isInCombat();
-    const combatHp = combat ? getCombatHp() : null;
     const v = player.vitals || {};
     return {
         level: player.progression?.level ?? null,
@@ -653,13 +610,12 @@ export function renderLevelAttributesPanel() {
         agi: player.attributes?.agi ?? null,
         int: player.attributes?.int ?? null,
         vit: player.attributes?.vit ?? null,
-        hp: combatHp?.hp ?? v.hp ?? null,
-        maxHp: combatHp?.maxHp ?? v.maxHp ?? null,
+        hp: v.hp ?? null,
+        maxHp: v.maxHp ?? null,
         mp: v.mp ?? null,
         maxMp: v.maxMp ?? null,
         floorId: player.position?.floor_id ?? null,
         location: player.position?.location ?? '',
-        inCombat: combat,
     };
 }
 

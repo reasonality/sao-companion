@@ -14,7 +14,7 @@ export const PANEL_REGISTRY = [
     { tag: 'npc_status' },
     { tag: 'map' },
     { tag: 'calendar' },
-    { tag: 'zd_status', isSpecial: true },
+    { tag: 'zd_status' },
     { tag: 'digest' },
 ];
 

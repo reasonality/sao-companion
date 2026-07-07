@@ -7,7 +7,7 @@ import { getWorldStore } from './sao-store-world.js';
 import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
-import { findOrCreateSkill, getSkillById, getSkillStore, updateSkillCombat } from './sao-store-skill.js';
+import { findOrCreateSkill, getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById, getNpcByName } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';

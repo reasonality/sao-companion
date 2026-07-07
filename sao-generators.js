@@ -301,7 +301,7 @@ export async function generateEquipment(context, callModelFn) {
 要求: 名称和描述要有SAO风格，描述1-2句话`;
 
     try {
-        const result = await callModelFn('combat', [
+        const result = await callModelFn('equipment', [
             { role: 'system', content: '你是SAO装备命名器。只输出JSON。' },
             { role: 'user', content: namePrompt },
         ], 256, { jsonSchema: true });
@@ -413,7 +413,7 @@ ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
 要求: 名称要有SAO剑技风格(如「星爆气流斩」「音速冲击」等)`;
 
     try {
-        const result = await callModelFn('combat', [
+        const result = await callModelFn('equipment', [
             { role: 'system', content: '你是SAO剑技命名器。只输出JSON。' },
             { role: 'user', content: namePrompt },
         ], 256, { jsonSchema: true });
@@ -546,7 +546,7 @@ export async function generateConsumable(context, callModelFn) {
 要求: 名称要有SAO风格（如「治愈药水」「高级回复药」等），描述1-2句话，中文`;
 
     try {
-        const result = await callModelFn('combat', [
+        const result = await callModelFn('equipment', [
             { role: 'system', content: '你是SAO消耗品命名器。只输出JSON。' },
             { role: 'user', content: namePrompt },
         ], 256, { jsonSchema: true });
@@ -668,7 +668,7 @@ ${unnamedItems.map((item, i) => `${i+1}. 类型:${item.type} 稀有度:${item.ra
 要求: 名称要有SAO风格，描述简短（20-50字）`;
 
         try {
-            const result = await callModelFn('combat', [
+            const result = await callModelFn('equipment', [
                 { role: 'system', content: '你是SAO物品命名器。只输出JSON。' },
                 { role: 'user', content: namePrompt },
             ], 256, { jsonSchema: true });

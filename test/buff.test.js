@@ -131,14 +131,14 @@ describe('addTemporaryBuff', () => {
             source: 'food',
             name: '力量料理',
             effects: { str: 5 },
-            duration: '1场战斗',
-            expires: 'next_combat',
+            duration: '3回合',
+            expires: 'turn_103',
         });
         expect(entity.buffs.temporary).toHaveLength(1);
         expect(entity.buffs.temporary[0].id).toBe('food_001');
         expect(entity.buffs.temporary[0].name).toBe('力量料理');
         expect(entity.buffs.temporary[0].effects.str).toBe(5);
-        expect(entity.buffs.temporary[0].expires).toBe('next_combat');
+        expect(entity.buffs.temporary[0].expires).toBe('turn_103');
     });
 
     it('replaces buff with same ID', () => {
@@ -148,16 +148,16 @@ describe('addTemporaryBuff', () => {
             source: 'food',
             name: '力量料理',
             effects: { str: 5 },
-            duration: '1场战斗',
-            expires: 'next_combat',
+            duration: '3回合',
+            expires: 'turn_103',
         });
         addTemporaryBuff(entity, {
             id: 'food_001',
             source: 'food',
             name: '超级力量料理',
             effects: { str: 10 },
-            duration: '2场战斗',
-            expires: 'next_combat',
+            duration: '5回合',
+            expires: 'turn_105',
         });
         expect(entity.buffs.temporary).toHaveLength(1);
         expect(entity.buffs.temporary[0].name).toBe('超级力量料理');
@@ -280,24 +280,6 @@ describe('removeBuff', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('expireBuffs', () => {
-    it('expires next_combat buffs when trigger is next_combat', () => {
-        const entity = makeEntity();
-        addTemporaryBuff(entity, { id: 't1', name: '力量料理', effects: { str: 5 }, duration: '1场战斗', expires: 'next_combat' });
-        addTemporaryBuff(entity, { id: 't2', name: '永久临时', effects: { agi: 1 }, duration: '', expires: 'manual' });
-        const removed = expireBuffs(entity, 100, 'next_combat');
-        expect(removed).toEqual(['力量料理']);
-        expect(entity.buffs.temporary).toHaveLength(1);
-        expect(entity.buffs.temporary[0].id).toBe('t2');
-    });
-
-    it('does not expire next_combat buffs when trigger is turn', () => {
-        const entity = makeEntity();
-        addTemporaryBuff(entity, { id: 't1', name: '力量料理', effects: { str: 5 }, duration: '1场战斗', expires: 'next_combat' });
-        const removed = expireBuffs(entity, 100, 'turn');
-        expect(removed).toEqual([]);
-        expect(entity.buffs.temporary).toHaveLength(1);
-    });
-
     it('expires turn-based buffs when currentTurn >= expireTurn', () => {
         const entity = makeEntity();
         addTemporaryBuff(entity, { id: 't1', name: '限时buff', effects: { str: 5 }, duration: '', expires: 'turn_150' });
@@ -319,21 +301,19 @@ describe('expireBuffs', () => {
     it('manual buffs never expire', () => {
         const entity = makeEntity();
         addTemporaryBuff(entity, { id: 't1', name: '手动控制', effects: { str: 5 }, duration: '', expires: 'manual' });
-        const removed1 = expireBuffs(entity, 9999, 'next_combat');
-        expect(removed1).toEqual([]);
-        const removed2 = expireBuffs(entity, 9999, 'turn');
-        expect(removed2).toEqual([]);
+        const removed = expireBuffs(entity, 9999, 'turn');
+        expect(removed).toEqual([]);
         expect(entity.buffs.temporary).toHaveLength(1);
     });
 
     it('returns empty array when entity has no temporary buffs', () => {
         const entity = makeEntity();
-        const removed = expireBuffs(entity, 100, 'next_combat');
+        const removed = expireBuffs(entity, 100, 'turn');
         expect(removed).toEqual([]);
     });
 
     it('returns empty array for null entity', () => {
-        const removed = expireBuffs(null, 100, 'next_combat');
+        const removed = expireBuffs(null, 100, 'turn');
         expect(removed).toEqual([]);
     });
 });

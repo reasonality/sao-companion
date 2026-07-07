@@ -17,19 +17,8 @@ export const CUSTOM_SKILL_DEFS = {
         weapon_type: '双剑',
         skill_level: 50,
         rarity: '紫色',
-        atk: 350, hit: 92, crit: 25, apt: 16, tpa: 1,
-        mp_cost: 45, cooldown: 5, wn: 'A1',
-        affix_codes: ['EN:B1,15', 'EN:B5,3,30'],
-        _customHandler: function(player, skill, enemies, log) {
-            const target = enemies.find(e => e.hp > 0);
-            if (!target) return;
-            const bonusDmg = Math.floor(skill.atk * 0.5);
-            target.hp -= Math.max(1, bonusDmg - (target.str || 0));
-            log.push('星爆气流斩·双重打击：追加伤害！');
-        },
         _unlock: { type: 'floor', floor: 75 },
         description: '双刀流奥义——十六连击的究极剑技。',
-        effects_description: '生命窃取15% | 持续伤害3回合x30点 | 命中后追加50%ATK伤害',
     },
 };
 

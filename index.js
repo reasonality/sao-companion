@@ -24,7 +24,7 @@ import {
 } from './sao-generators.js';
 import { event_types } from '../../../events.js';
 import { power_user } from '../../../power-user.js';
-import { updateBattlePanelAfterCombat, clearBattleHostRegistry, removeBattleHost } from './battle/battleRenderer.js';
+
 import {
     initCalendarIfNeeded,
     updateCalendarIncremental,
@@ -35,7 +35,7 @@ import {
 } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
 import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-detail-popup.js';
-import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
+
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
 import { expireBuffs } from './sao-buff.js';
@@ -124,51 +124,6 @@ function withProcessingLock(key, fn) {
     });
     _processingLocks[key] = next;
     return next;
-}
-
-// ============================================================
-// 战斗状态持久化
-// ============================================================
-
-let _battleSaveTimer = null;
-
-/**
- * 节流保存战斗状态到 chatMetadata（2秒节流）
- */
-function saveBattleStateThrottled() {
-    if (_battleSaveTimer) return;
-    _battleSaveTimer = setTimeout(() => {
-        _battleSaveTimer = null;
-        try {
-            // 切卡后定时器仍可能触发：非 SAO 卡直接跳过，避免把战斗状态写进新卡 chatMetadata
-            if (!isSaoCard()) return;
-            const data = getSaoData();
-            if (!data) return;
-            const snapshot = serializeBattleState();
-            if (snapshot) {
-                if (!data.battle) data.battle = {};
-                data.battle = snapshot;
-                saveStore().catch(e => log('保存战斗状态失败: ' + e.message, 'warn'));
-            }
-        } catch (e) {
-            log('保存战斗状态失败: ' + e.message, 'warn');
-        }
-    }, 2000);
-}
-
-/**
- * 清除战斗状态（战斗结束时调用）
- */
-function clearBattleState() {
-    try {
-        const data = getSaoData();
-        if (data && data.battle) {
-            data.battle = null;
-            saveStore().catch(e => log('清除战斗状态失败: ' + e.message, 'warn'));
-        }
-    } catch (e) {
-        log('清除战斗状态失败: ' + e.message, 'warn');
-    }
 }
 
 // ============================================================
@@ -363,7 +318,7 @@ const REGEX_WHITELIST = new Set([
     // DOMPurify uponSanitizeElement 钩子保留自定义标签作为 DOM 元素，渲染器 querySelector 定位。
     // 移除的正则: '日期', '角色状态栏', '装备栏', '剑技栏', '地图2'
 
-    // Phase 2: '战斗1.30电脑' 已由插件 battle/battleRenderer.js 迁移，从白名单移除。
+    // Phase 2: '战斗1.30电脑' 已移除（战斗系统已清理），从白名单移除。
     // 移除的正则: '战斗1.30电脑'
 
     // Phase 3: 以下 promptOnly 隐藏正则已由插件 saoPromptCleanerInterceptor 替代，从白名单移除。
@@ -484,27 +439,6 @@ function renderMessageWhenReady(messageId, rawText, attempts = 0) {
 }
 
 
-// === P4b: Combat Resolution (resolveCombatRound + helpers) ===
-// Extracted to sao-combat.js - import all combat functions from there
-import {
-    resolveCombatRound,
-    buildPlayerEntity,
-    buildEnemyEntity,
-    buildTeammateEntity,
-    detectPlayerAction,
-    selectEnemySkill,
-    getEquipmentStatsFromStore,
-    persistCooldowns,
-    buildCombatNarrativeHint,
-    normalizeWeapon,
-    applyDamageToEnemy,
-    executeStandardAttack,
-    a5MultiHitCore,
-    executePlayerActionCore,
-    executeTeammateAttackCore,
-    performEnemyActionCore,
-    processEndOfRoundCore,
-} from './sao-combat.js';
 
 
 // ============================================================
@@ -514,16 +448,9 @@ import {
 const _bindEvt = bindSaoEvent;
 const _bindDom = bindSaoDom;
 
-/** ST 扩展停用钩子：移除所有已登记监听器 + 战斗副作用清理。 */
+/** ST 扩展停用钩子：移除所有已登记监听器。 */
 export function deactivate() {
     unbindAllSaoEvents();
-    // 清战斗节流定时器（与 CHAT_CHANGED 同样的清理）
-    if (_battleSaveTimer) {
-        clearTimeout(_battleSaveTimer);
-        _battleSaveTimer = null;
-    }
-    destroyBattleSideEffects();
-    clearBattleHostRegistry();
     document.body.classList.remove('sao-card-active');
     log('SAO Companion 已停用，事件监听已清理');
 }
@@ -538,15 +465,6 @@ function bindEvents() {
         resetEffectCodeTable();
         // 会话切换时重置日历模型并发守卫（原 sao-calendar-model.js 顶层监听，M8 集中后改由此处统一追踪）
         resetCalendarModelRunning();
-        // 无论是否 SAO 卡，先清理战斗副作用（幂等，非 SAO 卡或未初始化时为空操作）
-        destroyBattleSideEffects();
-        // M10: 清掉待触发的战斗状态节流定时器，避免切卡后把旧战斗快照写进新卡 chatMetadata
-        if (_battleSaveTimer) {
-            clearTimeout(_battleSaveTimer);
-            _battleSaveTimer = null;
-        }
-        // A3: 清理 battle host 注册表，防止切换聊天后内存泄漏
-        clearBattleHostRegistry();
         document.body.classList.toggle('sao-card-active', isSaoCard());
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
@@ -661,7 +579,7 @@ function bindEvents() {
                 }
             }
         } else {
-            // 切出 SAO 卡，恢复设置（destroyBattleSideEffects 已移到上面）
+            // 切出 SAO 卡，恢复设置
             disableCompatMode();
         }
     });
@@ -715,49 +633,6 @@ function bindEvents() {
                 }
             }
 
-            // P4b: Combat resolution (no DOM dependency)
-            const combatResult = resolveCombatRound(rawText);
-            if (combatResult) {
-                const data = getSaoData();
-                if (data) {
-                    // Step [3b]: generateLoot (only if combat occurred and enemies defeated)
-                    if (combatResult.enemiesAfter?.some(e => e.defeated)) {
-                        try {
-                            const lootResult = await generateLoot({ enemyLevel: combatResult.enemiesAfter[0]?.level || 1 }, callModel);
-                            if (lootResult) {
-                                combatResult.loot = lootResult;
-                            }
-                        } catch (e) {
-                            console.error('[SAO] generateLoot failed:', e);
-                            // Loot generation failure is non-fatal — combat result still valid
-                        }
-                    }
-                    data._lastCombatResult = combatResult;
-                    if (combatResult.narrativeHint) {
-                        if (!data.runtime) data.runtime = {};
-                        data.runtime.lastCombatHint = combatResult.narrativeHint;
-                    }
-                }
-                log(`战斗结算完成: ${combatResult.log.length} 条日志`);
-            }
-            // FIX3: 本轮无战斗提示时清除过期的 lastCombatHint
-            if (!combatResult?.narrativeHint) {
-                const hintData = getSaoData();
-                if (hintData?.runtime?.lastCombatHint) {
-                    delete hintData.runtime.lastCombatHint;
-                }
-            }
-
-            // Expire temporary buffs after combat
-            {
-                const _saoData = getSaoData();
-                if (_saoData) {
-                    const _player = getPlayerStore();
-                    const _expired = expireBuffs(_player, _saoData.runtime?.calendarTurnCounter || 0, 'next_combat');
-                    if (_expired.length > 0) log(`Buff 过期: ${_expired.join(', ')}`);
-                }
-            }
-
             // P4c: Custom skill unlock check
             checkCustomSkillUnlocks(rawText);
 
@@ -802,10 +677,6 @@ function bindEvents() {
             try {
                 const el = getMessageElement(messageId);
                 if (el) renderAllTags(el, rawText, messageId);
-                if (saoData?._lastCombatResult) {
-                    updateBattlePanelAfterCombat(messageId, saoData._lastCombatResult);
-                    delete saoData._lastCombatResult;
-                }
             } catch (e) { log('锁内重渲染失败: ' + e.message, 'warn'); }
 
             // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveStore 之后、lock 块结束前）。
@@ -2170,14 +2041,13 @@ function initPanelLogic() {
             testEl.textContent = '正在生成...';
             saveModelsToSettings();
             try {
-                // 检查 combat 模型是否配置（含子角色→主档回退，与 callModel 解析一致）
-                if (!isModelConfigured('combat')) {
+                // 检查 equipment 模型是否配置（含子角色→主档回退，与 callModel 解析一致）
+                if (!isModelConfigured('equipment')) {
                     testEl.className = 'sao-test-result show error';
-                    testEl.textContent = '✗ 请先在"模型配置"标签中配置"装备/技能模型"（或其下"战斗/生成"子角色）的 API 地址和模型，并点击"获取"选择模型';
+                    testEl.textContent = '✗ 请先在"模型配置"标签中配置"装备/技能模型"的 API 地址和模型，并点击"获取"选择模型';
                     return;
                 }
                 let result;
-                // R6 收敛：单按钮默认测试 equipment 生成。combat 已迁移至确定性引擎，skill/loot 可从模型配置 tab 的"测试"按钮单独验证。
                 if (type === 'equipment') {
                     result = await generateEquipment({ playerLevel: 5, floor: 1, type: '武器', rarity: '蓝色' }, callModel);
                 } else if (type === 'skill') {
@@ -2186,12 +2056,6 @@ function initPanelLogic() {
                     result = await generateLoot({ enemyLevel: 3, floor: 1, enemyType: '野猪' }, callModel);
                 } else if (type === 'consumable') {
                     result = await generateConsumable({ playerLevel: 5, floor: 1, qty: 1 }, callModel);
-                } else if (type === 'combat') {
-                    // 战斗测试已迁移至确定性引擎 resolveCombatRound（sao-combat.js），
-                    // 此处不再调用已删除的 LLM 版 calculateCombat。点击"战斗"测试按钮时给出提示。
-                    testEl.className = 'sao-test-result show error';
-                    testEl.textContent = '✗ 战斗测试已迁移至确定性引擎 resolveCombatRound，不再支持 LLM 测试';
-                    return;
                 }
                 if (result === null || result === undefined) {
                     testEl.className = 'sao-test-result show error';
@@ -3320,25 +3184,6 @@ export function init() {
 // ============================================================
 if (typeof globalThis !== 'undefined' && globalThis.process && globalThis.process.env && globalThis.process.env.NODE_ENV === 'test') {
     globalThis.__SAO_INTERNAL__ = {
-        // 后处理链战斗入口 + 实体构建
-        resolveCombatRound,
-        buildPlayerEntity,
-        buildEnemyEntity,
-        buildTeammateEntity,
-        detectPlayerAction,
-        selectEnemySkill,
-        getEquipmentStatsFromStore,
-        persistCooldowns,
-        buildCombatNarrativeHint,
-        normalizeWeapon,
-        // 本地 Core 函数（index.js 版，签名与 battleCore.js 不同）
-        applyDamageToEnemy,
-        executeStandardAttack,
-        a5MultiHitCore,
-        executePlayerActionCore,
-        executeTeammateAttackCore,
-        performEnemyActionCore,
-        processEndOfRoundCore,
         // 常量
         MODULE_NAME,
         // mock 注入点：测试可覆盖 getSaoData 的返回值

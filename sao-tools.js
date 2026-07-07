@@ -408,7 +408,7 @@ export function registerGetWorldSetting(ctx) {
             '$schema': 'http://json-schema.org/draft-04/schema#',
             type: 'object',
             properties: {
-                topic: { type: 'string', description: '查询话题（必填）', 'enum': ['death_game', 'economy', 'pk', 'combat', 'skills', 'leveling', 'housing', 'environment'] },
+                topic: { type: 'string', description: '查询话题（必填）', 'enum': ['death_game', 'economy', 'pk', 'skills', 'leveling', 'housing', 'environment'] },
             },
             required: ['topic'],
         },

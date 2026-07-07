@@ -15,35 +15,10 @@
   const LOG_PREFIX = '[SAO Snapshot]';
   const snapshots = [];
   let snapshotIndex = 0;
-  let moduleApi = null; // Will hold { serializeBattleState } if module is accessible
-
-  // ─── Try to access battleLogic module for rich snapshots ───
-  try {
-    // ES modules are singletons — dynamic import returns the same cached instance
-    // Attempt common SillyTavern extension paths
-    const candidates = [
-      './scripts/extensions/third-party/SAO-Companion/battle/battleLogic.js',
-      './scripts/extensions/third-party/sao-companion/battle/battleLogic.js',
-    ];
-    for (const path of candidates) {
-      try {
-        const mod = await import(path);
-        if (typeof mod.serializeBattleState === 'function') {
-          moduleApi = mod;
-          console.log(`${LOG_PREFIX} Module access OK — using serializeBattleState() for rich snapshots`);
-          break;
-        }
-      } catch (_) { /* try next */ }
-    }
-  } catch (_) { /* ignore */ }
-
-  if (!moduleApi) {
-    console.log(`${LOG_PREFIX} Module not accessible — falling back to DOM-only capture`);
-  }
 
   // ─── DOM-based state capture ───
   function findShadowRoot() {
-    const host = document.querySelector('.sao-render-host[data-sao-tag="battle"]');
+    const host = document.querySelector('.sao-render-host[data-sao-tag="user_status"]');
     return host ? host.shadowRoot : null;
   }
 

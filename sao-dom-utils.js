@@ -1,5 +1,5 @@
 // SAO Companion - DOM 工具模块（Shadow DOM host 创建 + 标签常量）
-// 从 sao-render.js 拆出，供 sao-render.js 和 battle/battleRenderer.js 共用，消除定位逻辑重复。
+// 从 sao-render.js 拆出，供 sao-render.js 共用，消除定位逻辑重复。
 
 import { PANEL_TAGS } from './sao-panel-registry.js';
 

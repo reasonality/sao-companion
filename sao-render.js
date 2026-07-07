@@ -3,9 +3,7 @@
 
 import { esc, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { DOMPurify } from '../../../../lib.js';
-import { renderBattlePanel } from './battle/battleRenderer.js';
 import { projectStatusPanelHtml, renderNpcPanel, renderEquipmentPanel, renderSkillPanel } from './sao-state-projection.js';
-import { restoreBattleState } from './battle/battleLogic.js';
 import { SAO_CUSTOM_TAGS, createSaoShadowHost } from './sao-dom-utils.js';
 import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
@@ -363,24 +361,6 @@ function buildCalendarGrid(year, month, currentDay, days, calDaysMap, isHomeMont
     return cells;
 }
 /**
- * 检查是否有待恢复的战斗状态
- * 在 renderBattlePanel 渲染后调用
- */
-function restoreBattleIfPending() {
-    try {
-        const data = getSaoData();
-        if (!data || !data.battle || !data.battle.isActive) return false;
-        const restored = restoreBattleState(data.battle);
-        if (restored) {
-            log('战斗状态已恢复');
-        }
-        return restored;
-    } catch (e) {
-        log('恢复战斗状态失败: ' + e.message, 'warn');
-        return false;
-    }
-}
-/**
  * 通用标签提取
  */
 function extractTag(rawText, tagName) {
@@ -653,24 +633,16 @@ export function renderAllTags(messageEl, rawText, messageId) {
     }
     const mesText = messageEl.querySelector('.mes_text') || messageEl;
     for (const entry of PANEL_REGISTRY) {
-        if (entry.isSpecial) continue;       // zd_status(battle): 单独处理（签名不同）
         const fn = _RENDER_FN_MAP[entry.tag];
-        if (!fn) continue;                   // digest 等: 无渲染器，仅 DOMPurify 保留 + cleanup
+        if (!fn) continue;                   // digest/zd_status 等: 无渲染器，仅 DOMPurify 保留 + cleanup
         try {
             fn(messageEl, rawText, messageId, mesText.querySelector(entry.tag));
         } catch (e) {
             log(`${entry.tag} 渲染失败: ${e.message}`, 'error');
         }
     }
-    // 战斗面板（isSpecial: 自行定位 zd_status 锚点，签名无 refNode）
-    if (typeof messageId !== 'undefined') {
-        try { renderBattlePanel(messageEl, rawText, messageId); } catch(e) { log('renderBattlePanel 渲染失败: ' + e.message, 'error'); }
-    }
     if (hasAnySaoTags) {
         cleanupSaoLightDom(messageEl)
-    }
-    if (rawText && rawText.includes('<zd_status>')) {
-        restoreBattleIfPending()
     }
 }
 
