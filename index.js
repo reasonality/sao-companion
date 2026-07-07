@@ -45,7 +45,7 @@ import {
     initToolSystem,
 } from './sao-tools.js';
 import { getFloorStore } from './sao-store-floor.js';
-import { runLorebookPreParser } from './sao-preparser.js';
+import { runLorebookPreParser, parseTimelineEntries } from './sao-preparser.js';
 import { getWorldStore } from './sao-store-world.js';
 import { getNpcStore } from './sao-store-npc.js';
 import { getQuestStore } from './sao-store-quest.js';
@@ -562,6 +562,21 @@ function bindEvents() {
                 if (result) {
                     saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
                 }
+
+                // ALWAYS run parseTimelineEntries, even when pre-parser skips (idempotency).
+                // Timeline parsing is cheap (JSON.parse) and ensures calendar events are fresh.
+                // This fixes the issue where a failed previous run (0 events extracted) would
+                // cause all subsequent runs to skip because loreParsed.version matched.
+                const tlCount = parseTimelineEntries(entries);
+                if (tlCount > 0) {
+                    saveStore().catch(e => log('保存时间线数据失败: ' + (e.message || e), 'warn'));
+                    // Update loreParsed.timelineCount if pre-parser skipped
+                    const s = getStore();
+                    if (s?.loreParsed && s.loreParsed.timelineCount === 0) {
+                        s.loreParsed.timelineCount = tlCount;
+                    }
+                }
+
                 log(`Pre-parser 完成: ${entries.length} 条目`);
             }
 
