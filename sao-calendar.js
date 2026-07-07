@@ -188,19 +188,45 @@ export function buildCleanCalendarDays(currentDate) {
     // 两级缓存：原始世界书解析按角色卡名缓存(昂贵), 覆盖层合并每次实时(便宜)。
     const rawKey = char?.name || '';
     if (!_rawWorldbookDays || _rawWorldbookDaysKey !== rawKey) {
-        const events = _filterTimelineEntries(null, { monthWindow: null });
         const days = {};
-        for (const ev of events) {
-            if (!days[ev.date]) days[ev.date] = { events: [] };
-            days[ev.date].events.push({
-                type: 'canon',
-                time: null,
-                title: ev.title,
-                description: ev.description || ev.title,
-                subEvents: ev.subEvents || [],
-                source: 'timeline',
-                date: ev.date,
-            });
+        // 优先从 calendarStore.events（pre-parser 解析 JSON worldbook 的权威数据）读取 canon 事件
+        const storeEvents = getCalendarStore()?.events;
+        let usedStore = false;
+        if (storeEvents && typeof storeEvents === 'object' && Object.keys(storeEvents).length > 0) {
+            for (const [dateStr, evArr] of Object.entries(storeEvents)) {
+                if (!Array.isArray(evArr)) continue;
+                for (const ev of evArr) {
+                    if (ev.type !== 'canon') continue;
+                    if (!days[dateStr]) days[dateStr] = { events: [] };
+                    const firstLine = (ev.description || '').split('\n')[0].replace(/^事件标题[:：]\s*/, '').slice(0, 40).trim();
+                    days[dateStr].events.push({
+                        type: 'canon',
+                        time: ev.time || null,
+                        title: firstLine,
+                        description: ev.description || '',
+                        subEvents: [],
+                        source: ev.source || 'timeline',
+                        date: dateStr,
+                    });
+                }
+            }
+            usedStore = Object.keys(days).length > 0;
+        }
+        // 回退：markdown 格式 worldbook（legacy 兼容）
+        if (!usedStore) {
+            const events = _filterTimelineEntries(null, { monthWindow: null });
+            for (const ev of events) {
+                if (!days[ev.date]) days[ev.date] = { events: [] };
+                days[ev.date].events.push({
+                    type: 'canon',
+                    time: null,
+                    title: ev.title,
+                    description: ev.description || ev.title,
+                    subEvents: ev.subEvents || [],
+                    source: 'timeline',
+                    date: ev.date,
+                });
+            }
         }
         _rawWorldbookDays = days;
         _rawWorldbookDaysKey = rawKey;
