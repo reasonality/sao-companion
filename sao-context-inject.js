@@ -231,7 +231,7 @@ function buildFloorKeywordProfiles(entries, recentLower) {
                 for (const v of canon.villages) {
                     lines.push(`- ${v.name || ''}${v.location ? ' (' + v.location + ')' : ''}: ${v.description || ''}`);
                 }
-            }            }
+            }
             if (Array.isArray(canon.fieldBosses) && canon.fieldBosses.length > 0) {
                 lines.push('[区域Boss]');
                 for (const fb of canon.fieldBosses) {
