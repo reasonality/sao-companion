@@ -699,12 +699,20 @@ export async function applyExtractedData(extracted, customSkillDefs) {
         }
 
         // 4b. 月蚀系统：冥想熟练度 / 子技熟练度 / 计算过载
+        // 防递减：冥想熟练度只增不减（防止 LLM 困惑时输出 0 重置进度）
         if (s.meditationProficiency != null) {
-            updateMeditationProficiency(s.meditationProficiency, true);
+            const curMed = getPlayerStore()?.meditationProficiency || 0;
+            if (s.meditationProficiency > curMed) {
+                updateMeditationProficiency(s.medititationProficiency, true);
+            }
         }
+        // 子技熟练度同样只增不减
         if (s.uniqueSkillProficiency && typeof s.uniqueSkillProficiency === 'object') {
+            const us = getPlayerStore()?.uniqueSkill;
             for (const [techId, prof] of Object.entries(s.uniqueSkillProficiency)) {
-                if (prof != null) updateSubTechniqueProficiency(techId, prof, true);
+                if (prof == null) continue;
+                const curProf = us?.subTechniques?.[techId]?.proficiency || 0;
+                if (prof > curProf) updateSubTechniqueProficiency(techId, prof, true);
             }
         }
         if (s.incapacitated != null) {

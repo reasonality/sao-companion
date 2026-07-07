@@ -465,6 +465,8 @@ function bindEvents() {
         resetEffectCodeTable();
         // 会话切换时重置日历模型并发守卫（原 sao-calendar-model.js 顶层监听，M8 集中后改由此处统一追踪）
         resetCalendarModelRunning();
+        // 会话切换时重置计算过载回合计数（module-level，防跨 chat 污染）
+        resetIncapacitatedTurns();
         document.body.classList.toggle('sao-card-active', isSaoCard());
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
