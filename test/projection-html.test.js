@@ -17,6 +17,7 @@ vi.mock('../sao-core.js', () => ({
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
     }),
+    safe: (fn, label) => { try { return fn(); } catch { return null; } },
 }));
 
 vi.mock('../sao-store-core.js', () => ({

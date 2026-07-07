@@ -99,10 +99,10 @@ const PRESET_GUILDS = [
 // ============================================================
 
 /**
- * 确保 guildStore 及其子字段存在，返回 guildStore 引用。
+ * 获取 guildStore 引用（惰性初始化）。
  * @returns {{ byId: Object, nameToId: Object }}
  */
-function ensureGuildStore() {
+export function getGuildStore() {
     const store = getStore();
     if (!store.guildStore) {
         store.guildStore = { byId: {}, nameToId: {} };
@@ -117,20 +117,12 @@ function ensureGuildStore() {
 // ============================================================
 
 /**
- * 获取 guildStore 引用（惰性初始化）。
- * @returns {{ byId: Object, nameToId: Object }}
- */
-export function getGuildStore() {
-    return ensureGuildStore();
-}
-
-/**
  * 按 ID 获取公会条目。
  * @param {string} id
  * @returns {object|null}
  */
 export function getGuildById(id) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     return store.byId[id] || null;
 }
 
@@ -140,7 +132,7 @@ export function getGuildById(id) {
  * @returns {object|null}
  */
 export function getGuildByName(name) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     const id = store.nameToId[name];
     return id ? (store.byId[id] || null) : null;
 }
@@ -151,7 +143,7 @@ export function getGuildByName(name) {
  * @returns {number} 新初始化的公会数量
  */
 export function initPresetGuilds() {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     let count = 0;
     for (const preset of PRESET_GUILDS) {
         if (store.byId[preset.guild_id]) continue;
@@ -169,7 +161,7 @@ export function initPresetGuilds() {
  * @returns {number} 新发现的公会数量
  */
 export function checkGuildDiscovery(currentDate) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     let discovered = 0;
     for (const guild of Object.values(store.byId)) {
         if (guild.discovered) continue;
@@ -192,7 +184,7 @@ export function checkGuildDiscovery(currentDate) {
  * @returns {string} 公会 ID
  */
 export function createGuild(name, leader, options = {}) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     if (store.nameToId[name]) {
         return store.nameToId[name];
     }
@@ -222,7 +214,7 @@ export function createGuild(name, leader, options = {}) {
  * @returns {boolean} 是否成功（公会存在即成功）
  */
 export function discoverGuild(name) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     const id = store.nameToId[name];
     if (!id || !store.byId[id]) return false;
     if (store.byId[id].discovered) return true;
@@ -238,7 +230,7 @@ export function discoverGuild(name) {
  * @returns {boolean}
  */
 export function addGuildMember(guildId, memberName) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     const guild = store.byId[guildId];
     if (!guild) return false;
     if (!guild.members.includes(memberName)) {
@@ -254,7 +246,7 @@ export function addGuildMember(guildId, memberName) {
  * @returns {boolean}
  */
 export function removeGuildMember(guildId, memberName) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     const guild = store.byId[guildId];
     if (!guild) return false;
     guild.members = guild.members.filter(m => m !== memberName);
@@ -266,7 +258,7 @@ export function removeGuildMember(guildId, memberName) {
  * @returns {object[]}
  */
 export function getDiscoveredGuilds() {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     return Object.values(store.byId).filter(g => g.discovered && !g.disbanded);
 }
 
@@ -275,7 +267,7 @@ export function getDiscoveredGuilds() {
  * @returns {object|null}
  */
 export function getPlayerGuild() {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     const player = getPlayerStore();
     if (!player || !player.guild_id) return null;
     return store.byId[player.guild_id] || null;
@@ -287,7 +279,7 @@ export function getPlayerGuild() {
  * @returns {boolean} 是否成功加入
  */
 export function joinGuild(guildName) {
-    const store = ensureGuildStore();
+    const store = getGuildStore();
     const player = getPlayerStore();
     const guild = getGuildByName(guildName);
     if (!guild) return false;

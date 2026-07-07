@@ -8,6 +8,7 @@ let mockStore = null;
 vi.mock('../sao-core.js', () => ({
     log: vi.fn(),
     MODULE_NAME: 'sao_companion',
+    safe: vi.fn((fn) => { try { return fn(); } catch { return null; } }),
 }));
 
 vi.mock('../sao-store-core.js', () => ({

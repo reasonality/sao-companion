@@ -12,6 +12,7 @@ import {
     calculateActionOrderCore,
     selectTargets,
     hasDebuff,
+    applyDamageToEnemy as bcApplyDamageToEnemy,
 } from './battle/battleCore.js';
 import {
     calculateDerivedStats,
@@ -375,7 +376,7 @@ export function buildCombatNarrativeHint(player, enemies, teammates, log) {
  */
 
 /**
- * 对敌人施加伤害（含护盾吸收）（§5.13 applyDamageToEnemy）
+ * 对敌人施加伤害（含护盾吸收）— 委托 battleCore.js 实现
  * @param {Object} target - 目标实体
  * @param {number} damage - 伤害值
  * @param {Array} log - 日志数组
@@ -384,28 +385,11 @@ export function buildCombatNarrativeHint(player, enemies, teammates, log) {
  * @param {boolean} isCrit - 是否暴击
  */
 export function applyDamageToEnemy(target, damage, log, attackerName, weaponName, isCrit) {
-    let remaining = damage;
-    // 正确顺序：临时护盾 → 永久护盾 → HP（与 battleCore.js 一致）
-    if (remaining > 0 && (target.tempShield || target.shieldTemp) > 0) {
-        const tempVal = target.tempShield || target.shieldTemp || 0;
-        const absorbed = Math.min(tempVal, remaining);
-        if (target.tempShield) target.tempShield -= absorbed;
-        if (target.shieldTemp) target.shieldTemp -= absorbed;
-        remaining -= absorbed;
-        log.push(`${target.name} 的临时护盾吸收了 ${absorbed} 点伤害`);
+    // Normalize shieldTemp alias (dead code compat — shieldTemp is never set externally)
+    if (target.shieldTemp && !target.tempShield) {
+        target.tempShield = target.shieldTemp;
     }
-    if (remaining > 0 && target.shield > 0) {
-        const absorbed = Math.min(target.shield, remaining);
-        target.shield -= absorbed;
-        remaining -= absorbed;
-        log.push(`${target.name} 的护盾吸收了 ${absorbed} 点伤害`);
-    }
-    if (remaining > 0) {
-        target.hp = Math.max(0, target.hp - remaining);
-        const critStr = isCrit ? ' 暴击!' : '';
-        log.push(`${attackerName} 使用 ${weaponName} 对 ${target.name} 造成 ${remaining} 点伤害${critStr} (剩余HP:${target.hp}/${target.maxHp || '?'})`);
-    }
-    return remaining;
+    bcApplyDamageToEnemy(target, damage, log, attackerName, weaponName, isCrit);
 }
 
 /**

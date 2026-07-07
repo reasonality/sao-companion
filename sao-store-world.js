@@ -5,17 +5,17 @@
 import { getStore, saveStore } from './sao-store-core.js';
 import { getPlayerStore } from './sao-store-player.js';
 import { updateFloorState } from './sao-store-floor.js';
-import { log } from './sao-core.js';
+import { log, safe } from './sao-core.js';
 
 // ============================================================
 // 内部工具
 // ============================================================
 
 /**
- * 确保 worldStore 及其子字段存在，返回 worldStore 引用。
+ * 获取 worldStore 引用（惰性初始化）。
  * @returns {object}
  */
-function ensureWorldStore() {
+export function getWorldStore() {
     const store = getStore();
     if (!store.worldStore) {
         store.worldStore = { currentWeather: null, areaStatus: null, worldEvents: [], rules: {}, _rulesHashes: {}, _ruleSources: {}, _updatedAt: null };
@@ -46,14 +46,6 @@ const BOSS_CLEAR_RE = /BOSS.*?(讨伐|攻略)|(?:楼层|层)\s*BOSS\s*(?:cleared
 // ============================================================
 
 /**
- * 获取 worldStore 引用（惰性初始化）。
- * @returns {object}
- */
-export function getWorldStore() {
-    return ensureWorldStore();
-}
-
-/**
  * 应用世界专家输出到 worldStore。
  * - areaStatus：覆盖写入
  * - worldEvents：追加 + cap 30
@@ -65,7 +57,7 @@ export function getWorldStore() {
 export async function applyWorldUpdates(worldData) {
     if (!worldData || typeof worldData !== 'object') return;
 
-    const ws = ensureWorldStore();
+    const ws = getWorldStore();
     const store = getStore();
 
     // areaStatus：覆盖
@@ -118,7 +110,7 @@ export async function applyWorldUpdates(worldData) {
  * @returns {string}
  */
 export function projectWorldHint() {
-    const ws = safe(() => ensureWorldStore(), 'ensureWorldStore');
+    const ws = safe(() => getWorldStore(), 'getWorldStore');
     if (!ws) return '';
 
     const parts = [];
@@ -154,14 +146,4 @@ export function projectWorldHint() {
     return parts.join(' | ');
 }
 
-/**
- * 安全执行函数，失败时返回 null。
- */
-function safe(fn, label) {
-    try {
-        return fn();
-    } catch (e) {
-        log(`[store-world] ${label} 失败: ${e.message}`, 'warn');
-        return null;
-    }
-}
+// safe() imported from sao-core.js — local copy removed

@@ -12,10 +12,10 @@ import { simpleHash } from './sao-store-npc.js';
 // ============================================================
 
 /**
- * 确保 floorStore 及其子字段存在，返回 floorStore 引用。
+ * 获取 floorStore 引用（惰性初始化）。
  * @returns {{ byId: Object, numberToId: Object }}
  */
-function ensureFloorStore() {
+export function getFloorStore() {
     const store = getStore();
     if (!store.floorStore) {
         store.floorStore = { byId: {}, numberToId: {} };
@@ -118,20 +118,12 @@ const EXTERNAL_FLOOR_DATA = {};
 // ============================================================
 
 /**
- * 获取 floorStore 引用（惰性初始化）。
- * @returns {{ byId: Object, numberToId: Object }}
- */
-export function getFloorStore() {
-    return ensureFloorStore();
-}
-
-/**
  * 按 ID 获取楼层条目。
  * @param {string} id - floor_id，如 "floor_001"
  * @returns {object|null}
  */
 export function getFloorById(id) {
-    const store = ensureFloorStore();
+    const store = getFloorStore();
     return store.byId[id] || null;
 }
 
@@ -141,7 +133,7 @@ export function getFloorById(id) {
  * @returns {object|null}
  */
 export function getFloorByNumber(num) {
-    const store = ensureFloorStore();
+    const store = getFloorStore();
     const id = store.numberToId[String(num)];
     return id ? (store.byId[id] || null) : null;
 }
@@ -155,7 +147,7 @@ export function getFloorByNumber(num) {
 export function initFloorFromWorldBook(entries) {
     if (!entries || !Array.isArray(entries)) return 0;
 
-    const store = ensureFloorStore();
+    const store = getFloorStore();
     let count = 0;
 
     for (const entry of entries) {
@@ -395,7 +387,7 @@ export function ensureAllFloorsExist() {
     const maxFloor = 100;
     const prefix = 'floor_';
 
-    const store = ensureFloorStore();
+    const store = getFloorStore();
     let created = 0;
 
     for (let i = 1; i <= maxFloor; i++) {
@@ -432,7 +424,7 @@ export function ensureAllFloorsExist() {
  * @returns {boolean}
  */
 export async function updateFloorState(floor_id, stateUpdate, skipSave) {
-    const store = ensureFloorStore();
+    const store = getFloorStore();
     const floor = store.byId[floor_id];
     if (!floor) {
         log(`updateFloorState: 楼层 ${floor_id} 不存在`, 'warn');
@@ -452,6 +444,7 @@ export async function updateFloorState(floor_id, stateUpdate, skipSave) {
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}
  */
+// Exported for test use only
 export function validateFloorEntry(data) {
     const errors = [];
 

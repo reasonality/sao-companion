@@ -30,21 +30,7 @@ import {
     executeTeammateAttackCore,
 } from './battleCore.js';
 import { DOMPurify } from '../../../../../lib.js';
-
-/**
- * HTML-escape a string for safe interpolation into innerHTML.
- * @param {*} str
- * @returns {string}
- */
-function esc(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+import { esc } from '../sao-core.js';
 
 /**
  * applyInstructionsToDom — Execute DOM operations from Core instruction lists

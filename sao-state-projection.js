@@ -12,7 +12,7 @@ import { getQuestStore } from './sao-store-quest.js';
 import { getWorldStore } from './sao-store-world.js';
 import { getFloorStore } from './sao-store-floor.js';
 import { getConsumableById } from './sao-store-consumable.js';
-import { log, esc } from './sao-core.js';
+import { log, esc, safe } from './sao-core.js';
 import { calculateBuffTotals, formatBuffsForDisplay } from './sao-buff.js';
 import { getPlayerGuild } from './sao-store-guild.js';
 import { getPlayerHousing, getActiveFurnitureBuffs } from './sao-store-housing.js';
@@ -59,21 +59,6 @@ const STAT_PRIORITY_ARMOR  = ['agi', 'str', 'int', 'vit', 'maxHp', 'maxMp'];
 // ============================================================
 // 内部工具函数
 // ============================================================
-
-/**
- * 安全执行函数，失败时返回 null。
- * @param {Function} fn - 要执行的函数
- * @param {string} label - 日志标签
- * @returns {*|null}
- */
-function safe(fn, label) {
-    try {
-        return fn();
-    } catch (e) {
-        log(`[projection] ${label} 失败: ${e.message}`, 'warn');
-        return null;
-    }
-}
 
 /**
  * 获取装备的单个 key stat 字符串（如 "ATK40"）。

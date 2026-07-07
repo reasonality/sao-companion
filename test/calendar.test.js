@@ -10,6 +10,7 @@ vi.mock('../sao-core.js', () => ({
     getCurrentCharacter: vi.fn(() => null),
     log: vi.fn(),
     MODULE_NAME: 'sao_companion',
+    _dedupKey: (str) => String(str || '').replace(/\s+/g, '').substring(0, 20),
 }));
 
 vi.mock('../sao-store-core.js', () => ({

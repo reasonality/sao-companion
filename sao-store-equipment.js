@@ -20,10 +20,10 @@ const RARITY_ENUM = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 // ============================================================
 
 /**
- * 确保 equipmentStore 及其子字段存在，返回引用。
+ * 获取 equipmentStore 引用（惰性初始化）。
  * @returns {{ byId: Object, nameToId: Object }}
  */
-function ensureEquipmentStore() {
+export function getEquipmentStore() {
     const store = getStore();
     if (!store.equipmentStore) {
         store.equipmentStore = { byId: {}, nameToId: {} };
@@ -38,20 +38,12 @@ function ensureEquipmentStore() {
 // ============================================================
 
 /**
- * 获取 equipmentStore 引用（惰性初始化）。
- * @returns {{ byId: Object, nameToId: Object }}
- */
-export function getEquipmentStore() {
-    return ensureEquipmentStore();
-}
-
-/**
  * 生成装备 ID（自增数字，格式 equip_001）。
  * 解析已有 ID 找最大数字后缀 +1，宽度 3 位。
  * @returns {string}
  */
 export function generateEquipmentId() {
-    const store = ensureEquipmentStore();
+    const store = getEquipmentStore();
     let maxNum = 0;
     for (const id of Object.keys(store.byId)) {
         const match = id.match(/^equip_(\d+)$/);
@@ -75,7 +67,7 @@ export function generateEquipmentId() {
  * @returns {string} equipment_id
  */
 export function findOrCreateEquipment(equipData) {
-    const store = ensureEquipmentStore();
+    const store = getEquipmentStore();
     const { name } = equipData;
     if (!name) {
         log('findOrCreateEquipment: 缺少 name', 'warn');
@@ -136,7 +128,7 @@ export function findOrCreateEquipment(equipData) {
  * @returns {string} 最佳匹配的 equipment_id
  */
 export function findBestMatch(equipData, candidateIds) {
-    const store = ensureEquipmentStore();
+    const store = getEquipmentStore();
     let bestId = candidateIds[0];
     let bestScore = Infinity;
 
@@ -176,7 +168,7 @@ export function findBestMatch(equipData, candidateIds) {
  * @returns {object|null}
  */
 export function getEquipmentById(id) {
-    const store = ensureEquipmentStore();
+    const store = getEquipmentStore();
     return store.byId[id] || null;
 }
 
@@ -231,6 +223,7 @@ export async function removeEquipmentById(equipmentId, skipSave) {
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}
  */
+// Exported for test use only
 export function validateEquipmentEntry(data) {
     const errors = [];
 

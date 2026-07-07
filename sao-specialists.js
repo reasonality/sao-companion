@@ -114,7 +114,7 @@ export function persistSpecialistPanel(messageId, panelType, html) {
 /**
  * 通用专家 prompt 构造
  */
-export function _buildPanelPrompt(panelName, instruction, narrativeText, currentStateHint) {
+function _buildPanelPrompt(panelName, instruction, narrativeText, currentStateHint) {
     return [
         {
             role: 'system',
@@ -144,7 +144,7 @@ export function _buildPanelPrompt(panelName, instruction, narrativeText, current
  * 解析专家 JSON 响应，提取 html 字段（共享）。
  * @returns {string|null} html 字符串（非空），或 null（解析失败/空）
  */
-export function _parseSpecialistHtml(content, panelType) {
+function _parseSpecialistHtml(content, panelType) {
     if (!content) return null;
     // Primary: strict JSON parse
     const parsed = extractJsonObject(content);
@@ -195,7 +195,7 @@ export function _parseSpecialistHtml(content, panelType) {
  * @param {string} narrativeText
  * @param {Function} [rules] - 返回规则字符串的函数（按需注入）
  */
-export async function _callPanelSpecialist(panelType, panelName, instruction, stateHint, messageId, narrativeText, rules) {
+async function _callPanelSpecialist(panelType, panelName, instruction, stateHint, messageId, narrativeText, rules) {
     const messages = _buildPanelPrompt(panelName, instruction, narrativeText, stateHint);
     // 规则按需注入（rules 为函数，返回规则字符串）
     if (rules) {
@@ -216,7 +216,7 @@ export async function _callPanelSpecialist(panelType, panelName, instruction, st
 }
 
 /** 装饰面板专家配置（DRY 驱动） */
-export const PANEL_SPECIALIST_CONFIG = [
+const PANEL_SPECIALIST_CONFIG = [
     { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '', rules: () => '' },
     { type: 'equipment', name: '装备栏', instruction: '仅输出本回合新生成/获得的装备。若本回合无新增装备，返回空内容（不要列出已有装备）。', hint: () => projectEquipmentSummary(), rules: () => RULE_SKILL },
     { type: 'swordskill', name: '剑技',  instruction: '仅输出本回合新生成/获得的剑技或技能。若本回合无新增，返回空内容（不要列出已有剑技）。', hint: () => projectSkillSummary(), rules: () => RULE_SKILL + '\n\n' + RULE_SWORDSKILL },
@@ -266,7 +266,7 @@ export function _clearSpecialistPanels(messageId) {
  * 校验 status 专家输出的 {state, zdText, userStatusHtml}（防注入/防漂移）。
  * @returns {boolean} true=合法
  */
-export function _validateStatus(parsed) {
+function _validateStatus(parsed) {
     if (!parsed || typeof parsed !== 'object') return false;
     const s = parsed.state;
     if (!s || typeof s !== 'object') return false;
@@ -470,7 +470,7 @@ const ZONE_TYPE_ENUM = ['town', 'field', 'dungeon', 'labyrinth', 'boss_area', 'e
  * @param {object} parsed
  * @returns {boolean} true=合法
  */
-export function _validateWorldOutput(parsed) {
+function _validateWorldOutput(parsed) {
     if (!parsed || typeof parsed !== 'object') return false;
 
     // areaStatus: null 或对象

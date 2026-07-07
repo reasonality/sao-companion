@@ -122,6 +122,19 @@ export function esc(str) {
         .replace(/'/g, '&#39;');
 }
 
+/** try/catch wrapper: returns null on failure. Replaces 3 duplicate definitions. */
+export function safe(fn, label) {
+    try { return fn(); } catch (e) {
+        if (label) console.warn('[SAO] ' + label + ':', e);
+        return null;
+    }
+}
+
+/** Dedup key: strip whitespace, take first 20 chars. Replaces 2 duplicate definitions. */
+export function _dedupKey(str) {
+    return String(str || '').replace(/\s+/g, '').substring(0, 20);
+}
+
 /**
  * 安全 JSON 解析（失败返回 null，不抛出）。共享工具。
  */

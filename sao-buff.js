@@ -12,7 +12,7 @@ import { log } from './sao-core.js';
 const BUFF_STAT_FIELDS = ['str', 'agi', 'int', 'vit', 'atk', 'maxHp', 'maxMp', 'hit', 'crit'];
 
 /** buff 来源枚举（用于校验和展示） */
-export const BUFF_SOURCES = [
+const BUFF_SOURCES = [
     'food', 'furniture', 'title', 'guild', 'equipment_set',
     'skill', 'special_event', 'enemy_trait',
 ];

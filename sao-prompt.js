@@ -21,7 +21,7 @@ import { buildContextualInjection } from './sao-context-inject.js';
  * - 差异：equip/swordskill 在 CSS 中隐藏但不从 prompt 清理（模型需要装备/技能数据）
  *         digest/guild/npc_status 等在 prompt 中清理但不 CSS 隐藏（无渲染器，不需要隐藏）
  */
-export const SAO_PROMPT_STRIP_TAGS = [
+const SAO_PROMPT_STRIP_TAGS = [
     'zd_status',
     'user_status',
     'map',
@@ -71,18 +71,6 @@ export function cleanTimelinePromptText(text) {
 // ============================================================
 // 状态注入
 // ============================================================
-
-/**
- * 格式化紧凑状态文本（用于注入 AI 上下文）
- *
- * @deprecated 当前生产代码不再调用（玩家状态已改为始终全量注入 via projectFullState）。
- * 保留供测试与潜在未来按需压缩使用。不要在生产路径新增调用。
- */
-export function formatCompactState(state) {
-    // A0: delegate to store projection layer
-    // `state` parameter is kept for backward compat but ignored — projection reads from stores
-    return projectCompactState();
-}
 
 export function injectMemoryAndState() {
     const ctx = getContext();
@@ -144,17 +132,4 @@ export function injectMemoryAndState() {
         }).join(' ');
         log(`状态注入: ${parts.length}块 共${injected.length}字 — ${partHeaders}`);
     }
-}
-
-/**
- * 清理 prompt 中的数据类世界书条目注入（楼层/NPC/时间线等）。
- * 阶段5：当数据类条目由 tool call 接管后，禁用其世界书注入时启用此函数。
- * 当前数据类条目已 disabled（不在 prompt），暂不需要清理。
- * TODO: 阶段5 实现 — 在 CHAT_COMPLETION_PROMPT_READY 中调用，清理 data-entry 注入
- * @param {string} text
- * @returns {string}
- */
-export function cleanDataEntryInjections(text) {
-    // TODO: 阶段5 实现
-    return text;
 }

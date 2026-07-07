@@ -617,7 +617,7 @@ export function initToolSystem() {
 /**
  * 工具调用计数器 — 记录成功/失败次数到 localStorage
  */
-export function recordToolCall(success) {
+function recordToolCall(success) {
     const key = success ? 'sao_tool_call_count' : 'sao_tool_fail_count';
     const current = parseInt(localStorage.getItem(key) || '0');
     localStorage.setItem(key, String(current + 1));
@@ -627,7 +627,7 @@ export function recordToolCall(success) {
  * 工具 action 包装器 — 自动记录调用成功/失败，并输出可见日志
  * 用法: action: wrapToolAction('tool_name', async (params) => { ... })
  */
-export function wrapToolAction(toolName, originalAction) {
+function wrapToolAction(toolName, originalAction) {
     return async (params) => {
         try {
             const result = await originalAction(params);

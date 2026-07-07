@@ -42,11 +42,11 @@ const DEFAULT_PLAYER = Object.freeze({
 // ============================================================
 
 /**
- * 确保 playerStore 存在，返回引用。
+ * 获取 playerStore 引用（惰性初始化）。
  * 若不存在则以 DEFAULT_PLAYER 初始化。
  * @returns {object}
  */
-function ensurePlayerStore() {
+export function getPlayerStore() {
     const store = getStore();
     if (!store.playerStore) {
         store.playerStore = structuredClone(DEFAULT_PLAYER);
@@ -71,7 +71,7 @@ const BONUS_VITAL_FIELDS = ['maxHp', 'maxMp'];
  * @returns {{ str: number, agi: number, int: number, vit: number, maxHp: number, maxMp: number }}
  */
 function _getEquipmentBonuses() {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     const equipStore = getEquipmentStore();
     const bonuses = { str: 0, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0 };
     for (const slot of SLOT_ENUM) {
@@ -106,7 +106,7 @@ function _getEquipmentBonuses() {
  * @param {object}  [oldBonuses] - 装备变更前的加成快照（equip/unequip 始终提供）
  */
 export function recalcStatsFromEquipment(skipSave, oldBonuses) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     const newBonuses = _getEquipmentBonuses();
 
     // BUG #5: 当 oldBonuses 提供时（equip/unequip 路径），始终重新推导 base，
@@ -164,14 +164,6 @@ export function recalcStatsFromEquipment(skipSave, oldBonuses) {
 // ============================================================
 
 /**
- * 获取 playerStore 引用（惰性初始化）。
- * @returns {object}
- */
-export function getPlayerStore() {
-    return ensurePlayerStore();
-}
-
-/**
  * 原子装备操作：
  * 1. 校验 equipmentStore.byId[equipmentId] 存在
  * 2. 当前 slot 有装备 → 回背包
@@ -194,7 +186,7 @@ export async function equipItem(slot, equipmentId, skipSave) {
         throw new Error(`equipItem: equipment_id "${equipmentId}" 在 equipmentStore 中不存在`);
     }
 
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     const invStore = getInventoryStore();
 
     // 捕获变更前加成快照（用于 baseAttributes 首次初始化）
@@ -238,7 +230,7 @@ export async function equipItem(slot, equipmentId, skipSave) {
  * @param {object} vitals - { hp?, maxHp?, mp?, maxMp? }
  */
 export async function updatePlayerVitals(vitals, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     if (vitals.hp != null) playerStore.vitals.hp = vitals.hp;
     if (vitals.maxHp != null) playerStore.vitals.maxHp = vitals.maxHp;
     if (vitals.mp != null) playerStore.vitals.mp = vitals.mp;
@@ -259,7 +251,7 @@ export async function updatePlayerVitals(vitals, skipSave) {
  * @param {object} attrs - { str?, agi?, int?, vit? }
  */
 export async function updatePlayerAttributes(attrs, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     if (attrs.str != null) playerStore.attributes.str = attrs.str;
     if (attrs.agi != null) playerStore.attributes.agi = attrs.agi;
     if (attrs.int != null) playerStore.attributes.int = attrs.int;
@@ -285,7 +277,7 @@ export async function updatePlayerAttributes(attrs, skipSave) {
  * @param {number} totalExp
  */
 export async function updatePlayerProgression(level, totalExp, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     // L11: 防 null/undefined 写入（specialist JSON 可能只传其中一个字段，另一个为 undefined）
     if (level != null) playerStore.progression.level = level;
     if (totalExp != null) playerStore.progression.totalExp = totalExp;
@@ -298,7 +290,7 @@ export async function updatePlayerProgression(level, totalExp, skipSave) {
  * @param {string} location
  */
 export async function updatePlayerPosition(floor_id, location, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     const oldFloorId = playerStore.position.floor_id;
     const oldLocation = playerStore.position.location;
 
@@ -335,7 +327,7 @@ export async function updatePlayerPosition(floor_id, location, skipSave) {
  * @param {string|null} title
  */
 export async function updatePlayerIdentity(name, title, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     playerStore.identity.name = name;
     playerStore.identity.title = title;
     if (skipSave !== true) await saveStore();
@@ -348,7 +340,7 @@ export async function updatePlayerIdentity(name, title, skipSave) {
  * @param {number} proficiency
  */
 export async function addPlayerSkill(skill_id, name, proficiency, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     const existing = playerStore.skills.find(s => s.skill_id === skill_id);
     if (existing) {
         // 已存在则更新熟练度（upsert 语义）
@@ -374,7 +366,7 @@ export async function addPlayerSkill(skill_id, name, proficiency, skipSave) {
  * @param {string[]} ids
  */
 export async function setCustomSkills(ids, skipSave) {
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     playerStore.customSkills = Array.isArray(ids) ? [...ids] : [];
     if (skipSave !== true) await saveStore();
 }
@@ -395,7 +387,7 @@ export async function unequipItem(slot, skipSave) {
         throw new Error(`unequipItem: 无效 slot "${slot}"，必须是 ${SLOT_ENUM.join('|')} 之一`);
     }
 
-    const playerStore = ensurePlayerStore();
+    const playerStore = getPlayerStore();
     const currentId = playerStore.equipment[slot];
     if (!currentId) {
         log(`unequipItem: slot "${slot}" 无装备`, 'warn');
@@ -426,118 +418,4 @@ export async function unequipItem(slot, skipSave) {
     return currentId;
 }
 
-/**
- * 校验 playerStore 条目数据。
- * @param {object} data - playerStore 条目
- * @returns {{ valid: boolean, errors: string[] }}
- */
-export function validatePlayerEntry(data) {
-    const errors = [];
-
-    if (!data || typeof data !== 'object') {
-        return { valid: false, errors: ['数据不是对象'] };
-    }
-
-    // player_id
-    if (typeof data.player_id !== 'string' || data.player_id.length === 0) {
-        errors.push('player_id 必须是非空字符串');
-    }
-
-    // identity.name
-    if (!data.identity || typeof data.identity.name !== 'string' || data.identity.name.length === 0) {
-        errors.push('identity.name 必须是非空字符串');
-    }
-
-    // progression
-    if (data.progression != null) {
-        if (typeof data.progression !== 'object') {
-            errors.push('progression 必须是对象');
-        } else {
-            if (typeof data.progression.level !== 'number' || data.progression.level < 1) {
-                errors.push('progression.level 必须是 >= 1 的数字');
-            }
-            if (typeof data.progression.totalExp !== 'number' || data.progression.totalExp < 0) {
-                errors.push('progression.totalExp 必须是 >= 0 的数字');
-            }
-        }
-    }
-
-    // attributes
-    if (data.attributes != null) {
-        if (typeof data.attributes !== 'object') {
-            errors.push('attributes 必须是对象');
-        } else {
-            const ATTR_FIELDS = ['str', 'agi', 'int', 'vit'];
-            for (const f of ATTR_FIELDS) {
-                if (data.attributes[f] != null && typeof data.attributes[f] !== 'number') {
-                    errors.push(`attributes.${f} 必须是数字`);
-                }
-            }
-        }
-    }
-
-    // vitals
-    if (data.vitals != null) {
-        if (typeof data.vitals !== 'object') {
-            errors.push('vitals 必须是对象');
-        } else {
-            const VITAL_FIELDS = ['hp', 'maxHp', 'mp', 'maxMp'];
-            for (const f of VITAL_FIELDS) {
-                if (data.vitals[f] != null && typeof data.vitals[f] !== 'number') {
-                    errors.push(`vitals.${f} 必须是数字`);
-                }
-            }
-        }
-    }
-
-    // equipment
-    const SLOT_ENUM = ['weapon', 'off_hand', 'head', 'chest', 'hands', 'legs', 'accessory'];
-    if (data.equipment != null) {
-        if (typeof data.equipment !== 'object') {
-            errors.push('equipment 必须是对象');
-        } else {
-            for (const [slot, val] of Object.entries(data.equipment)) {
-                if (!SLOT_ENUM.includes(slot)) {
-                    errors.push(`equipment 包含无效 slot "${slot}"`);
-                }
-                if (val !== null && typeof val !== 'string') {
-                    errors.push(`equipment.${slot} 必须是字符串或 null`);
-                }
-            }
-        }
-    }
-
-    // skills
-    if (data.skills != null) {
-        if (!Array.isArray(data.skills)) {
-            errors.push('skills 必须是数组');
-        } else {
-            for (let i = 0; i < data.skills.length; i++) {
-                const sk = data.skills[i];
-                if (!sk || typeof sk !== 'object') {
-                    errors.push(`skills[${i}] 必须是对象`);
-                    continue;
-                }
-                if (typeof sk.skill_id !== 'string' || sk.skill_id.length === 0) {
-                    errors.push(`skills[${i}].skill_id 必须是非空字符串`);
-                }
-                if (typeof sk.name !== 'string' || sk.name.length === 0) {
-                    errors.push(`skills[${i}].name 必须是非空字符串`);
-                }
-                if (sk.proficiency != null && typeof sk.proficiency !== 'number') {
-                    errors.push(`skills[${i}].proficiency 必须是数字`);
-                }
-            }
-        }
-    }
-
-    // cursor_type: 枚举校验
-    const CURSOR_TYPE_ENUM = ['green', 'orange', 'red'];
-    if (data.cursor_type != null) {
-        if (!CURSOR_TYPE_ENUM.includes(data.cursor_type)) {
-            errors.push(`cursor_type 必须是 ${CURSOR_TYPE_ENUM.join('|')} 之一`);
-        }
-    }
-
-    return { valid: errors.length === 0, errors };
-}
+// validatePlayerEntry removed — genuinely dead code (no production or test imports)

@@ -1,7 +1,7 @@
 // sao-calendar.js — 日历模块（纯逻辑层）
 // 日期工具 + 时间线解析 + 日历初始化 + 增量更新 + 约定提取 + LLM 格式化
 
-import { getSaoData, getContext, getCurrentCharacter, log } from './sao-core.js';
+import { getSaoData, getContext, getCurrentCharacter, log, _dedupKey } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 
 // === calendarStore 访问辅助 ===
@@ -103,13 +103,13 @@ let _cleanDaysCache = null;
 let _cleanDaysCacheKey = null;
 
 /** 使干净日历数据缓存失效（eventOverrides 变化时调用）。 */
-export function invalidateCleanDaysCache() {
+function invalidateCleanDaysCache() {
     _cleanDaysCache = null;
     _cleanDaysCacheKey = null;
 }
 
 /** 使世界书原始解析缓存失效（切换角色卡时自动触发，也可手动调用）。 */
-export function invalidateRawWorldbookDays() {
+function invalidateRawWorldbookDays() {
     _rawWorldbookDays = null;
     _rawWorldbookDaysKey = null;
     invalidateCleanDaysCache();
@@ -267,16 +267,6 @@ export function daysBetween(dateStr1, dateStr2) {
     if (!d1 || !d2) return 0;
     const msPerDay = 86400000;
     return Math.round((d2.getTime() - d1.getTime()) / msPerDay);
-}
-
-/**
- * 约定去重 key 归一化：去除空白后取前 20 个字符。
- * existingKeys 构建与新 key 构建均走此函数，修正 v1 既有 bug
- * （v1 existingKeys 用完整描述、新 key 用 50 字符截断导致永不匹配）。
- * 见 CALENDAR_MODEL_V2_DESIGN.md §10.05/§10.2。
- */
-function _dedupKey(str) {
-    return String(str || '').replace(/\s+/g, '').substring(0, 20);
 }
 
 /**
@@ -526,7 +516,7 @@ export function queryTimeline(query = {}) {
  * @returns {{year:number,month:number,currentDay:number,days:Object<string,Array<{title:string}>>}|null}
  *          days 键为 'YYYY-MM-DD'；解析失败返回 null
  */
-export function parseFirstMesCalendarTag(rawText) {
+function parseFirstMesCalendarTag(rawText) {
     if (!rawText || typeof rawText !== 'string') return null;
     const m = rawText.match(/<calendar>\s*([\s\S]*?)\s*<\/calendar>/i);
     if (!m) return null;

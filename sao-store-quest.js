@@ -13,10 +13,10 @@ const QUEST_KIND_ENUM = ['main', 'side', 'daily', 'hidden'];
 // ============================================================
 
 /**
- * 确保 questStore 及其子字段存在，返回 questStore 引用。
+ * 获取 questStore 引用（惰性初始化）。
  * @returns {{ byId: Object, activeIds: string[], completedIds: string[] }}
  */
-function ensureQuestStore() {
+export function getQuestStore() {
     const store = getStore();
     if (!store.questStore) {
         store.questStore = { byId: {}, activeIds: [], completedIds: [] };
@@ -32,20 +32,12 @@ function ensureQuestStore() {
 // ============================================================
 
 /**
- * 获取 questStore 引用（惰性初始化）。
- * @returns {{ byId: Object, activeIds: string[], completedIds: string[] }}
- */
-export function getQuestStore() {
-    return ensureQuestStore();
-}
-
-/**
  * 生成任务 ID（自增数字，格式 quest_001）。
  * 解析已有 ID 找最大数字后缀 +1，宽度 3 位。
  * @returns {string}
  */
 export function generateQuestId() {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     let maxNum = 0;
     for (const id of Object.keys(store.byId)) {
         const match = id.match(/^quest_(\d+)$/);
@@ -64,7 +56,7 @@ export function generateQuestId() {
  * @returns {string} quest_id
  */
 export function createQuest(questData) {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     if (!questData || !questData.title) {
         log('createQuest: 缺少 title', 'warn');
         return null;
@@ -103,7 +95,7 @@ export function createQuest(questData) {
  * @returns {boolean}
  */
 export async function updateQuest(quest_id, update, skipSave) {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     const quest = store.byId[quest_id];
     if (!quest) {
         log(`updateQuest: 任务 ${quest_id} 不存在`, 'warn');
@@ -153,7 +145,7 @@ export async function updateQuest(quest_id, update, skipSave) {
  * @returns {boolean}
  */
 export async function completeQuest(quest_id, skipSave) {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     const quest = store.byId[quest_id];
     if (!quest) {
         log(`completeQuest: 任务 ${quest_id} 不存在`, 'warn');
@@ -197,7 +189,7 @@ function _moveToCompleted(store, quest_id) {
  * @returns {boolean}
  */
 export function abandonQuest(quest_id, skipSave) {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     const quest = store.byId[quest_id];
     if (!quest) {
         log(`abandonQuest: 任务 ${quest_id} 不存在`, 'warn');
@@ -212,7 +204,7 @@ export function abandonQuest(quest_id, skipSave) {
 }
 
 export function getQuestById(id) {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     return store.byId[id] || null;
 }
 
@@ -221,7 +213,7 @@ export function getQuestById(id) {
  * @returns {object[]}
  */
 export function getActiveQuests() {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     return store.activeIds.map(id => store.byId[id]).filter(Boolean);
 }
 
@@ -230,22 +222,8 @@ export function getActiveQuests() {
  * @returns {object[]}
  */
 export function getCompletedQuests() {
-    const store = ensureQuestStore();
+    const store = getQuestStore();
     return store.completedIds.map(id => store.byId[id]).filter(Boolean);
 }
 
-/**
- * 手写轻量守卫（0 依赖，不引入 ajv/zod）。
- * 返回 { valid, errors }，不 throw。风格对齐 validateNpcEntry/validateFloorEntry。
- */
-export function validateQuestEntry(data) {
-    const errors = [];
-    if (!data || typeof data !== 'object') return { valid: false, errors: ['数据不是对象'] };
-    if (typeof data.quest_id !== 'string' || !data.quest_id) errors.push('quest_id 必须是非空字符串');
-    if (typeof data.title !== 'string' || !data.title) errors.push('title 必须是非空字符串');
-    if (data.status != null && !QUEST_STATUS_ENUM.includes(data.status)) errors.push(`status 必须是 ${QUEST_STATUS_ENUM.join('|')} 之一`);
-    if (data.kind != null && !QUEST_KIND_ENUM.includes(data.kind)) errors.push(`kind 必须是 ${QUEST_KIND_ENUM.join('|')} 之一`);
-    if (data.objectives != null && !Array.isArray(data.objectives)) errors.push('objectives 必须是数组');
-    if (data.source != null && !['narrative', 'manual'].includes(data.source)) errors.push('source 必须是 narrative|manual 之一');
-    return { valid: errors.length === 0, errors };
-}
+// validateQuestEntry removed — genuinely dead code (no production or test imports)

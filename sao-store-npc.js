@@ -10,10 +10,10 @@ import { log } from './sao-core.js';
 // ============================================================
 
 /**
- * 确保 npcStore 及其子字段存在，返回 npcStore 引用。
+ * 获取 npcStore 引用（惰性初始化）。
  * @returns {{ byId: Object, nameToId: Object }}
  */
-function ensureNpcStore() {
+export function getNpcStore() {
     const store = getStore();
     if (!store.npcStore) {
         store.npcStore = { byId: {}, nameToId: {} };
@@ -85,14 +85,6 @@ function _createNpcEntry(store, id, name, aliases, canon, source, canonHash) {
 // ============================================================
 
 /**
- * 获取 npcStore 引用（惰性初始化）。
- * @returns {{ byId: Object, nameToId: Object }}
- */
-export function getNpcStore() {
-    return ensureNpcStore();
-}
-
-/**
  * 基于 NPC 名称生成唯一 ID。
  * ASCII 名称：npc_ + 小写 + 非字母数字替换为下划线。
  * 非 ASCII 名称（如中文）：npc_h + simpleHash(name)（基于名称哈希，幂等避免同毫秒碰撞）。
@@ -116,7 +108,7 @@ export function generateNpcId(name) {
  * @returns {string} npc_id
  */
 export function findOrCreateNpc(name, aliases) {
-    const store = ensureNpcStore();
+    const store = getNpcStore();
     if (!name) {
         log('findOrCreateNpc: 缺少 name', 'warn');
         return null;
@@ -159,7 +151,7 @@ export function findOrCreateNpc(name, aliases) {
  * @returns {object|null}
  */
 export function getNpcById(id) {
-    const store = ensureNpcStore();
+    const store = getNpcStore();
     return store.byId[id] || null;
 }
 
@@ -169,7 +161,7 @@ export function getNpcById(id) {
  * @returns {object|null}
  */
 export function getNpcByName(name) {
-    const store = ensureNpcStore();
+    const store = getNpcStore();
     const id = store.nameToId[name];
     return id ? (store.byId[id] || null) : null;
 }
@@ -183,7 +175,7 @@ export function getNpcByName(name) {
 export function initNpcFromWorldBook(entries) {
     if (!entries || !Array.isArray(entries)) return 0;
 
-    const store = ensureNpcStore();
+    const store = getNpcStore();
     let count = 0;
 
     for (const entry of entries) {
@@ -258,7 +250,7 @@ export function initNpcFromWorldBook(entries) {
  * @returns {boolean}
  */
 export async function updateNpcState(npc_id, stateUpdate, skipSave) {
-    const store = ensureNpcStore();
+    const store = getNpcStore();
     const npc = store.byId[npc_id];
     if (!npc) {
         log(`updateNpcState: NPC ${npc_id} 不存在`, 'warn');
@@ -280,7 +272,7 @@ export async function updateNpcState(npc_id, stateUpdate, skipSave) {
  * @returns {boolean}
  */
 export async function addObservation(npc_id, observation, skipSave) {
-    const store = ensureNpcStore();
+    const store = getNpcStore();
     const npc = store.byId[npc_id];
     if (!npc) {
         log(`addObservation: NPC ${npc_id} 不存在`, 'warn');
@@ -305,6 +297,7 @@ export async function addObservation(npc_id, observation, skipSave) {
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}
  */
+// Exported for test use only
 export function validateNpcEntry(data) {
     const errors = [];
 

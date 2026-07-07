@@ -169,7 +169,7 @@ export function isModelConfigured(role) {
 /**
  * 回退：使用酒馆主模型
  */
-export async function callViaMainModel(messages, maxTokens) {
+async function callViaMainModel(messages, maxTokens) {
     const ctx = getContext();
     const quietPrompt = messages.map(m => `${m.role}: ${m.content}`).join('\n\n');
     return await ctx.generateQuietPrompt({

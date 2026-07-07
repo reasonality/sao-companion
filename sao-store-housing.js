@@ -11,10 +11,10 @@ import { getPlayerStore } from './sao-store-player.js';
 // ============================================================
 
 /**
- * 确保 housingStore 存在，返回引用。
+ * 获取 housingStore 引用（惰性初始化）。
  * @returns {{ playerHousing: object|null }}
  */
-function ensureHousingStore() {
+export function getHousingStore() {
     const store = getStore();
     if (!store.housingStore) {
         store.housingStore = { playerHousing: null };
@@ -27,19 +27,11 @@ function ensureHousingStore() {
 // ============================================================
 
 /**
- * 获取 housingStore 引用（惰性初始化）。
- * @returns {{ playerHousing: object|null }}
- */
-export function getHousingStore() {
-    return ensureHousingStore();
-}
-
-/**
  * 获取玩家住房数据。
  * @returns {object|null} 住房数据，无房时返回 null
  */
 export function getPlayerHousing() {
-    return ensureHousingStore().playerHousing;
+    return getHousingStore().playerHousing;
 }
 
 /**
@@ -47,7 +39,7 @@ export function getPlayerHousing() {
  * @param {object} housing - { type, floor_id, location, description, decorations: [], furniture: [] }
  */
 export function setPlayerHousing(housing) {
-    const store = ensureHousingStore();
+    const store = getHousingStore();
     store.playerHousing = {
         type: housing.type || 'apartment',
         floor_id: housing.floor_id || null,
@@ -64,7 +56,7 @@ export function setPlayerHousing(housing) {
  * @param {object} updates - 部分住房数据，合并到现有数据
  */
 export function updatePlayerHousing(updates) {
-    const store = ensureHousingStore();
+    const store = getHousingStore();
     if (!store.playerHousing) return;
     if (updates.location !== undefined) store.playerHousing.location = updates.location;
     if (updates.description !== undefined) store.playerHousing.description = updates.description;
@@ -78,7 +70,7 @@ export function updatePlayerHousing(updates) {
  * @param {string} decoration - 自由文本描述
  */
 export function addDecoration(decoration) {
-    const store = ensureHousingStore();
+    const store = getHousingStore();
     if (!store.playerHousing) return;
     store.playerHousing.decorations.push(decoration);
     log(`装修更新: ${decoration}`);
@@ -89,7 +81,7 @@ export function addDecoration(decoration) {
  * @param {object} furniture - { name, buff?: { name, effects, description } }
  */
 export function addFurniture(furniture) {
-    const store = ensureHousingStore();
+    const store = getHousingStore();
     if (!store.playerHousing) return;
     store.playerHousing.furniture.push(furniture);
     log(`家具添加: ${furniture.name}`);
@@ -100,7 +92,7 @@ export function addFurniture(furniture) {
  * @param {string} name
  */
 export function removeFurniture(name) {
-    const store = ensureHousingStore();
+    const store = getHousingStore();
     if (!store.playerHousing) return;
     store.playerHousing.furniture = store.playerHousing.furniture.filter(f => f.name !== name);
     log(`家具移除: ${name}`);
@@ -142,6 +134,6 @@ export function getActiveFurnitureBuffs() {
  * 清除玩家住房（出售/搬出）。
  */
 export function clearPlayerHousing() {
-    ensureHousingStore().playerHousing = null;
+    getHousingStore().playerHousing = null;
     log('房屋清除');
 }

@@ -15,10 +15,10 @@ const ITEM_TYPE_ENUM = ['equipment', 'consumable', 'quest_item', 'material'];
 // ============================================================
 
 /**
- * 确保 inventoryStore 及其子字段存在，返回引用。
+ * 获取 inventoryStore 引用（惰性初始化）。
  * @returns {{ owner_id: string, currency: { cor: number }, items: Array }}
  */
-function ensureInventoryStore() {
+export function getInventoryStore() {
     const store = getStore();
     if (!store.inventoryStore) {
         store.inventoryStore = {
@@ -37,19 +37,11 @@ function ensureInventoryStore() {
 // ============================================================
 
 /**
- * 获取 inventoryStore 引用（惰性初始化）。
- * @returns {{ owner_id: string, currency: { cor: number }, items: Array }}
- */
-export function getInventoryStore() {
-    return ensureInventoryStore();
-}
-
-/**
  * 生成物品 ID（自增数字，格式 inv_001）。
  * @returns {string}
  */
 export function generateItemId() {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     let maxNum = 0;
     for (const item of store.items) {
         if (item.item_id) {
@@ -70,7 +62,7 @@ export function generateItemId() {
  * @returns {string} item_id
  */
 export async function addEquipmentItem(equipmentId, skipSave) {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     const itemId = generateItemId();
     store.items.push({
         item_id: itemId,
@@ -90,7 +82,7 @@ export async function addEquipmentItem(equipmentId, skipSave) {
  * @returns {boolean} 是否移除了条目
  */
 export async function removeEquipmentItem(equipmentId, skipSave) {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     const idx = store.items.findIndex(
         item => item.type === 'equipment' && item.equipment_id === equipmentId
     );
@@ -142,7 +134,7 @@ export async function addConsumableItem(consumableId, qty, skipSave) {
         log(`addConsumableItem: consumableId 为空，跳过`, 'warn');
         return null;
     }
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
 
     // M4: 统一 import，避免 existing/new 两分支各自 await import
@@ -194,7 +186,7 @@ export async function addConsumableItem(consumableId, qty, skipSave) {
  */
 export async function setConsumableQty(consumableId, qty, skipSave) {
     if (!consumableId) return null;
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
     const existing = store.items.find(
         item => item.type === 'consumable' && item.consumable_id === consumableId
@@ -220,7 +212,7 @@ export async function setConsumableQty(consumableId, qty, skipSave) {
  * @returns {string} item_id
  */
 export async function addMaterial(name, qty, skipSave) {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     const safeQty = Math.max(0, Math.floor(Number(qty) || 0));
 
     const existing = store.items.find(
@@ -256,7 +248,7 @@ export async function addMaterial(name, qty, skipSave) {
  * @returns {string} item_id
  */
 export async function addQuestItem(name, description, skipSave) {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     const itemId = generateItemId();
     const entry = {
         item_id: itemId,
@@ -276,7 +268,7 @@ export async function addQuestItem(name, description, skipSave) {
  * @param {number} cor
  */
 export async function updateCurrency(cor, skipSave) {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     // L4: schema 要求 cor 为非负整数；强制取整 + 非负，避免 LLM 传 float/负数写入违反 schema。
     const normalizedCor = Math.max(0, Math.floor(Number(cor) || 0));
     store.currency.cor = normalizedCor;
@@ -288,90 +280,8 @@ export async function updateCurrency(cor, skipSave) {
  * @returns {number}
  */
 export function getCurrency() {
-    const store = ensureInventoryStore();
+    const store = getInventoryStore();
     return store.currency.cor || 0;
 }
 
-/**
- * 校验 inventoryStore 条目数据。
- * @param {object} data - inventoryStore 条目
- * @returns {{ valid: boolean, errors: string[] }}
- */
-export function validateInventoryEntry(data) {
-    const errors = [];
-
-    if (!data || typeof data !== 'object') {
-        return { valid: false, errors: ['数据不是对象'] };
-    }
-
-    // owner_id
-    if (typeof data.owner_id !== 'string' || data.owner_id.length === 0) {
-        errors.push('owner_id 必须是非空字符串');
-    }
-
-    // currency.cor
-    if (data.currency != null) {
-        if (typeof data.currency !== 'object') {
-            errors.push('currency 必须是对象');
-        } else if (data.currency.cor != null && (typeof data.currency.cor !== 'number' || data.currency.cor < 0)) {
-            errors.push('currency.cor 必须是 >= 0 的数字');
-        }
-    }
-
-    // items
-    if (data.items != null) {
-        if (!Array.isArray(data.items)) {
-            errors.push('items 必须是数组');
-        } else {
-            for (let i = 0; i < data.items.length; i++) {
-                const item = data.items[i];
-                if (!item || typeof item !== 'object') {
-                    errors.push(`items[${i}] 必须是对象`);
-                    continue;
-                }
-
-                const type = item.type;
-
-                // item_id: common to all types
-                if (typeof item.item_id !== 'string' || item.item_id.length === 0) {
-                    errors.push(`items[${i}].item_id 必须是非空字符串`);
-                }
-
-                if (type === 'equipment') {
-                    if (typeof item.equipment_id !== 'string' || item.equipment_id.length === 0) {
-                        errors.push(`items[${i}].equipment_id 必须是非空字符串`);
-                    }
-                    if (item.qty != null && (typeof item.qty !== 'number' || item.qty < 1)) {
-                        errors.push(`items[${i}].qty 必须是 >= 1 的数字`);
-                    }
-                } else if (type === 'consumable') {
-                    if (typeof item.consumable_id !== 'string' || item.consumable_id.length === 0) {
-                        errors.push(`items[${i}].consumable_id 必须是非空字符串`);
-                    }
-                    if (item.qty != null && (typeof item.qty !== 'number' || item.qty < 1)) {
-                        errors.push(`items[${i}].qty 必须是 >= 1 的数字`);
-                    }
-                } else if (type === 'quest_item') {
-                    if (typeof item.name !== 'string' || item.name.length === 0) {
-                        errors.push(`items[${i}].name 必须是非空字符串`);
-                    }
-                    if (item.qty != null && (typeof item.qty !== 'number' || item.qty < 1)) {
-                        errors.push(`items[${i}].qty 必须是 >= 1 的数字`);
-                    }
-                    // description is optional
-                } else if (type === 'material') {
-                    if (typeof item.name !== 'string' || item.name.length === 0) {
-                        errors.push(`items[${i}].name 必须是非空字符串`);
-                    }
-                    if (item.qty != null && (typeof item.qty !== 'number' || item.qty < 1)) {
-                        errors.push(`items[${i}].qty 必须是 >= 1 的数字`);
-                    }
-                } else {
-                    errors.push(`items[${i}].type 无效，必须是 ${ITEM_TYPE_ENUM.join('|')} 之一`);
-                }
-            }
-        }
-    }
-
-    return { valid: errors.length === 0, errors };
-}
+// validateInventoryEntry removed — genuinely dead code (no production or test imports)

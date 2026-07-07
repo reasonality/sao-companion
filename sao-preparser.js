@@ -10,7 +10,7 @@ import { initNpcFromWorldBook } from './sao-store-npc.js';
 import { initFloorFromWorldBook, ensureAllFloorsExist } from './sao-store-floor.js';
 import { getWorldStore } from './sao-store-world.js';
 import { toCalendarStoreEvent, getCalendarStore } from './sao-calendar.js';
-import { log } from './sao-core.js';
+import { log, _dedupKey } from './sao-core.js';
 
 // ============================================================
 // Constants
@@ -64,16 +64,6 @@ export function computeEntriesHash(entries) {
 // ============================================================
 // Phase 3: Timeline entries → calendarStore.events
 // ============================================================
-
-/**
- * Normalize a title for deduplication: strip whitespace, remove [tag] prefix, take first 20 chars.
- * Matches the _dedupKey pattern in sao-calendar.js.
- * @param {string} str
- * @returns {string}
- */
-function _dedupKey(str) {
-    return String(str || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
-}
 
 export function parseTimelineEntries(entries) {
     const store = getStore();
@@ -148,7 +138,7 @@ export function parseTimelineEntries(entries) {
 
                 // Intra-run dedup only: check if we already added this exact event
                 // in this parse run (same date + same description prefix).
-                const evKey = dateStr + '|' + _dedupKey(ev.description);
+                const evKey = dateStr + '|' + _dedupKey(String(ev.description || '').replace(/^\[[^\]]*\]/, ''));
                 if (addedKeys.has(evKey)) continue;
                 addedKeys.add(evKey);
 

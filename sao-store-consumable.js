@@ -21,10 +21,10 @@ const STAT_ENUM = ['hp', 'mp', 'str', 'agi', 'int', 'vit'];
 // ============================================================
 
 /**
- * 确保 consumableStore 及其子字段存在，返回引用。
+ * 获取 consumableStore 引用（惰性初始化）。
  * @returns {{ byId: Object, nameToId: Object }}
  */
-function ensureConsumableStore() {
+export function getConsumableStore() {
     const store = getStore();
     if (!store.consumableStore) {
         store.consumableStore = { byId: {}, nameToId: {} };
@@ -39,20 +39,12 @@ function ensureConsumableStore() {
 // ============================================================
 
 /**
- * 获取 consumableStore 引用（惰性初始化）。
- * @returns {{ byId: Object, nameToId: Object }}
- */
-export function getConsumableStore() {
-    return ensureConsumableStore();
-}
-
-/**
  * 生成消耗品 ID（自增数字，格式 consumable_001）。
  * 解析已有 ID 找最大数字后缀 +1，宽度 3 位。
  * @returns {string}
  */
 export function generateConsumableId() {
-    const store = ensureConsumableStore();
+    const store = getConsumableStore();
     let maxNum = 0;
     for (const id of Object.keys(store.byId)) {
         const match = id.match(/^consumable_(\d+)$/);
@@ -71,7 +63,7 @@ export function generateConsumableId() {
  * @returns {object|null}
  */
 export function getConsumableById(id) {
-    const store = ensureConsumableStore();
+    const store = getConsumableStore();
     return store.byId[id] || null;
 }
 
@@ -83,7 +75,7 @@ export function getConsumableById(id) {
  * @returns {string} consumable_id
  */
 export function findOrCreateConsumable(data) {
-    const store = ensureConsumableStore();
+    const store = getConsumableStore();
     const { name } = data;
     if (!name) {
         log('findOrCreateConsumable: 缺少 name', 'warn');
@@ -121,6 +113,7 @@ export function findOrCreateConsumable(data) {
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}
  */
+// Exported for test use only
 export function validateConsumableEntry(data) {
     const errors = [];
 

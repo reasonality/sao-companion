@@ -11,10 +11,10 @@ import { simpleHash } from './sao-store-npc.js';
 // ============================================================
 
 /**
- * 确保 skillStore 及其子字段存在，返回 skillStore 引用。
+ * 获取 skillStore 引用（惰性初始化）。
  * @returns {{ byId: Object, nameToId: Object }}
  */
-function ensureSkillStore() {
+export function getSkillStore() {
     const store = getStore();
     if (!store.skillStore) {
         store.skillStore = { byId: {}, nameToId: {} };
@@ -29,14 +29,6 @@ function ensureSkillStore() {
 // ============================================================
 
 /**
- * 获取 skillStore 引用（惰性初始化）。
- * @returns {{ byId: Object, nameToId: Object }}
- */
-export function getSkillStore() {
-    return ensureSkillStore();
-}
-
-/**
  * 基于技能名称生成唯一 ID（slug）。
  * ASCII 名称：skill_ + 小写 + 非字母数字替换为下划线 + 合并连续下划线。
  * 非 ASCII 名称（如中文）：skill_h + simpleHash(name)（基于名称哈希，幂等避免同毫秒碰撞）。
@@ -45,7 +37,7 @@ export function getSkillStore() {
  * @returns {string}
  */
 export function generateSkillId(name) {
-    const store = ensureSkillStore();
+    const store = getSkillStore();
 
     // 尝试 ASCII slug
     const isAscii = /^[\x20-\x7e]+$/.test(name);
@@ -75,7 +67,7 @@ export function generateSkillId(name) {
  * @returns {string} skill_id
  */
 export function findOrCreateSkill(skillData) {
-    const store = ensureSkillStore();
+    const store = getSkillStore();
     const { name } = skillData;
     if (!name) {
         log('findOrCreateSkill: 缺少 name', 'warn');
@@ -127,7 +119,7 @@ export function findOrCreateSkill(skillData) {
  * @returns {object|null}
  */
 export function getSkillById(id) {
-    const store = ensureSkillStore();
+    const store = getSkillStore();
     return store.byId[id] || null;
 }
 
@@ -137,7 +129,7 @@ export function getSkillById(id) {
  * @returns {object|null}
  */
 export function getSkillByName(name) {
-    const store = ensureSkillStore();
+    const store = getSkillStore();
     const id = store.nameToId[name];
     return id ? (store.byId[id] || null) : null;
 }
@@ -147,6 +139,7 @@ export function getSkillByName(name) {
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}
  */
+// Exported for test use only
 export function validateSkillEntry(data) {
     const errors = [];
 
@@ -199,7 +192,7 @@ export function validateSkillEntry(data) {
  * @returns {boolean} 是否更新成功
  */
 export async function updateSkillCombat(skillId, combatData, skipSave) {
-    const store = ensureSkillStore();
+    const store = getSkillStore();
     const skill = store.byId[skillId];
     if (!skill) {
         log(`updateSkillCombat: 技能 ${skillId} 不存在`, 'warn');

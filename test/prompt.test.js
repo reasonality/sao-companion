@@ -12,6 +12,7 @@ vi.mock('../sao-core.js', () => ({
         chatMetadata: {},
         saveMetadata: vi.fn(),
     })),
+    safe: (fn, label) => { try { return fn(); } catch { return null; } },
 }));
 
 vi.mock('../sao-store-core.js', () => ({

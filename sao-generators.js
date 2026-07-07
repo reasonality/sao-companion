@@ -149,7 +149,6 @@ const CONSUMABLE_RARITY_TABLE = [
 // 纯工具函数
 // ============================================================
 
-function rollDice(sides) { return Math.floor(Math.random() * sides) + 1; }
 function lookupRoll(table, rollValue) {
     for (const entry of table) {
         if (rollValue >= entry.roll[0] && rollValue <= entry.roll[1]) return entry;
@@ -244,21 +243,21 @@ export async function generateEquipment(context, callModelFn) {
     if (context.rarity) {
         // 从传入的名称匹配
         const r = String(context.rarity);
-        rarityEntry = EQUIP_RARITY_TABLE.find(e => r.includes(e.name[0])) || lookupRoll(EQUIP_RARITY_TABLE, rollDice(20));
+        rarityEntry = EQUIP_RARITY_TABLE.find(e => r.includes(e.name[0])) || lookupRoll(EQUIP_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
     } else {
-        rarityEntry = lookupRoll(EQUIP_RARITY_TABLE, rollDice(20));
+        rarityEntry = lookupRoll(EQUIP_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
     }
 
     // 2) 掷插槽 (1D10)
-    const slotEntry = lookupRoll(EQUIP_SLOT_TABLE, rollDice(10));
+    const slotEntry = lookupRoll(EQUIP_SLOT_TABLE, (Math.floor(Math.random() * 10) + 1));
 
     // 3) 掷类型 (1D5)
     let typeEntry;
     if (context.type) {
         const t = String(context.type);
-        typeEntry = EQUIP_TYPE_TABLE.find(e => t.includes(e.type[0])) || lookupRoll(EQUIP_TYPE_TABLE, rollDice(5));
+        typeEntry = EQUIP_TYPE_TABLE.find(e => t.includes(e.type[0])) || lookupRoll(EQUIP_TYPE_TABLE, (Math.floor(Math.random() * 5) + 1));
     } else {
-        typeEntry = lookupRoll(EQUIP_TYPE_TABLE, rollDice(5));
+        typeEntry = lookupRoll(EQUIP_TYPE_TABLE, (Math.floor(Math.random() * 5) + 1));
     }
 
     // 4) 计算 HP 基础值
@@ -280,7 +279,7 @@ export async function generateEquipment(context, callModelFn) {
     // 6) 掷词缀 (1D50) x affixCount
     const affixNames = [];
     for (let ai = 0; ai < rarityEntry.affixes; ai++) {
-        const affixRoll = rollDice(50);
+        const affixRoll = (Math.floor(Math.random() * 50) + 1);
         const affixEntry = EQUIP_AFFIX_TABLE[affixRoll];
         const bonus = resolveAffixStats(affixEntry);
         stats.str += bonus.str;
@@ -349,33 +348,33 @@ export async function generateSkill(context, callModelFn) {
     const skillLevel = context.skillLevel || 1;
 
     // 1) 掷稀有度 (1D20)
-    const rarityEntry = lookupRoll(SKILL_RARITY_TABLE, rollDice(20));
+    const rarityEntry = lookupRoll(SKILL_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 2) 掷核心功能 (1D20)
-    const coreEntry = lookupRoll(SKILL_CORE_TABLE, rollDice(20));
+    const coreEntry = lookupRoll(SKILL_CORE_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 3) 计算基础ATK
     const baseATK = Math.floor((100 + skillLevel) * rarityEntry.mult);
 
     // 4) 命中率 = 70 + 1D20
-    const hitRate = 70 + rollDice(20);
+    const hitRate = 70 + (Math.floor(Math.random() * 20) + 1);
 
     // 5) 暴击率 = 1D20
-    const critRate = rollDice(20);
+    const critRate = (Math.floor(Math.random() * 20) + 1);
 
     // 6) APT (连击数) = 1D10 映射: 1-5->1, 6-8->2, 9-10->3
-    const aptRoll = rollDice(10);
+    const aptRoll = (Math.floor(Math.random() * 10) + 1);
     const apt = aptRoll <= 5 ? 1 : aptRoll <= 8 ? 2 : 3;
 
     // 7) TPA (目标数) = 同上
-    const tpaRoll = rollDice(10);
+    const tpaRoll = (Math.floor(Math.random() * 10) + 1);
     const tpa = tpaRoll <= 5 ? 1 : tpaRoll <= 8 ? 2 : 3;
 
     // 8) MP消耗 = 1D20
-    const mpCost = rollDice(20);
+    const mpCost = (Math.floor(Math.random() * 20) + 1);
 
     // 9) CD = 1D4 - 1 (0-3)
-    const cd = rollDice(4) - 1;
+    const cd = (Math.floor(Math.random() * 4) + 1) - 1;
 
     // 10) 3条词缀: 1D30 决定类型, PL = skillLevel*2 + rarityBonus + 1D10
     const rarityBonuses = { '\u767D\u8272': 10, '\u7EFF\u8272': 20, '\u84DD\u8272': 35, '\u7D2B\u8272': 55 };
@@ -383,8 +382,8 @@ export async function generateSkill(context, callModelFn) {
     const affixCodes = [];
     const affixNames = [];
     for (let ai = 0; ai < 3; ai++) {
-        const affixRoll = rollDice(30);
-        const PL = skillLevel * 2 + rBonus + rollDice(10);
+        const affixRoll = (Math.floor(Math.random() * 30) + 1);
+        const PL = skillLevel * 2 + rBonus + (Math.floor(Math.random() * 10) + 1);
         if (affixRoll <= 8) {
             // 属性词缀 S1-S8 (简化: 根据PL生成一个属性提升)
             const statNames = ['\u529B\u91CF', '\u654F\u6377', '\u667A\u529B', '\u8010\u529B', '\u5168\u5C5E\u6027'];
@@ -518,10 +517,10 @@ export async function generateConsumable(context, callModelFn) {
     const itemLevel = context.playerLevel || context.floor || 1;
 
     // 1) 掷类型 (1D20)
-    const typeEntry = lookupRoll(CONSUMABLE_TYPE_TABLE, rollDice(20));
+    const typeEntry = lookupRoll(CONSUMABLE_TYPE_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 2) 掷稀有度 (1D20)
-    const rarityEntry = lookupRoll(CONSUMABLE_RARITY_TABLE, rollDice(20));
+    const rarityEntry = lookupRoll(CONSUMABLE_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 3) 计算效果数值（基础值 × 稀有度倍率）
     const baseVal = typeEntry.baseValue(itemLevel);
@@ -606,20 +605,20 @@ export async function generateLoot(context, callModelFn) {
     }
 
     // Number of drops: 1D3
-    const numDrops = rollDice(3);
+    const numDrops = (Math.floor(Math.random() * 3) + 1);
 
     // Cor: baseCor = enemyLevel * (10 + 1D20)
-    const baseCor = enemyLevel * (10 + rollDice(20));
+    const baseCor = enemyLevel * (10 + (Math.floor(Math.random() * 20) + 1));
 
     // Exp: baseExp = enemyLevel * (20 + 1D20)
-    const baseExp = enemyLevel * (20 + rollDice(20));
+    const baseExp = enemyLevel * (20 + (Math.floor(Math.random() * 20) + 1));
 
     // Generate loot items (JS dice for type/rarity, LLM for names)
     const lootItems = [];
     for (let i = 0; i < numDrops; i++) {
-        const typeRoll = rollDice(10);
+        const typeRoll = (Math.floor(Math.random() * 10) + 1);
         const typeEntry = LOOT_TYPE_TABLE.find(e => typeRoll >= e.roll[0] && typeRoll <= e.roll[1]) || LOOT_TYPE_TABLE[0];
-        const rarityEntry = lookupRoll(EQUIP_RARITY_TABLE, rollDice(20));
+        const rarityEntry = lookupRoll(EQUIP_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
 
         if (typeEntry.type === '装备') {
             // Equipment drop — placeholder; actual equipment gen is separate (generateEquipment)
@@ -634,7 +633,7 @@ export async function generateLoot(context, callModelFn) {
             const consumable = await generateConsumable({
                 playerLevel: enemyLevel,
                 floor: context.floor,
-                qty: rollDice(3),
+                qty: (Math.floor(Math.random() * 3) + 1),
             }, callModelFn);
             if (consumable) {
                 lootItems.push({
@@ -653,7 +652,7 @@ export async function generateLoot(context, callModelFn) {
                 rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
                 name: '',
                 description: '',
-                qty: rollDice(3),
+                qty: (Math.floor(Math.random() * 3) + 1),
             });
         }
     }
