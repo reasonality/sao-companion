@@ -10,7 +10,7 @@ import { getSkillById } from './sao-store-skill.js';
 import { getInventoryStore, getCurrency } from './sao-store-inventory.js';
 import { getQuestStore } from './sao-store-quest.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getFloorStore } from './sao-store-floor.js';
+import { getFloorById } from './sao-store-floor.js';
 import { getConsumableById } from './sao-store-consumable.js';
 import { log, esc, safe } from './sao-core.js';
 import { calculateBuffTotals, formatBuffsForDisplay } from './sao-buff.js';
@@ -783,7 +783,6 @@ export function renderQuestPanel() {
 export function renderWorldPanel() {
     const ws = safe(() => getWorldStore(), 'getWorldStore');
     const player = safe(() => getPlayerStore(), 'getPlayerStore');
-    const floorStore = safe(() => getFloorStore(), 'getFloorStore');
 
     // 位置：areaStatus.location > player.position.location > "-"
     let locationText = '-';
@@ -810,7 +809,7 @@ export function renderWorldPanel() {
     let clearingText = '-';
     try {
         const currentFloorId = player?.position?.floor_id;
-        const currentFloor = currentFloorId ? floorStore?.byId?.[currentFloorId] : null;
+        const currentFloor = currentFloorId ? safe(() => getFloorById(currentFloorId), 'getFloorById') : null;
         if (currentFloor) {
             const num = currentFloor.floor_number ?? currentFloorId;
             const cleared = currentFloor.state?.cleared;

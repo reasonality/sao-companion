@@ -57,6 +57,7 @@ vi.mock('../sao-store-world.js', () => ({
 
 vi.mock('../sao-store-floor.js', () => ({
     getFloorStore: vi.fn(() => mockStore?.floorStore || { byId: {}, numberToId: {} }),
+    getFloorById: vi.fn((id) => mockStore?.floorStore?.byId?.[id] || null),
     initFloorFromWorldBook: vi.fn(() => 0),
     updateFloorState: vi.fn(),
 }));

@@ -44,7 +44,7 @@ import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
 } from './sao-tools.js';
-import { getFloorStore } from './sao-store-floor.js';
+import { getFloorStore, getFloorById } from './sao-store-floor.js';
 import { runLorebookPreParser, parseTimelineEntries } from './sao-preparser.js';
 import { getWorldStore } from './sao-store-world.js';
 import { getNpcStore } from './sao-store-npc.js';
@@ -1040,7 +1040,7 @@ const _dataStoreDefs = [
     { key: 'world',      label: '世界',     kind: 'world',      get: () => getWorldStore() },
     { key: 'calendar',   label: '日历',     kind: 'calendar',   get: () => getStore().calendarStore },
     { key: 'npc',        label: 'NPC',     kind: 'collection', idField: 'npc_id',       get: () => getNpcStore() },
-    { key: 'floor',      label: '楼层',     kind: 'collection', idField: 'floor_id',     get: () => getFloorStore() },
+    { key: 'floor',      label: '楼层',     kind: 'collection', idField: 'floor_id',     get: () => getFloorStore() },  // NOTE: canon 在内存态 (_ephemeralCanon)，此处仅含 state + meta
     { key: 'equipment',  label: '装备',     kind: 'collection', idField: 'equipment_id', get: () => getEquipmentStore() },
     { key: 'skill',      label: '技能',     kind: 'collection', idField: 'skill_id',     get: () => getSkillStore() },
     { key: 'consumable', label: '消耗品',   kind: 'collection', idField: 'consumable_id', get: () => getConsumableStore() },
@@ -2893,9 +2893,8 @@ function refreshStatus() {
     const DANGER_LABEL = { safe:'安全', low:'低危', medium:'中危', high:'高危', extreme:'极危' };
     setText('sao_world_area', area ? `${DANGER_LABEL[area.danger_level]||area.danger_level} - ${area.description||''}` : '-');
     // 攻略情况：只显示当前楼层攻略状态（R2: 不再列出全部楼层）
-    const floorStore = getFloorStore();
     const currentFloorId = player.position?.floor_id;
-    const currentFloor = currentFloorId ? floorStore?.byId?.[currentFloorId] : null;
+    const currentFloor = currentFloorId ? getFloorById(currentFloorId) : null;
     let clearingText = '-';
     if (currentFloor) {
         clearingText = `${currentFloor.floor_number}F ${currentFloor.state?.cleared ? '✓ 已攻略' : '✗ 攻略中'}`;

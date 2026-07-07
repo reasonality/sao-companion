@@ -8,6 +8,30 @@ import { log } from './sao-core.js';
 import { simpleHash } from './sao-store-npc.js';
 
 // ============================================================
+// 内存态 canon 存储 — 不持久化进 chatMetadata
+// 结构: { [floorId]: { canon } }
+// ============================================================
+const _ephemeralCanon = {};
+
+/**
+ * 从持久化 store 迁移 canon 到内存态（一次性）。
+ * 处理旧 chat 数据中已持久化的 canon。
+ * 幂等：已有 ephemeral 数据时不覆盖。
+ */
+function _migrateCanonToEphemeral(store) {
+    if (!store?.byId) return;
+    for (const id of Object.keys(store.byId)) {
+        const entry = store.byId[id];
+        if (entry && entry.canon) {
+            if (!_ephemeralCanon[id]) {
+                _ephemeralCanon[id] = { canon: entry.canon };
+            }
+            delete entry.canon;
+        }
+    }
+}
+
+// ============================================================
 // 内部工具
 // ============================================================
 
@@ -116,7 +140,15 @@ function _buildCanon(content) {
  */
 export function getFloorById(id) {
     const store = getFloorStore();
-    return store.byId[id] || null;
+    const persisted = store.byId[id];
+    if (!persisted) return null;
+    const ephemeral = _ephemeralCanon[id];
+    return {
+        ...persisted,
+        ...(ephemeral || {}),
+        // state 必须是持久化引用，保证 .state.notes.push() 等变异生效
+        state: persisted.state,
+    };
 }
 
 /**
@@ -127,7 +159,16 @@ export function getFloorById(id) {
 export function getFloorByNumber(num) {
     const store = getFloorStore();
     const id = store.numberToId[String(num)];
-    return id ? (store.byId[id] || null) : null;
+    if (!id) return null;
+    const persisted = store.byId[id];
+    if (!persisted) return null;
+    const ephemeral = _ephemeralCanon[id];
+    return {
+        ...persisted,
+        ...(ephemeral || {}),
+        // state 必须是持久化引用，保证 .state.notes.push() 等变异生效
+        state: persisted.state,
+    };
 }
 
 /**
@@ -141,6 +182,9 @@ export function initFloorFromWorldBook(entries) {
 
     const store = getFloorStore();
     let count = 0;
+
+    // 一次性迁移：将旧 chat 中持久化的 canon 移入内存态
+    _migrateCanonToEphemeral(store);
 
     for (const entry of entries) {
         try {
@@ -324,13 +368,10 @@ export function initFloorFromWorldBook(entries) {
                 // 检查是否已存在
                 if (store.numberToId[String(floorNum)] && store.byId[store.numberToId[String(floorNum)]]) {
                     const existing = store.byId[store.numberToId[String(floorNum)]];
-                    // Migration: strip old rawContent (slimmed canon no longer stores it)
-                    if (existing.canon && 'rawContent' in existing.canon) {
-                        delete existing.canon.rawContent;
-                    }
-                    // hash 变化 → 更新 canon
+                    const existingId = store.numberToId[String(floorNum)];
+                    // hash 变化 → 更新 canon（写入内存态）
                     if (existing._canonHash !== contentHash) {
-                        existing.canon = buildCanonFor(floorNum);
+                        _ephemeralCanon[existingId] = { canon: buildCanonFor(floorNum) };
                         existing._canonHash = contentHash;
                         const src = jsonSourceFor(floorNum);
                         if (src) existing.source = src;
@@ -346,7 +387,6 @@ export function initFloorFromWorldBook(entries) {
                     floor_id: floorId,
                     floor_number: floorNum,
                     name: `第${floorNum}层`,
-                    canon: buildCanonFor(floorNum),
                     state: {
                         unlocked: true,
                         cleared: false,
@@ -356,6 +396,9 @@ export function initFloorFromWorldBook(entries) {
                     source: resolvedSource || 'worldbook',
                     _canonHash: contentHash,
                 };
+
+                // canon 写入内存态，不持久化
+                _ephemeralCanon[floorId] = { canon: buildCanonFor(floorNum) };
 
                 store.byId[floorId] = floorEntry;
                 store.numberToId[String(floorNum)] = floorId;
@@ -391,6 +434,12 @@ export function ensureAllFloorsExist() {
             floor_id: id,
             floor_number: i,
             name: `第${i}层`,
+            state: { unlocked: i === 1, cleared: false, discovered_locations: [], notes: [] },
+            source: 'stub',
+            _canonHash: '',
+        };
+        // stub canon 写入内存态
+        _ephemeralCanon[id] = {
             canon: {
                 theme: '',
                 mainTown: '',
@@ -398,9 +447,6 @@ export function ensureAllFloorsExist() {
                 boss: '',
                 fieldBosses: [],
             },
-            state: { unlocked: i === 1, cleared: false, discovered_locations: [], notes: [] },
-            source: 'stub',
-            _canonHash: '',
         };
         store.numberToId[String(i)] = id;
         created++;
