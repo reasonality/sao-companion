@@ -55,34 +55,8 @@ export const LUNAR_ECLIPSE_DEFS = {
     },
 };
 
-/** 子技 ID → 等级映射（checkUniqueSkillUnlocks 用） */
-const SUB_TECH_LEVEL_MAP = {
-    tsuki_no_shizuku: 10,
-    mangekyou: 20,
-    kami_no_inori: 30,
-    shisou_rennai: 40,
-    sanzen_sekai: 50,
-};
-
 /** 视觉阶段标签（buffLevel 1-6） */
 const VISUAL_STAGES = ['淡月光迹', '新月', '上弦月', '半月', '近满月', '满月'];
-
-// === 技能查找 ===
-/**
- * 按名称查找技能（优先自定义技能，再查常规技能）
- * @param {string} name - 技能名称
- * @param {Object} state - data.state
- * @returns {Object|null} 技能定义或 null
- */
-function findSkillByName(name, state) {
-    // 1. Custom skills first (already acquired)
-    for (const id of (state.customSkills || [])) {
-        const def = CUSTOM_SKILL_DEFS[id];
-        if (def && def.name === name) return def;
-    }
-    // 2. Regular skills
-    return (state.skills || []).find(s => s.name === name) || null;
-}
 
 // === 获得通知 ===
 /**
@@ -180,15 +154,16 @@ export function checkUniqueSkillUnlocks() {
             }
         }
     } else {
-        // uniqueSkill 已存在，检查等级子技
-        for (const [techId, reqLevel] of Object.entries(SUB_TECH_LEVEL_MAP)) {
+        // uniqueSkill 已存在，检查等级子技（数据从 LUNAR_ECLIPSE_DEFS 读取，避免重复维护）
+        for (const [techId, def] of Object.entries(LUNAR_ECLIPSE_DEFS)) {
+            if (def.unlockType !== 'level') continue;
             const tech = player.uniqueSkill.subTechniques[techId];
             if (!tech || tech.unlocked) continue;
-            if (playerLevel >= reqLevel) {
+            if (playerLevel >= def.unlockValue) {
                 tech.unlocked = true;
                 tech.unlockedAt = currentDate;
                 newlyUnlocked.push(tech.name);
-                log(`[月蚀] ${tech.name} 解锁 (Lv.${reqLevel})`);
+                log(`[月蚀] ${tech.name} 解锁 (Lv.${def.unlockValue})`);
                 if (typeof toastr !== 'undefined') {
                     toastr.success(`月蚀子技解锁：${tech.name}`, '独特技能');
                 }

@@ -297,32 +297,6 @@ export async function addObservation(npc_id, observation, skipSave) {
     return true;
 }
 
-/**
- * 获取 NPC 独特技能。
- * @param {string} npcId
- * @returns {{ id: string, name: string }|null}
- */
-export function getNpcUniqueSkill(npcId) {
-    const store = getNpcStore();
-    const entry = store.byId[npcId];
-    return entry?.uniqueSkill || null;
-}
-
-/**
- * 设置 NPC 独特技能。
- * @param {string} npcId
- * @param {{ id: string, name: string }|null} skillObj
- */
-export function setNpcUniqueSkill(npcId, skillObj) {
-    const store = getNpcStore();
-    const entry = store.byId[npcId];
-    if (!entry) {
-        log(`setNpcUniqueSkill: NPC ${npcId} 不存在`, 'warn');
-        return;
-    }
-    entry.uniqueSkill = skillObj || null;
-    saveStore();
-}
 
 /**
  * 校验 NPC 条目数据。
