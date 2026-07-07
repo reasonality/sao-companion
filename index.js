@@ -639,6 +639,21 @@ function bindEvents() {
             // 月蚀独特技能解锁检查
             checkUniqueSkillUnlocks();
 
+            // 月蚀：计算过载回合计数（30秒 ≈ 2回合后自动解除）
+            {
+                const _player = getPlayerStore();
+                if (_player?.incapacitated) {
+                    _player._incapacitatedTurns = (_player._incapacitatedTurns || 0) + 1;
+                    if (_player._incapacitatedTurns >= 2) {
+                        _player.incapacitated = false;
+                        _player._incapacitatedTurns = 0;
+                        log('[月蚀] 计算过载自动解除（2回合）');
+                    }
+                } else if (_player?._incapacitatedTurns) {
+                    _player._incapacitatedTurns = 0;
+                }
+            }
+
             // Centralized turn counter increment (per spec §4.4, at end of chain before save)
             const saoData = getSaoData();
 

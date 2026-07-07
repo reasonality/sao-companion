@@ -509,16 +509,23 @@ export function projectStateHint() {
         mainParts.push(`技能:${shown.join(',')}`);
     }
 
-    // 月蚀独特技能（最高熟练度已解锁子技）
+    // 月蚀独特技能（所有已解锁子技）
     const uniqueSkill = getUniqueSkill();
     if (uniqueSkill) {
-        const best = Object.entries(uniqueSkill.subTechniques)
+        const unlockedTechs = Object.entries(uniqueSkill.subTechniques)
             .filter(([_, t]) => t.unlocked)
-            .sort((a, b) => (b[1].proficiency || 0) - (a[1].proficiency || 0))[0];
-        if (best) {
-            mainParts.push(`独特技能:月蚀·${best[1].name}(熟练${best[1].proficiency || 0})`);
-        }
+            .map(([_, t]) => `${t.name}(${t.proficiency || 0})`)
+            .join('|');
+        if (unlockedTechs) mainParts.push(`月蚀:${unlockedTechs}`);
     }
+
+    // 冥想熟练度
+    if (player.meditationProficiency > 0) {
+        mainParts.push(`冥想熟练度:${player.meditationProficiency}`);
+    }
+
+    // 计算过载状态
+    if (player.incapacitated) mainParts.push('状态:计算过载(无法战斗)');
 
     return stripIds(mainParts.join(' | '));
 }

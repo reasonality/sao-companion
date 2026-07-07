@@ -35,6 +35,14 @@ const RULE_SWORDSKILL = `
 遗忘剑技：永久移除，返还熟练度 = 角色等级 * 50
 `;
 
+const RULE_MEDITATION = `
+## 冥想与月蚀规则
+- 冥想熟练度：每次冥想修炼 +50~100（根据深度/时长），上限 2000
+- 达到 500 解锁月蚀独特技能「现梦」
+- 子技熟练度：每次使用对应子技 +10~20（根据战斗表现）
+- 状态摘要中的数值是当前值，输出更新后的累计值
+`;
+
 const RULE_ECONOMY = `
 ## 经济规则
 - **货币:** 珂尔 (Cor)，高压生存经济，珂尔与生存直接挂钩
@@ -266,7 +274,7 @@ export function _clearSpecialistPanels(messageId) {
  * 校验 status 专家输出的 {state, zdText, userStatusHtml}（防注入/防漂移）。
  * @returns {boolean} true=合法
  */
-function _validateStatus(parsed) {
+function _validateStatus(parsed, stateHint) {
     if (!parsed || typeof parsed !== 'object') return false;
     const s = parsed.state;
     if (!s || typeof s !== 'object') return false;
@@ -274,6 +282,17 @@ function _validateStatus(parsed) {
     const numFields = ['hp','max_hp','mp','max_mp','str','agi','int','vit','level','exp','cor','floor','meditationProficiency'];
     for (const f of numFields) {
         if (s[f] != null && typeof s[f] !== 'number') return false;
+    }
+    // 等级漂移校验：从 stateHint 提取当前等级，拒绝跳跃超过 3 级
+    if (s.level != null && stateHint) {
+        const lvlMatch = stateHint.match(/Lv(\d+)/);
+        if (lvlMatch) {
+            const currentLevel = parseInt(lvlMatch[1], 10);
+            if (s.level > currentLevel + 3) {
+                log(`[validateStatus] 等级漂移: 当前Lv${currentLevel}, 输出Lv${s.level}（差距>3）`, 'warn');
+                return false;
+            }
+        }
     }
     // 字符串字段：若存在必须是 string
     const strFields = ['player_name','location'];
@@ -363,9 +382,9 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 - cursor_type：光标类型，根据玩家行为状态判断。green=普通玩家/友方，orange=可攻击/敌对，red=红名PK者。若无法确定则不输出（保持当前值）
 
 4. 输出月蚀独特技能相关字段（仅在叙事涉及这些内容时输出）：
-- 如果叙事中提到冥想修炼，输出 meditationProficiency (number, 当前冥想熟练度)
-- 如果叙事中提到使用了月蚀子技，输出 uniqueSkillProficiency (object: {"子技ID": 熟练度})。子技ID: genmu, tsuki_no_shizuku, mangekyou, kami_no_inori, shisou_rennai, sanzen_sekai
-- 如果主角因释放三千世界陷入无法战斗状态，输出 incapacitated: true；约30秒后恢复，恢复后输出 false
+- 如果叙事中提到冥想修炼，输出 meditationProficiency (number, 在当前值基础上+50~100，当前值见状态摘要)
+- 如果叙事中提到使用了月蚀子技，输出 uniqueSkillProficiency (object, 在当前值基础上+10~20，当前值见状态摘要)。子技ID: genmu, tsuki_no_shizuku, mangekyou, kami_no_inori, shisou_rennai, sanzen_sekai
+- 如果主角因释放三千世界陷入无法战斗，输出 incapacitated:true。约30秒(约2回合)后恢复，恢复后输出 incapacitated:false
 
 3. 输出 npcUpdates：识别叙事中出现的 NPC，更新其状态
 
@@ -394,7 +413,7 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
         : '';
 
     // 规则按需注入：等级、技能
-    const ruleHints = RULE_LEVEL + '\n\n' + RULE_SKILL;
+    const ruleHints = RULE_LEVEL + '\n\n' + RULE_SKILL + '\n\n' + RULE_MEDITATION;
 
     const npcHint = projectNpcHint();
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +
@@ -415,7 +434,7 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
     }
     if (!content) return null;
     let parsed = extractJsonObject(content);
-    if (!_validateStatus(parsed)) {
+    if (!_validateStatus(parsed, stateHint)) {
         // Retry once with stricter prompt suffix
         log('status 专家首次输出校验失败，重试一次（严格 JSON 指令）', 'warn');
         try {
@@ -430,7 +449,7 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
         } catch (e) {
             log('status 专家重试调用失败: ' + e.message, 'warn');
         }
-        if (!_validateStatus(parsed)) {
+        if (!_validateStatus(parsed, stateHint)) {
             if (!parsed) log('status 专家 JSON 提取失败 (content 长度=' + (content?.length || 0) + ' 前80字符: ' + (content || '').slice(0, 80) + ')', 'warn');
             else log('status 专家输出校验失败（重试后）', 'warn');
             return null;

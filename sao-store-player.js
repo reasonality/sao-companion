@@ -39,6 +39,7 @@ const DEFAULT_PLAYER = Object.freeze({
     meditationProficiency: 0,  // 冥想熟练度 0-2000
     uniqueSkill: null,          // 月蚀技能对象（现梦解锁时创建）
     incapacitated: false,       // 三千世界副作用：计算过载无法战斗
+    _incapacitatedTurns: 0,     // 计算过载剩余回合数（私有，不持久化）
 });
 
 // ============================================================
@@ -63,6 +64,7 @@ export function getPlayerStore() {
     if (store.playerStore.meditationProficiency === undefined) store.playerStore.meditationProficiency = 0;
     if (store.playerStore.uniqueSkill === undefined) store.playerStore.uniqueSkill = null;
     if (store.playerStore.incapacitated === undefined) store.playerStore.incapacitated = false;
+    if (store.playerStore._incapacitatedTurns === undefined) store.playerStore._incapacitatedTurns = 0;
     return store.playerStore;
 }
 
@@ -239,10 +241,18 @@ export async function equipItem(slot, equipmentId, skipSave) {
  */
 export async function updatePlayerVitals(vitals, skipSave) {
     const playerStore = getPlayerStore();
-    if (vitals.hp != null) playerStore.vitals.hp = vitals.hp;
-    if (vitals.maxHp != null) playerStore.vitals.maxHp = vitals.maxHp;
-    if (vitals.mp != null) playerStore.vitals.mp = vitals.mp;
-    if (vitals.maxMp != null) playerStore.vitals.maxMp = vitals.maxMp;
+
+    // 先更新 max 值（以便后续 clamp 使用正确的上限）
+    if (vitals.maxHp != null) playerStore.vitals.maxHp = Math.max(1, Number(vitals.maxHp));
+    if (vitals.maxMp != null) playerStore.vitals.maxMp = Math.max(0, Number(vitals.maxMp));
+
+    // HP/MP 取值并 clamp 到 [0, max]
+    if (vitals.hp != null) {
+        playerStore.vitals.hp = Math.max(0, Math.min(Number(vitals.hp), playerStore.vitals.maxHp || Number(vitals.hp)));
+    }
+    if (vitals.mp != null) {
+        playerStore.vitals.mp = Math.max(0, Math.min(Number(vitals.mp), playerStore.vitals.maxMp || Number(vitals.mp)));
+    }
 
     // 同步 _baseVitals：新 maxHp/maxMp = 总值（含装备），需减去当前装备加成得到固有值
     if (playerStore._baseVitals) {
