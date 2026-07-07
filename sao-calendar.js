@@ -189,43 +189,24 @@ export function buildCleanCalendarDays(currentDate) {
     const rawKey = char?.name || '';
     if (!_rawWorldbookDays || _rawWorldbookDaysKey !== rawKey) {
         const days = {};
-        // 优先从 calendarStore.events（pre-parser 解析 JSON worldbook 的权威数据）读取 canon 事件
+        // 从 calendarStore.events（pre-parser 解析 JSON worldbook 的权威数据）读取 canon 事件
         const storeEvents = getCalendarStore()?.events;
-        let usedStore = false;
-        if (storeEvents && typeof storeEvents === 'object' && Object.keys(storeEvents).length > 0) {
+        if (storeEvents && typeof storeEvents === 'object') {
             for (const [dateStr, evArr] of Object.entries(storeEvents)) {
                 if (!Array.isArray(evArr)) continue;
                 for (const ev of evArr) {
                     if (ev.type !== 'canon') continue;
                     if (!days[dateStr]) days[dateStr] = { events: [] };
-                    const firstLine = (ev.description || '').split('\n')[0].replace(/^事件标题[:：]\s*/, '').slice(0, 40).trim();
                     days[dateStr].events.push({
                         type: 'canon',
                         time: ev.time || null,
-                        title: firstLine,
+                        title: '',
                         description: ev.description || '',
                         subEvents: [],
                         source: ev.source || 'timeline',
                         date: dateStr,
                     });
                 }
-            }
-            usedStore = Object.keys(days).length > 0;
-        }
-        // 回退：markdown 格式 worldbook（legacy 兼容）
-        if (!usedStore) {
-            const events = _filterTimelineEntries(null, { monthWindow: null });
-            for (const ev of events) {
-                if (!days[ev.date]) days[ev.date] = { events: [] };
-                days[ev.date].events.push({
-                    type: 'canon',
-                    time: null,
-                    title: ev.title,
-                    description: ev.description || ev.title,
-                    subEvents: ev.subEvents || [],
-                    source: 'timeline',
-                    date: ev.date,
-                });
             }
         }
         _rawWorldbookDays = days;
@@ -446,171 +427,7 @@ function parseTimelineEvent(line, fallbackYear) {
     return null;
 }
 
-/**
- * 从时间线条目名称中提取年份（如 "2024年12月" → 2024）
- */
-function extractYearFromEntryName(name) {
-    if (!name) return null;
-    const m = name.match(/^(\d{4})年/);
-    return m ? parseInt(m[1]) : null;
-}
-
 // === 日历核心逻辑 ===
-
-/**
- * 共享：从世界书条目中过滤 currentDate 附近的 YYYY年MM月 时间线条目，解析每个事件行。
- * getTimelineForPrompt 与 initCalendarIfNeeded 共用，消除过滤逻辑重复（见 ponytail 审查）。
- * @param {string} currentDate - YYYY-MM-DD，用于 ±1 月过滤；空则不过滤
- * @param {{monthWindow?: number|null}} [options] - 月份窗口；null 表示不过滤
- * @returns {Array<{date:string,title:string}>} 按 entry 顺序的事件列表（未排序）
- */
-function _filterTimelineEntries(currentDate, options = {}) {
-    const monthWindow = Object.prototype.hasOwnProperty.call(options, 'monthWindow') ? options.monthWindow : 1;
-    const char = getCurrentCharacter();
-    const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
-    if (!entries || !Array.isArray(entries)) return [];
-
-    let currentMonthIdx = null;
-    if (currentDate) {
-        const parts = currentDate.split('-');
-        const cy = parseInt(parts[0]);
-        const cm = parseInt(parts[1]);
-        if (!isNaN(cy) && !isNaN(cm)) currentMonthIdx = cy * 12 + (cm - 1);
-    }
-
-    // 日期头检测：支持两种格式，后跟分隔符（区分于正文行）。
-    //   格式A: MM月DD日（可选 YYYY年 前缀）后跟 空格/(/-///： 或行尾
-    //   格式B: YYYY-MM-DD 或 YYYY/MM/DD 后跟 :：/空格/- 或行尾
-    const stripMd = (s) => s.replace(/^#{0,6}\s*/, '').replace(/^\*+|\*+$/g, '').trim();
-    const parseHeader = (line) => {
-        const s = stripMd(line);
-        let m = s.match(/^(?:\d{4}年)?(\d{1,2})月(\d{1,2})日(?=\s*(?:[\(\/\-–—:：]|$))/);
-        if (m) {
-            const yp = s.match(/^(\d{4})年/);
-            return { year: yp ? parseInt(yp[1]) : null, month: parseInt(m[1]), day: parseInt(m[2]), tail: s.slice(m[0].length) };
-        }
-        m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?=\s*(?:[:：\s\-]|$))/);
-        if (m) return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]), tail: s.slice(m[0].length) };
-        return null;
-    };
-    // 事件名提取：去掉 (星期X) 前缀与分隔符，取最后一个 " - "/" | " 之后的内容，去尾冒号/粗体。
-    // 例："(星期日) - 宣告日:" → "宣告日"；" / 第三周 - 探索的极限:" → "探索的极限"；"(星期二) | 稳步推进" → "稳步推进"。
-    const extractName = (tail) => {
-        let t = tail.replace(/^[\s]*\(星期.\)\s*/, '').replace(/^[\s\-–—\/:：|]+/, '').trim();
-        const di = Math.max(t.lastIndexOf(' - '), t.lastIndexOf(' – '), t.lastIndexOf(' — '), t.lastIndexOf(' | '));
-        if (di >= 0) t = t.slice(di).replace(/^[\s\-–—|]+/, '').trim();
-        return t.replace(/[:：\s\*]+$/, '').trim();
-    };
-    // 月度总结/小结行（如 "11月总结:"）触发 flush 并停止累积，避免整月总结挂到最后一日。
-    const summaryRe = /^\d{1,2}月(总结|小结|概览|汇总)[:：]?$/;
-
-    const events = [];
-    for (const e of entries) {
-        const entryName = (e.comment || e.name || '').trim();
-        if (!/^\d{4}年\d{1,2}月/.test(entryName)) continue;
-
-        if (currentMonthIdx !== null && monthWindow != null) {
-            const yearMatch = entryName.match(/^(\d{4})年(\d{1,2})月/);
-            if (yearMatch) {
-                const entryMonthIdx = parseInt(yearMatch[1]) * 12 + (parseInt(yearMatch[2]) - 1);
-                if (Math.abs(entryMonthIdx - currentMonthIdx) > monthWindow) continue;
-            }
-        }
-
-        const fallbackYear = extractYearFromEntryName(entryName);
-        const content = e.content || '';
-        if (!content) continue;
-
-        let entryMonth = (entryName.match(/年(\d{1,2})月/) || [])[1];
-        entryMonth = entryMonth ? parseInt(entryMonth) : 0;
-        let curDay = 0;
-        let curYear = fallbackYear || 0;
-        let nameBuf = '';
-        let descBuf = [];
-        let stopped = false;
-
-        const flush = () => {
-            if (curDay > 0 && entryMonth > 0 && curYear > 0 && (nameBuf || descBuf.length)) {
-                const dateStr = curYear + '-' + String(entryMonth).padStart(2, '0') + '-' + String(curDay).padStart(2, '0');
-                let desc = descBuf
-                    .map(l => l.replace(/^\s{0,3}[*\-+]\s+/, '').trim())
-                    .filter(Boolean)
-                    .join('\n')
-                    .replace(/\n{3,}/g, '\n\n')
-                    .trim();
-                if (desc.length > 1500) desc = desc.slice(0, 1500) + '…';
-                let title = nameBuf;
-                // 无干净事件名（空或仅括号标注如 \"(星期五)\"/\"(推算日期)\"）时，用描述首行作标题
-                if (!title || /^\(.*\)$/.test(title)) {
-                    const firstLine = desc.split('\n')[0] || '';
-                    title = firstLine.replace(/^事件标题[:：]\s*/, '').slice(0, 40).trim() || (entryMonth + '月' + curDay + '日');
-                }
-                // 提取子事件（供格子/弹窗拆分展示）：正文里 "标签: 内容" 形式的行，
-                // 标签后的所有后续行（到下一个标签前）作为该子事件正文。
-                // 时间格式标签（如 "13:00: 开服"）保留 "13:00" 作标签；含时间范围的标签
-                // （如 "13:00 - 14:00 之间 [现实世界]: ..."）取最后一个冒号前的全部文本去括号。
-                const subEvents = [];
-                const descLines = desc.split('\n');
-                let i = 0;
-                // 无标签的开场引言（如 "正常游戏开服期。..."）单列为一条。
-                let intro = [];
-                while (i < descLines.length) {
-                    const ln = descLines[i];
-                    let m = ln.match(/^(\d{1,2}:\d{2})[:：]\s*(.+)$/);
-                    if (!m) m = ln.match(/^(.{2,25})[:：]\s*(\S.*)$/);
-                    if (m) break;
-                    if (ln.trim()) intro.push(ln);
-                    i++;
-                }
-                if (intro.length > 0) {
-                    const introText = intro.join('\n').trim();
-                    if (introText) subEvents.push({ label: null, body: introText.slice(0, 800) });
-                }
-                while (i < descLines.length) {
-                    const ln = descLines[i];
-                    let m = ln.match(/^(\d{1,2}:\d{2})[:：]\s*(.+)$/);
-                    let label;
-                    if (m) label = m[1];
-                    else { m = ln.match(/^(.{2,25})[:：]\s*(\S.*)$/); if (m) label = m[1]; }
-                    if (!m) { i++; continue; }
-                    label = label.replace(/\[[^\]]*\]/g, '').replace(/\*+/g, '').replace(/\s+/g, ' ').trim();
-                    const firstContent = m[2] ? m[2].trim() : '';
-                    const bodyLines = firstContent ? [firstContent] : [];
-                    i++;
-                    while (i < descLines.length) {
-                        const nxt = descLines[i];
-                        if (/^(\d{1,2}:\d{2})[:：]/.test(nxt) || /^(.{2,25})[:：]\s*\S/.test(nxt)) break;
-                        if (nxt.trim()) bodyLines.push(nxt);
-                        i++;
-                    }
-                    const body = bodyLines.join('\n').trim().slice(0, 800);
-                    if (label && label.length >= 2 && label.length <= 22) subEvents.push({ label, body });
-                }
-                if (title) events.push({ date: dateStr, title, description: desc, subEvents: subEvents.slice(0, 8) });
-            }
-            curDay = 0; nameBuf = ''; descBuf = [];
-        };
-
-        for (const line of content.split(/\r?\n/)) {
-            const trimmed = line.trim();
-            if (stopped) continue;
-            if (summaryRe.test(trimmed)) { flush(); stopped = true; continue; }
-            const hdr = parseHeader(trimmed);
-            if (hdr) {
-                flush();
-                entryMonth = hdr.month || entryMonth;
-                curDay = hdr.day;
-                curYear = hdr.year || fallbackYear || 0;
-                nameBuf = extractName(hdr.tail);
-                descBuf = [];
-                continue;
-            }
-            if (curDay > 0) descBuf.push(trimmed);
-        }
-        flush();
-    }
-    return events;
-}
 
 /**
  * 为 v2 日历 LLM prompt 构造当月+下月原作时间线文本。
@@ -620,8 +437,39 @@ function _filterTimelineEntries(currentDate, options = {}) {
  * @returns {string} 时间线文本；无可用条目时返回空串
  */
 export function getTimelineForPrompt(currentDate, maxChars = 1500) {
-    const events = _filterTimelineEntries(currentDate, { monthWindow: 1 }).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    const result = events.map(ev => `${ev.date}: ${ev.title}`).join('\n');
+    const storeEvents = getCalendarStore()?.events;
+    if (!storeEvents || typeof storeEvents !== 'object') return '';
+
+    // 解析 currentDate 的月份索引，用于 ±1 月过滤
+    let currentMonthIdx = null;
+    if (currentDate) {
+        const parts = currentDate.split('-');
+        const cy = parseInt(parts[0]);
+        const cm = parseInt(parts[1]);
+        if (!isNaN(cy) && !isNaN(cm)) currentMonthIdx = cy * 12 + (cm - 1);
+    }
+
+    const events = [];
+    for (const [dateStr, evArr] of Object.entries(storeEvents)) {
+        if (!Array.isArray(evArr)) continue;
+        for (const ev of evArr) {
+            if (ev.type !== 'canon') continue;
+            // ±1 月过滤
+            if (currentMonthIdx !== null) {
+                const parts = dateStr.split('-');
+                const ey = parseInt(parts[0]);
+                const em = parseInt(parts[1]);
+                if (!isNaN(ey) && !isNaN(em)) {
+                    const evMonthIdx = ey * 12 + (em - 1);
+                    if (Math.abs(evMonthIdx - currentMonthIdx) > 1) continue;
+                }
+            }
+            events.push({ date: dateStr, description: ev.description || '' });
+        }
+    }
+
+    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const result = events.map(ev => `${ev.date}: ${ev.description}`).join('\n');
     return result.length > maxChars ? result.substring(0, maxChars) : result;
 }
 
@@ -648,10 +496,21 @@ export function queryTimeline(query = {}) {
 
     const parsedMax = parseInt(query.max);
     const max = Math.max(1, Math.min(Number.isFinite(parsedMax) ? parsedMax : 40, 120));
-    return _filterTimelineEntries(null, { monthWindow: null })
-        .filter(ev => ev.date >= start && ev.date <= end)
-        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-        .slice(0, max);
+
+    const storeEvents = getCalendarStore()?.events;
+    if (!storeEvents || typeof storeEvents !== 'object') return [];
+
+    const results = [];
+    for (const [dateStr, evArr] of Object.entries(storeEvents)) {
+        if (dateStr < start || dateStr > end) continue;
+        if (!Array.isArray(evArr)) continue;
+        for (const ev of evArr) {
+            if (ev.type !== 'canon') continue;
+            results.push({ date: dateStr, title: ev.description || '', time: ev.time || null });
+        }
+    }
+    results.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return results.slice(0, max);
 }
 
 /**
@@ -845,51 +704,9 @@ export function initCalendarIfNeeded() {
             return;
         }
 
-        // 从世界书提取时间线条目（A4: 如果 currentDate 可用，限制 ±1 个月）
-        const events = _filterTimelineEntries(calStore.currentDate, { monthWindow: 12 });
-        if (!events.length) {
-            log('日历初始化：未找到世界书条目');
-            data.calendar.lastCalUpdateDate = calStore.currentDate;
-            log('日历首次初始化完成（无世界书条目），currentDate=' + calStore.currentDate);
-            return;
-        }
-
-        let extractedCount = 0;
-        for (const ev of events) {
-            if (!calStore.events[ev.date]) {
-                calStore.events[ev.date] = [];
-            }
-            // 去重：归一化前缀比较（first_mes title 可能带 [标签] 前缀，worldbook title 经 markdown 清洗）
-            const _normKey = (s) => (s || '').replace(/\s+/g, '').replace(/^\[[^\]]*\]/, '').substring(0, 20);
-            const evKey = _normKey(ev.title);
-            const dup = calStore.events[ev.date].some(e => _normKey(e.title) === evKey);
-            if (dup) continue;
-            calStore.events[ev.date].push(toCalendarStoreEvent({
-                type: 'canon',
-                title: ev.title,
-                description: ev.description || ev.title,
-            }, ev.date, calStore.events[ev.date].length));
-            extractedCount++;
-        }
-
+        // 世界书 markdown 提取已废弃（_filterTimelineEntries 已删除），pre-parser 是唯一入口
+        log('日历初始化：pre-parser 未提取时间线条目，跳过世界书 markdown 提取');
         data.calendar.lastCalUpdateDate = calStore.currentDate;
-        data.calendar.canonDataVersion = CANON_DATA_VERSION;
-        log('日历初始化完成 v' + CANON_DATA_VERSION + '，提取了 ' + extractedCount + ' 个时间线条目（header-month-fix）');
-        console.log('[SAO Calendar] ✓ 重新提取完成 v' + CANON_DATA_VERSION + '，' + extractedCount + ' 个事件，开始保存...');
-        // M3: 用 persistCalendar 而非 saveStore，确保 calendarVersion 自增，
-        // 否则并发 calendarModelUpdate 带陈旧 snapshotVersion 会覆盖刚写入的 canon 数据。
-        // 函数本身非 async，保持与原 saveStore() 的 fire-and-forget 语义，加 catch 防未处理拒绝。
-        // 关键：保存修改到持久化存储，否则重启后数据回滚
-        try {
-            // 外层 try 仅捕获 persistCalendar 同步阶段抛错(如 calendarVersion 自增)；异步拒绝由 .catch 处理
-            persistCalendar().then(() => {
-                console.log('[SAO Calendar] ✓ 保存完成');
-            }).catch(saveErr => {
-                console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);
-            });
-        } catch (saveErr) {
-            console.log('[SAO Calendar] ✗ 保存失败: ' + saveErr.message);
-        }
     } catch (e) {
         log('日历初始化失败: ' + e.message, 'warn');
     }

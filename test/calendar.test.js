@@ -33,7 +33,7 @@ import {
     generateEventId,
 } from '../sao-calendar.js';
 import { saveSaoDataNow, getCurrentCharacter, getSaoData } from '../sao-core.js';
-import { saveStore } from '../sao-store-core.js';
+import { saveStore, getStore } from '../sao-store-core.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: fresh calendar object
@@ -374,16 +374,12 @@ describe('getTimelineForPrompt', () => {
         vi.clearAllMocks();
     });
 
-    it('returns sorted "YYYY-MM-DD: title" lines from character_book entries', () => {
-        vi.mocked(getCurrentCharacter).mockReturnValue({
-            data: {
-                character_book: {
-                    entries: [
-                        {
-                            comment: '2024年12月',
-                            content: '2024-12-15: 艾恩葛朗特第1层攻略会议\n2024-12-20: 与西莉卡训练',
-                        },
-                    ],
+    it('returns sorted "YYYY-MM-DD: description" lines from calendarStore.events', () => {
+        vi.mocked(getStore).mockReturnValue({
+            calendarStore: {
+                events: {
+                    '2024-12-15': [{ type: 'canon', description: '艾恩葛朗特第1层攻略会议', time: null }],
+                    '2024-12-20': [{ type: 'canon', description: '与西莉卡训练', time: null }],
                 },
             },
         });
@@ -398,23 +394,12 @@ describe('getTimelineForPrompt', () => {
     });
 
     it('filters entries outside ±1 month range', () => {
-        vi.mocked(getCurrentCharacter).mockReturnValue({
-            data: {
-                character_book: {
-                    entries: [
-                        {
-                            comment: '2024年10月',
-                            content: '2024-10-15: 早期事件',
-                        },
-                        {
-                            comment: '2024年12月',
-                            content: '2024-12-15: 当月事件',
-                        },
-                        {
-                            comment: '2025年2月',
-                            content: '2025-02-15: 未来事件',
-                        },
-                    ],
+        vi.mocked(getStore).mockReturnValue({
+            calendarStore: {
+                events: {
+                    '2024-10-15': [{ type: 'canon', description: '早期事件', time: null }],
+                    '2024-12-15': [{ type: 'canon', description: '当月事件', time: null }],
+                    '2025-02-15': [{ type: 'canon', description: '未来事件', time: null }],
                 },
             },
         });
@@ -427,56 +412,37 @@ describe('getTimelineForPrompt', () => {
     });
 
     it('truncates result to maxChars', () => {
-        // Build a long content string
-        const longLines = Array.from({ length: 50 }, (_, i) =>
-            `2024-12-${String(i + 1).padStart(2, '0')}: 这是一段很长的事件描述，用于测试截断功能，第${i + 1}天`,
-        ).join('\n');
-
-        vi.mocked(getCurrentCharacter).mockReturnValue({
-            data: {
-                character_book: {
-                    entries: [
-                        { comment: '2024年12月', content: longLines },
-                    ],
-                },
-            },
+        const events = {};
+        for (let i = 1; i <= 31; i++) {
+            const day = String(i).padStart(2, '0');
+            events[`2024-12-${day}`] = [{ type: 'canon', description: `这是一段很长的事件描述，用于测试截断功能，第${i}天`, time: null }];
+        }
+        vi.mocked(getStore).mockReturnValue({
+            calendarStore: { events },
         });
 
         const result = getTimelineForPrompt('2024-12-16', 200);
         expect(result.length).toBeLessThanOrEqual(200);
     });
 
-    it('returns empty string when no entries exist', () => {
-        vi.mocked(getCurrentCharacter).mockReturnValue({
-            data: { character_book: { entries: [] } },
+    it('returns empty string when calendarStore has no events', () => {
+        vi.mocked(getStore).mockReturnValue({
+            calendarStore: { events: {} },
         });
         expect(getTimelineForPrompt('2024-12-16')).toBe('');
     });
 
-    it('returns empty string when character has no character_book', () => {
-        vi.mocked(getCurrentCharacter).mockReturnValue({ data: {} });
-        expect(getTimelineForPrompt('2024-12-16')).toBe('');
-    });
-
-    it('returns empty string when getCurrentCharacter returns null', () => {
-        vi.mocked(getCurrentCharacter).mockReturnValue(null);
+    it('returns empty string when getStore returns null', () => {
+        vi.mocked(getStore).mockReturnValue(null);
         expect(getTimelineForPrompt('2024-12-16')).toBe('');
     });
 
     it('includes all entries when no currentDate provided (no month filter)', () => {
-        vi.mocked(getCurrentCharacter).mockReturnValue({
-            data: {
-                character_book: {
-                    entries: [
-                        {
-                            comment: '2024年1月',
-                            content: '2024-01-15: 年初事件',
-                        },
-                        {
-                            comment: '2024年12月',
-                            content: '2024-12-15: 年末事件',
-                        },
-                    ],
+        vi.mocked(getStore).mockReturnValue({
+            calendarStore: {
+                events: {
+                    '2024-01-15': [{ type: 'canon', description: '年初事件', time: null }],
+                    '2024-12-15': [{ type: 'canon', description: '年末事件', time: null }],
                 },
             },
         });
@@ -485,6 +451,23 @@ describe('getTimelineForPrompt', () => {
         const result = getTimelineForPrompt(null);
         expect(result).toContain('2024-01-15: 年初事件');
         expect(result).toContain('2024-12-15: 年末事件');
+    });
+
+    it('skips non-canon events', () => {
+        vi.mocked(getStore).mockReturnValue({
+            calendarStore: {
+                events: {
+                    '2024-12-15': [
+                        { type: 'canon', description: '原作事件', time: null },
+                        { type: 'appointment', description: '约定', time: '15:00' },
+                    ],
+                },
+            },
+        });
+
+        const result = getTimelineForPrompt('2024-12-16');
+        expect(result).toContain('2024-12-15: 原作事件');
+        expect(result).not.toContain('约定');
     });
 });
 

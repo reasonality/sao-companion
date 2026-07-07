@@ -72,7 +72,7 @@ export function buildCalCellHtml(opts) {
                 const body = first.body || first.label || '';
                 if (body) lines.push('<div class="sao-cal-event-body">' + esc(body.slice(0, 200)) + '</div>');
             } else {
-                const main = typeof ev === 'string' ? ev : (ev.title || ev.description || '');
+                const main = typeof ev === 'string' ? ev : (ev.description || ev.title || '');
                 if (main) lines.push('<div class="sao-cal-event-body">' + esc(main.slice(0, 200)) + '</div>');
             }
             break; // 只显示第一个事件
