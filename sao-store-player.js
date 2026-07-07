@@ -39,7 +39,6 @@ const DEFAULT_PLAYER = Object.freeze({
     meditationProficiency: 0,  // 冥想熟练度 0-2000
     uniqueSkill: null,          // 月蚀技能对象（现梦解锁时创建）
     incapacitated: false,       // 三千世界副作用：计算过载无法战斗
-    _incapacitatedTurns: 0,     // 计算过载剩余回合数（私有，不持久化）
 });
 
 // ============================================================
@@ -64,7 +63,7 @@ export function getPlayerStore() {
     if (store.playerStore.meditationProficiency === undefined) store.playerStore.meditationProficiency = 0;
     if (store.playerStore.uniqueSkill === undefined) store.playerStore.uniqueSkill = null;
     if (store.playerStore.incapacitated === undefined) store.playerStore.incapacitated = false;
-    if (store.playerStore._incapacitatedTurns === undefined) store.playerStore._incapacitatedTurns = 0;
+    // 注意：_incapacitatedTurns 是 module-level 变量（见下方），不存入 store，不持久化
     return store.playerStore;
 }
 
@@ -490,3 +489,9 @@ export function updateSubTechniqueProficiency(techId, prof, skipSave = false) {
     player.uniqueSkill.subTechniques[techId].proficiency = Math.max(0, Number(prof) || 0);
     if (!skipSave) saveStore();
 }
+
+// === 计算过载回合计数（module-level，不持久化，不进 store） ===
+let _incapacitatedTurns = 0;
+export function getIncapacitatedTurns() { return _incapacitatedTurns; }
+export function incrementIncapacitatedTurns() { return ++_incapacitatedTurns; }
+export function resetIncapacitatedTurns() { _incapacitatedTurns = 0; }

@@ -13,7 +13,7 @@ import {
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
 import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
-import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem } from './sao-store-player.js';
+import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
@@ -643,14 +643,13 @@ function bindEvents() {
             {
                 const _player = getPlayerStore();
                 if (_player?.incapacitated) {
-                    _player._incapacitatedTurns = (_player._incapacitatedTurns || 0) + 1;
-                    if (_player._incapacitatedTurns >= 2) {
+                    if (incrementIncapacitatedTurns() >= 2) {
                         _player.incapacitated = false;
-                        _player._incapacitatedTurns = 0;
+                        resetIncapacitatedTurns();
                         log('[月蚀] 计算过载自动解除（2回合）');
                     }
-                } else if (_player?._incapacitatedTurns) {
-                    _player._incapacitatedTurns = 0;
+                } else if (getIncapacitatedTurns() > 0) {
+                    resetIncapacitatedTurns();
                 }
             }
 
@@ -1193,7 +1192,7 @@ const _dataPlayerSchema = {
     meditationProficiency: 'number',
     uniqueSkill: { id: 'string', name: 'string', title: 'string', buffLevel: 'number', subTechniques: {} },
     incapacitated: 'boolean',
-    buffs: ['string'],
+    buffs: { temporary: [{ id: 'string', name: 'string', effects: {} }], permanent: [{ id: 'string', name: 'string', effects: {} }] },
     customSkills: ['string'],
     guild_id: 'string',
     _baseVitals: { hp: 'number', maxHp: 'number', mp: 'number', maxMp: 'number' },

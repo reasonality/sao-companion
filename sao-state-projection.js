@@ -280,7 +280,8 @@ export function projectFullState() {
     // 位置
     const pos = player.position;
     if (pos?.floor_id || pos?.location) {
-        stats.push(`位置: ${pos.floor_id || '?'}F ${pos.location || ''}`);
+        const floorNum = String(pos.floor_id || '').replace(/^floor_?0*/i, '') || '?';
+        stats.push(`位置: ${floorNum}F ${pos.location || ''}`);
     }
     if (stats.length) {
         sections.push({ label: '等级与属性', text: stats.join(' | '), priority: 2 });
@@ -953,14 +954,14 @@ export function projectStatusPanelHtml() {
         const subRows = Object.entries(uniqueSkill.subTechniques)
             .filter(([_, t]) => t.unlocked)
             .map(([id, t]) => {
-                return `<div class="sao-status-row"><span class="sao-status-label">${esc(t.name)}</span><span>熟练 ${t.proficiency || 0}</span></div>`;
+                return `<div class="sao-status-row"><span style="font-weight:600">${esc(t.name)}</span><span>熟练 ${t.proficiency || 0}</span></div>`;
             });
 
         let usContent = '';
         if (medProf > 0) {
-            usContent += `<div class="sao-status-row"><span class="sao-status-label">冥想熟练度</span><span>${medProf}</span></div>`;
+            usContent += `<div class="sao-status-row"><span style="font-weight:600">冥想熟练度</span><span>${medProf}</span></div>`;
         }
-        usContent += `<div class="sao-status-row"><span class="sao-status-label">${esc(uniqueSkill.name)} (${esc(uniqueSkill.title || '无')})</span><span>${usBuffLevel}/6层 +${buffPercent}%</span></div>`;
+        usContent += `<div class="sao-status-row"><span style="font-weight:600">${esc(uniqueSkill.name)} (${esc(uniqueSkill.title || '无')})</span><span>${usBuffLevel}/6层 +${buffPercent}%</span></div>`;
         usContent += subRows.join('');
 
         uniqueSkillSection = `<div class="sao-status-section" data-sao-section="unique-skill">
@@ -973,7 +974,7 @@ export function projectStatusPanelHtml() {
         if (medProf > 0) {
             uniqueSkillSection = `<div class="sao-status-section" data-sao-section="unique-skill">
                     <div class="sao-status-section-title">独特技能</div>
-                    <div class="sao-hud-card"><div class="sao-status-row"><span class="sao-status-label">冥想熟练度</span><span>${medProf}</span></div></div>
+                    <div class="sao-hud-card"><div class="sao-status-row"><span style="font-weight:600">冥想熟练度</span><span>${medProf}</span></div></div>
                 </div>`;
         }
     }
