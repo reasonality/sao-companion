@@ -16,6 +16,11 @@ import { addTemporaryBuff, addPermanentBuff, removeBuff } from './sao-buff.js';
 import { createGuild, discoverGuild, addGuildMember, removeGuildMember, getGuildByName } from './sao-store-guild.js';
 import { setPlayerHousing, updatePlayerHousing, addDecoration, addFurniture, removeFurniture, clearPlayerHousing } from './sao-store-housing.js';
 
+// === 模块级常量 ===
+
+/** 中文装备槽位名 → 英文 slot 键映射（避免循环内重复构造） */
+const SLOT_CN_TO_EN = { '武器':'weapon', '副手':'off_hand', '防具':'armor', '头部':'head', '头盔':'helmet', '胸部':'chest', '手部':'hands', '手套':'gloves', '腿部':'legs', '靴子':'boots', '盾牌':'shield', '饰品':'accessory', '戒指':'ring', '项链':'necklace', '披风':'cape', '腰带':'belt' };
+
 // === 纯解析函数 ===
 
 function parseSkillField(tok, skill) {
@@ -592,8 +597,7 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                 if (!item || !item.name) continue;
                 // Determine type: if item has stats/equipment-like fields, route to equipment+inventory (backpack)
                 if (item.stats || item.slot || item._equip_backpack || item.durability) {
-                    // 装备背包项：从中文槽位名映射为英文 slot
-                    const SLOT_CN_TO_EN = { '武器':'weapon', '副手':'off_hand', '防具':'armor', '头部':'head', '头盔':'helmet', '胸部':'chest', '手部':'hands', '手套':'gloves', '腿部':'legs', '靴子':'boots', '盾牌':'shield', '饰品':'accessory', '戒指':'ring', '项链':'necklace', '披风':'cape', '腰带':'belt' };
+                    // 装备背包项：从中文槽位名映射为英文 slot（SLOT_CN_TO_EN 已提到模块级）
                     const mappedSlot = item.slot || SLOT_CN_TO_EN[item.type];
                     if (item.type && !item.slot && !SLOT_CN_TO_EN[item.type] && item._equip_backpack) {
                         log(`applyExtractedData: 未知装备槽位名 "${item.type}"（装备: ${item.name}），尝试原样使用`, 'warn');

@@ -555,7 +555,7 @@ export function registerSearchWorldBook(ctx) {
 
 // === Function Calling Tool System (P0: framework only, tools registered in P1) ===
 
-export const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info', 'get_guild_info', 'get_world_setting', 'search_world_book'];
+const SAO_TOOL_NAMES = ['get_calendar', 'get_character_info', 'get_floor_info', 'get_guild_info', 'get_world_setting', 'search_world_book'];
 
 export function registerTools() {
     const ctx = getContext();

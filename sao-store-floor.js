@@ -105,14 +105,6 @@ function _buildCanon(content) {
 // 外部楼层数据 & 章节配置
 // ============================================================
 
-/**
- * 外部已知楼层信息（SAO Progressive / Wiki 训练数据）。
- * 仅填写有把握的条目；不确定的留空由 stub 等 LLM 到达后补充。
- * 当前为空——不编造数据，未来手动补充。
- * @type {Record<number, { theme?: string, mainTown?: string, boss?: string }>}
- */
-const EXTERNAL_FLOOR_DATA = {};
-
 // ============================================================
 // 导出函数
 // ============================================================
@@ -395,19 +387,18 @@ export function ensureAllFloorsExist() {
         const id = prefix + padded;
         if (store.byId[id]) continue; // 已有（世界书或之前创建），跳过
 
-        const ext = EXTERNAL_FLOOR_DATA[i] || {};
         store.byId[id] = {
             floor_id: id,
             floor_number: i,
             name: `第${i}层`,
             canon: {
-                theme: ext.theme || '',
-                mainTown: ext.mainTown || '',
+                theme: '',
+                mainTown: '',
                 labyrinth: '',
-                boss: ext.boss || '',
+                boss: '',
             },
             state: { unlocked: i === 1, cleared: false, discovered_locations: [], notes: [] },
-            source: ext.theme ? 'external' : 'stub',
+            source: 'stub',
             _canonHash: '',
         };
         store.numberToId[String(i)] = id;
