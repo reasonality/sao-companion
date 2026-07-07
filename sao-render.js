@@ -11,7 +11,7 @@ import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
-import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared, rarityClass as rarityClassShared } from './sao-detail-popup.js';
+import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared } from './sao-detail-popup.js';
 import { equipItem, unequipItem, getPlayerStore } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
@@ -1580,15 +1580,8 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
 }
 
 // ============================================================
-// 详情弹窗渲染辅助（对齐 index.js renderEquipmentDetail / renderSkillDetail / renderInventoryDetail）
+// 详情弹窗渲染辅助（_renderDetailInv 封装 getEquipmentById 部分应用）
 // ============================================================
-
-/** 稀有度文本 → CSS class */
-function _rarityClass(rarity) { return rarityClassShared(rarity); }
-
-function _renderDetailEquip(item) { return _renderEquipShared(item); }
-
-function _renderDetailSkill(sk) { return _renderSkillShared(sk); }
 
 function _renderDetailInv(item) { return _renderInvShared(item, getEquipmentById); }
 
@@ -1784,7 +1777,7 @@ function _attachStatusPanelListeners(shadow) {
                     const item = getEquipmentById(entry.equipId);
                     if (item) {
                         title = `${entry.slotDisplay || ''}: ${item.name || '未知'}`;
-                        html = _renderDetailEquip(item);
+                        html = _renderEquipShared(item);
                     }
                 }
             } else if (type === 'skill') {
@@ -1793,7 +1786,7 @@ function _attachStatusPanelListeners(shadow) {
                 if (ps) {
                     const def = getSkillById(ps.skill_id);
                     title = `${def?.name || ps.name || '技能'}${ps.proficiency != null ? ' Lv' + ps.proficiency : ''}`;
-                    html = _renderDetailSkill({ ...(def || {}), proficiency: ps.proficiency, name: def?.name || ps.name });
+                    html = _renderSkillShared({ ...(def || {}), proficiency: ps.proficiency, name: def?.name || ps.name });
                 }
             } else if (type === 'inv') {
                 const inv = getInventoryStore();

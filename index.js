@@ -34,7 +34,7 @@ import {
     buildCleanCalendarDays,
 } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
-import { renderDetailEquip, renderDetailSkill, renderDetailInv, rarityClass as rarityClassShared } from './sao-detail-popup.js';
+import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-detail-popup.js';
 import { serializeBattleState, setBattleStateChangeCallback, setBattleEndCallback, destroyBattleSideEffects } from './battle/battleLogic.js';
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks } from './sao-skills.js';
@@ -1053,14 +1053,6 @@ function closeDetailModal() {
     if (modal) modal.style.display = 'none';
 }
 
-// 稀有度文本 → CSS class 映射（兼容中文颜色/中文档位/英文）
-function rarityClass(rarity) { return rarityClassShared(rarity); }
-
-function renderEquipmentDetail(item) {
-    const detailHtml = renderDetailEquip(item);
-    return detailHtml;
-}
-
 /**
  * 将 EN 效果代码翻译为可读说明
  * 动态从角色卡世界书条目解析，自动同步卡片更新
@@ -1089,7 +1081,7 @@ function renderSkillDetail(sk) {
 }
 
 function renderInventoryDetail(item) {
-    // Equipment type: delegate to renderEquipmentDetail with full equipment data
+    // Equipment type: delegate to renderDetailEquip with full equipment data
     if (item.type === 'equipment' && item.equipment_id) {
         const eq = getEquipmentById(item.equipment_id);
         if (eq) {
@@ -2829,7 +2821,7 @@ function initPanelLogic() {
                     // entry 是 { slot, item } 格式，item 可能是 {name, stats, item_level, ...}
                     const item = entry.item || {};
                     title = `${SLOT_LABELS[entry.slot] || entry.slot}: ${item.name || '未知'}`;
-                    html = renderEquipmentDetail(item);
+                    html = renderDetailEquip(item);
                     // R5: 卸下按钮
                     html += `<div style="margin-top:12px;text-align:center;"><button class="sao-btn sao-btn-secondary" data-action="unequip" data-slot="${esc(entry.slot)}" title="卸下装备">↓ 卸下</button></div>`;
                 }
