@@ -139,36 +139,54 @@ export function getCharacterInfoFromSources(name, aspect) {
 }
 
 /**
- * 从世界书查找楼层信息
+ * 从 floorStore 获取楼层信息（结构化输出）
  */
 export function getFloorInfo(floor, topic) {
     try {
-        const char = getCurrentCharacter();
-        const entries = char && char.data && char.data.character_book && char.data.character_book.entries;
-        if (!entries) return '世界书数据不可用';
+        const floorEntry = getFloorByNumber(parseInt(floor));
+        if (!floorEntry) return `未找到第${floor}层的信息`;
 
-        const floorStr = String(floor);
-        const floorPatterns = [floorStr + 'F', floorStr + '层', floorStr + '楼'];
-        const results = [];
+        const canon = floorEntry.canon;
+        if (!canon) return `第${floor}层无详细设定`;
 
-        for (const e of entries) {
-            const entryName = (e.comment || e.name || '').toLowerCase();
-            const matched = floorPatterns.some(p => entryName.includes(p.toLowerCase()));
-            if (!matched) continue;
-
-            let content = e.content || '';
-            // 可选 topic 过滤
-            if (topic) {
-                const topicLower = topic.toLowerCase();
-                if (!content.toLowerCase().includes(topicLower) && !entryName.includes(topicLower)) {
-                    continue;
-                }
-            }
-            results.push(content);
-            if (results.length >= 3) break;
+        const lines = [`第${floor}层`];
+        if (canon.theme) lines.push(`主题: ${canon.theme}`);
+        if (canon.intro) lines.push(`简介: ${canon.intro}`);
+        if (canon.mainTown) lines.push(`主城: ${canon.mainTown}`);
+        if (canon.mainCityDesc) lines.push(`主城描述: ${canon.mainCityDesc}`);
+        if (canon.labyrinthLocation) lines.push(`迷宫位置: ${canon.labyrinthLocation}`);
+        if (canon.labyrinthDesc) lines.push(`迷宫描述: ${canon.labyrinthDesc}`);
+        if (canon.boss) lines.push(`楼层Boss: ${canon.boss}`);
+        if (canon.bossDesc) lines.push(`Boss描述: ${canon.bossDesc}`);
+        if (canon.attackPoint) {
+            lines.push(`攻略据点: ${canon.attackPoint.name || ''}`);
+            if (canon.attackPoint.location) lines.push(`据点位置: ${canon.attackPoint.location}`);
+            if (canon.attackPoint.description) lines.push(`据点描述: ${canon.attackPoint.description}`);
         }
-
-        return results.length ? results.join('\n---\n') : '未找到第' + floorStr + '层的相关信息' + (topic ? '（话题: ' + topic + '）' : '');
+        if (Array.isArray(canon.landmarks) && canon.landmarks.length > 0) {
+            lines.push('地标:');
+            for (const lm of canon.landmarks) lines.push(`  - ${lm.name}: ${lm.description || ''}`);
+        }
+        if (Array.isArray(canon.villages) && canon.villages.length > 0) {
+            lines.push('村庄:');
+            for (const v of canon.villages) lines.push(`  - ${v.name}${v.location ? ' (' + v.location + ')' : ''}: ${v.description || ''}`);
+        }        if (Array.isArray(canon.fieldBosses) && canon.fieldBosses.length > 0) {
+            lines.push('区域Boss:');
+            for (const fb of canon.fieldBosses) {
+                const parts = [fb.name];
+                if (fb.location) parts.push(`位置:${fb.location}`);
+                if (fb.description) parts.push(fb.description);
+                if (fb.dropItem) parts.push(`掉落:${fb.dropItem}`);
+                lines.push(`  - ${parts.join(' | ')}`);
+            }
+        }
+        if (floorEntry.state?.cleared) lines.push('状态: 已攻略');
+        else lines.push('状态: 攻略中');
+        if (floorEntry.state?.notes?.length) {
+            lines.push('探索记录:');
+            floorEntry.state.notes.slice(-5).forEach(n => lines.push(`  - ${n}`));
+        }
+        return lines.join('\n');
     } catch (e) {
         return '获取楼层信息失败: ' + e.message;
     }
@@ -366,27 +384,15 @@ action: wrapToolAction('get_floor_info', async (args) => {
             try {
                 const floor = args && args.floor;
                 if (!floor) return '请提供楼层数';
-                // B5: Try floorStore first
-                const floorEntry = getFloorByNumber(parseInt(floor));
-                // Live raw content from world book (store no longer holds rawContent)
-                const liveCanon = getFloorInfo(parseInt(floor), args.topic);
+                const floorNum = parseInt(floor);
+                const floorEntry = getFloorByNumber(floorNum);
+                const info = getFloorInfo(floorNum, args.topic);
                 if (floorEntry) {
-                    const parts = [`[楼层] ${floorEntry.floor_number}F`];
-                    if (floorEntry.canon?.mainTown) parts.push(`[城镇] ${floorEntry.canon.mainTown}`);
-                    if (floorEntry.canon?.boss) parts.push(`[BOSS] ${floorEntry.canon.boss}`);
-                    // Append full live raw content if it returned real content
-                    if (liveCanon && !liveCanon.startsWith('未找到') && liveCanon.length > 10) {
-                        parts.push(`[设定]\n${liveCanon}`);
-                    }
-                    if (floorEntry.state?.notes?.length) {
-                        parts.push('[探索记录]');
-                        parts.push(...floorEntry.state.notes.slice(-5).map(n => `- ${n}`));
-                    }
-                    return parts.join('\n');
+                    return info;
                 }
-                // Fallback: floorStore miss — return live raw content alone
-                log('get_floor_info: floorStore 未命中，仅返回世界书扫描 floor=' + floor, 'warn');
-                return liveCanon;
+                // Fallback: floorStore miss — return info (will say "未找到")
+                log('get_floor_info: floorStore 未命中 floor=' + floor, 'warn');
+                return info;
             } catch (e) {
                 log('get_floor_info 失败: ' + e.message, 'warn');
                 return '获取数据失败: ' + e.message;

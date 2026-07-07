@@ -197,10 +197,10 @@ export function initFloorFromWorldBook(entries) {
                         boss: p.boss ? p.boss.name : '',
                         bossDesc: p.boss ? (p.boss.description || '') : '',
                         intro: p.intro || '',
-                        notes: p.notes || '',
                         landmarks: p.landmarks || [],
                         villages: p.villages || [],
                         attackPoint: p.attackPoint || null,
+                        fieldBosses: p.fieldBosses || (p.fieldBoss ? [p.fieldBoss] : []),
                         source: 'worldbook',
                     }));
                 }
@@ -301,10 +301,10 @@ export function initFloorFromWorldBook(entries) {
                             boss: fd.boss || '',
                             bossDesc: fd.bossDesc || '',
                             intro: fd.intro || '',
-                            notes: fd.notes || '',
                             landmarks: fd.landmarks || [],
                             villages: fd.villages || [],
                             attackPoint: fd.attackPoint || null,
+                            fieldBosses: fd.fieldBosses || [],
                         };
                     }
                 }
@@ -396,6 +396,7 @@ export function ensureAllFloorsExist() {
                 mainTown: '',
                 labyrinth: '',
                 boss: '',
+                fieldBosses: [],
             },
             state: { unlocked: i === 1, cleared: false, discovered_locations: [], notes: [] },
             source: 'stub',

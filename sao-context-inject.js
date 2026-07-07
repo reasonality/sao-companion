@@ -6,7 +6,7 @@ import { getCurrentCharacter, log } from './sao-core.js';
 import { getStore } from './sao-store-core.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
-import { getCharacterInfoFromSources, getFloorInfo } from './sao-tools.js';
+import { getCharacterInfoFromSources } from './sao-tools.js';
 import { getDiscoveredGuilds, getPlayerGuild } from './sao-store-guild.js';
 import { getPlayerHousing, isPlayerAtHome } from './sao-store-housing.js';
 
@@ -204,14 +204,46 @@ function buildFloorKeywordProfiles(entries, recentLower) {
     const blocks = [];
     for (const floorNum of matchedFloors) {
         const floorEntry = getFloorByNumber(floorNum);
-        const liveCanon = getFloorInfo(floorNum);
         const lines = [`[相关楼层] 第${floorNum}层`];
+        const canon = floorEntry?.canon;
 
-        if (floorEntry?.canon?.mainTown) lines.push(`[城镇] ${floorEntry.canon.mainTown}`);
-        if (floorEntry?.canon?.boss) lines.push(`[BOSS] ${floorEntry.canon.boss}`);
-        if (liveCanon && !liveCanon.startsWith('未找到') && liveCanon.length > 10) {
-            lines.push(`[设定]\n${liveCanon}`);
+        if (canon) {
+            if (canon.theme) lines.push(`[主题] ${canon.theme}`);
+            if (canon.intro) lines.push(`[简介] ${canon.intro}`);
+            if (canon.mainTown) lines.push(`[主城] ${canon.mainTown}`);
+            if (canon.mainCityDesc) lines.push(`[主城描述] ${canon.mainCityDesc}`);
+            if (canon.labyrinthLocation) lines.push(`[迷宫位置] ${canon.labyrinthLocation}`);
+            if (canon.labyrinthDesc) lines.push(`[迷宫描述] ${canon.labyrinthDesc}`);
+            if (canon.boss) lines.push(`[楼层Boss] ${canon.boss}`);
+            if (canon.bossDesc) lines.push(`[Boss描述] ${canon.bossDesc}`);
+            if (canon.attackPoint) {
+                lines.push(`[攻略据点] ${canon.attackPoint.name || ''}`);
+                if (canon.attackPoint.description) lines.push(`[据点描述] ${canon.attackPoint.description}`);
+            }
+            if (Array.isArray(canon.landmarks) && canon.landmarks.length > 0) {
+                lines.push('[地标]');
+                for (const lm of canon.landmarks) {
+                    lines.push(`- ${lm.name || ''}: ${lm.description || ''}`);
+                }
+            }
+            if (Array.isArray(canon.villages) && canon.villages.length > 0) {
+                lines.push('[村庄]');
+                for (const v of canon.villages) {
+                    lines.push(`- ${v.name || ''}${v.location ? ' (' + v.location + ')' : ''}: ${v.description || ''}`);
+                }
+            }            }
+            if (Array.isArray(canon.fieldBosses) && canon.fieldBosses.length > 0) {
+                lines.push('[区域Boss]');
+                for (const fb of canon.fieldBosses) {
+                    const parts = [fb.name || ''];
+                    if (fb.location) parts.push(`位置:${fb.location}`);
+                    if (fb.description) parts.push(fb.description);
+                    if (fb.dropItem) parts.push(`掉落:${fb.dropItem}`);
+                    lines.push(`- ${parts.join(' | ')}`);
+                }
+            }
         }
+
         if (floorEntry?.state?.cleared) lines.push('[攻略状态] 已攻略');
         else lines.push('[攻略状态] 攻略中');
         if (floorEntry?.state?.notes?.length) {
