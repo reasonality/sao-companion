@@ -3,6 +3,7 @@
 
 import { getSaoData, log } from './sao-core.js';
 import { getPlayerStore, setCustomSkills, getUniqueSkill, setUniqueSkill } from './sao-store-player.js';
+export { getUniqueSkill };
 
 // === 自定义技能定义 ===
 /**
@@ -64,7 +65,7 @@ const SUB_TECH_LEVEL_MAP = {
 };
 
 /** 视觉阶段标签（buffLevel 1-6） */
-const VISUAL_STAGES = ['淡月光迹', '新月', '半月', '半月', '近满月', '满月'];
+const VISUAL_STAGES = ['淡月光迹', '新月', '上弦月', '半月', '近满月', '满月'];
 
 // === 技能查找 ===
 /**

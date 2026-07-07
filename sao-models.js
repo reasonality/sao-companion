@@ -72,7 +72,7 @@ export async function fetchModelList(role) {
 
 /**
  * 调用模型 (OpenAI 兼容格式)
- * @param {string} role - narrative|combat|extract
+ * @param {string} role - narrative|extract
  * @param {Array<{role:string,content:string}>} messages
  * @param {number} maxTokens
  * @param {object} [opts] - {temperature, jsonSchema, prefill, timeoutMs}

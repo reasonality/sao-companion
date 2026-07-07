@@ -700,11 +700,11 @@ export async function applyExtractedData(extracted, customSkillDefs) {
 
         // 4b. 月蚀系统：冥想熟练度 / 子技熟练度 / 计算过载
         if (s.meditationProficiency != null) {
-            updateMeditationProficiency(s.meditationProficiency);
+            updateMeditationProficiency(s.meditationProficiency, true);
         }
         if (s.uniqueSkillProficiency && typeof s.uniqueSkillProficiency === 'object') {
             for (const [techId, prof] of Object.entries(s.uniqueSkillProficiency)) {
-                if (prof != null) updateSubTechniqueProficiency(techId, prof);
+                if (prof != null) updateSubTechniqueProficiency(techId, prof, true);
             }
         }
         if (s.incapacitated != null) {

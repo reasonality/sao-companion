@@ -2,7 +2,7 @@
 // 同名装备可有多件实例（每件独立 ID）。
 // slot 使用新命名：weapon | off_hand | head | chest | hands | legs | accessory
 // statType：str | agi | int | vit | all
-// combat 字段使用简写命名，由 combat 层 normalizeWeapon 映射。
+// combat 字段使用简写命名（已删除战斗系统，保留字段供投影/展示）。
 
 import { getStore, saveStore } from './sao-store-core.js';
 import { log } from './sao-core.js';

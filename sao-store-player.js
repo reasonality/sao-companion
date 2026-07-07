@@ -459,22 +459,24 @@ export function setUniqueSkill(skillObj) {
 /**
  * 更新冥想熟练度。
  * @param {number} value - 新值（clamp 0-2000）
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function updateMeditationProficiency(value) {
+export function updateMeditationProficiency(value, skipSave = false) {
     const player = getPlayerStore();
     player.meditationProficiency = Math.max(0, Math.min(2000, Number(value) || 0));
-    saveStore();
+    if (!skipSave) saveStore();
 }
 
 /**
  * 更新月蚀子技熟练度。
  * @param {string} techId - 子技 ID（genmu/tsuki_no_shizuku/...）
  * @param {number} prof - 熟练度值
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function updateSubTechniqueProficiency(techId, prof) {
+export function updateSubTechniqueProficiency(techId, prof, skipSave = false) {
     const player = getPlayerStore();
     if (!player.uniqueSkill?.subTechniques?.[techId]) return;
     if (!player.uniqueSkill.subTechniques[techId].unlocked) return;
     player.uniqueSkill.subTechniques[techId].proficiency = Math.max(0, Number(prof) || 0);
-    saveStore();
+    if (!skipSave) saveStore();
 }

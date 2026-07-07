@@ -784,8 +784,6 @@ function bindEvents() {
     if (event_types.MESSAGE_SWIPED) {
         _bindEvt(event_types.MESSAGE_SWIPED, (messageId) => {
             if (!isSaoCard()) return;
-            // A3: 清理当前消息的 battle host，防止切换分支后内存泄漏（不再整表清除，保护其他活跃战斗面板）
-            removeBattleHost(messageId);
             _clearSpecialistPanels(messageId);
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
@@ -3079,9 +3077,6 @@ export function init() {
     });
     bindEvents();
     initToolSystem();
-    // 设置战斗状态持久化回调
-    setBattleStateChangeCallback(saveBattleStateThrottled);
-    setBattleEndCallback(clearBattleState);
     if (isSaoCard()) {
         log('检测到 SAO 角色卡，立即激活');
         stabilizeSaoRegexScripts();
