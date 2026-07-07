@@ -285,6 +285,37 @@ function checkStoreSize(d) {
         } else if (size >= SIZE_WARNING_THRESHOLD) {
             log(`Store 数据较大 (${(size / 1024).toFixed(0)}KB)，注意 chat 保存性能`, 'warn');
         }
+
+        // === 诊断：各子 store 体积明细 ===
+        const subKeys = [
+            'skillStore', 'equipmentStore', 'playerStore', 'inventoryStore',
+            'npcStore', 'floorStore', 'calendarStore', 'questStore',
+            'worldStore', 'consumableStore', 'guildStore', 'housingStore',
+            'actionLog', 'runtime', 'panels', 'calendarPanels', 'calendar',
+        ];
+        const parts = [];
+        for (const key of subKeys) {
+            if (d[key] === undefined || d[key] === null) continue;
+            try {
+                const sub = JSON.stringify(d[key]).length;
+                if (sub > 512) parts.push(`${key}:${(sub / 1024).toFixed(1)}KB`);
+            } catch (e) { /* skip */ }
+        }
+        log(`[size-breakdown] ${parts.join(' | ')}`, 'info');
+
+        // floorStore 深度细分：canon vs state vs meta
+        if (d.floorStore?.byId) {
+            let canon = 0, state = 0, meta = 0, n = 0;
+            for (const id of Object.keys(d.floorStore.byId)) {
+                const f = d.floorStore.byId[id];
+                n++;
+                if (f.canon) canon += JSON.stringify(f.canon).length;
+                if (f.state) state += JSON.stringify(f.state).length;
+                meta += JSON.stringify({ floor_id: f.floor_id, floor_number: f.floor_number, name: f.name, source: f.source, _canonHash: f._canonHash }).length;
+            }
+            log(`[floor-breakdown] ${n}层 | canon ${(canon / 1024).toFixed(1)}KB | state ${(state / 1024).toFixed(1)}KB | meta ${(meta / 1024).toFixed(1)}KB`, 'info');
+        }
+        // === 诊断结束 ===
     } catch (e) {
         // stringify 失败不阻塞保存流程
     }
