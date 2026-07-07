@@ -1655,7 +1655,7 @@ function initPanelLogic() {
             const typeLabel = evt.type === 'canon' ? '[\u539f\u4f5c\u4e8b\u4ef6]' : evt.type === 'appointment' ? '[\u7ea6\u5b9a]' : '[\u53d8\u5316\u5267\u60c5]';
             return `<div class="${cls.join(' ')}">
                 <div><span style="display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,210,255,0.12);font-size:0.75em;margin-right:6px;color:var(--primary-bright);">${esc(typeLabel)}</span>${time}${esc(evt.title || evt.description || '\u65e0\u6807\u9898')}</div>
-                ${evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
+                ${evt.description && evt.title && evt.description !== evt.title ? `<div class="sao-cal-event-meta">${esc(evt.description)}</div>` : ''}
             </div>`;
         }).join('');
     }
@@ -1793,7 +1793,7 @@ function initPanelLogic() {
                         const lab = s.label ? `<div style="font-size:0.95em;font-weight:600;color:#00d2ff;margin-bottom:3px;">${esc(s.label)}</div>` : '';
                         const body = s.body ? `<div style="font-size:0.92em;color:#b8c8e0;white-space:pre-line;line-height:1.5;">${esc(s.body)}</div>` : '';
                         return `<div style="padding:8px 10px;margin-top:6px;background:rgba(0,210,255,0.05);border-left:2px solid rgba(0,210,255,0.4);border-radius:4px;">${lab}${body}</div>`;
-                    }).join('') : (evt.description && evt.description !== evt.title ? `<div class="sao-cal-event-meta" style="font-size:0.92em;color:#b8c8e0;margin-top:4px;white-space:pre-line;line-height:1.5;">${esc(evt.description)}</div>` : '')}
+                    }).join('') : (evt.description && evt.title && evt.description !== evt.title ? `<div class="sao-cal-event-meta" style="font-size:0.92em;color:#b8c8e0;margin-top:4px;white-space:pre-line;line-height:1.5;">${esc(evt.description)}</div>` : '')}
                 </div>`;
             }).join('');
         } else {
@@ -3274,7 +3274,7 @@ export function init() {
                             return `<div style="padding:8px 10px;margin-top:6px;background:rgba(0,210,255,0.05);border-left:2px solid rgba(0,210,255,0.4);border-radius:4px;">${lab}${body}</div>`;
                         }).join('');
                     } else {
-                        inner = evt.description && evt.description !== evt.title ? `<div style="font-size:0.92em;color:#b8c8e0;margin-top:5px;white-space:pre-line;line-height:1.5;">${esc(evt.description)}</div>` : '';
+                        inner = evt.description && evt.title && evt.description !== evt.title ? `<div style="font-size:0.92em;color:#b8c8e0;margin-top:5px;white-space:pre-line;line-height:1.5;">${esc(evt.description)}</div>` : '';
                     }
                     return `<div style="padding:10px 12px;margin-bottom:8px;background:rgba(8,12,20,0.6);border-left:4px solid ${typeColor};border-radius:5px;font-size:1em;line-height:1.4;">
                         <div style="margin-bottom:4px;"><span style="display:inline-block;padding:3px 8px;border-radius:3px;background:rgba(0,210,255,0.14);font-size:0.8em;margin-right:8px;color:${typeColor};font-weight:600;">${typeLabel}</span>${time}<span style="font-size:1em;font-weight:600;color:#eaf2ff;">${esc(evt.title || evt.description || '无标题')}</span></div>
