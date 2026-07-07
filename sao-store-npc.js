@@ -20,6 +20,10 @@ export function getNpcStore() {
     }
     if (!store.npcStore.byId) store.npcStore.byId = {};
     if (!store.npcStore.nameToId) store.npcStore.nameToId = {};
+    // backward-compat: 旧存档 NPC 可能缺少 uniqueSkill 字段
+    for (const entry of Object.values(store.npcStore.byId)) {
+        if (entry.uniqueSkill === undefined) entry.uniqueSkill = null;
+    }
     return store.npcStore;
 }
 
@@ -65,6 +69,7 @@ function _createNpcEntry(store, id, name, aliases, canon, source, canonHash) {
             status: [],
         },
         observations: [],
+        uniqueSkill: null, // { id: 'string', name: 'string' } — NPC 独特技能（如二刀流、神圣剑）
         source: source || 'manual',
         _canonHash: canonHash || '',
     };
@@ -290,6 +295,33 @@ export async function addObservation(npc_id, observation, skipSave) {
     }
     if (skipSave !== true) await saveStore();
     return true;
+}
+
+/**
+ * 获取 NPC 独特技能。
+ * @param {string} npcId
+ * @returns {{ id: string, name: string }|null}
+ */
+export function getNpcUniqueSkill(npcId) {
+    const store = getNpcStore();
+    const entry = store.byId[npcId];
+    return entry?.uniqueSkill || null;
+}
+
+/**
+ * 设置 NPC 独特技能。
+ * @param {string} npcId
+ * @param {{ id: string, name: string }|null} skillObj
+ */
+export function setNpcUniqueSkill(npcId, skillObj) {
+    const store = getNpcStore();
+    const entry = store.byId[npcId];
+    if (!entry) {
+        log(`setNpcUniqueSkill: NPC ${npcId} 不存在`, 'warn');
+        return;
+    }
+    entry.uniqueSkill = skillObj || null;
+    saveStore();
 }
 
 /**

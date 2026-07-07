@@ -330,7 +330,7 @@ export function projectFullState() {
         ];
         // 计算过载状态
         if (player.incapacitated) {
-            usParts.push('【状态】计算过载 — 无法战斗');
+            usParts.push('【状态】计算过载 — 无法战斗（约30秒）');
         }
         sections.push({ label: '独特技能', text: usParts.join(' | '), priority: 2.8 });
     }
@@ -576,6 +576,7 @@ export function renderNpcPanel() {
             status: npc.state?.status || [],
             last_seen_date: npc.state?.last_seen_date || null,
             observations: npc.observations || [],
+            uniqueSkill: npc.uniqueSkill || null,
         }));
     } catch (e) { return null; }
 }
@@ -904,6 +905,73 @@ export function projectStatusPanelHtml() {
         </div>`;
 
     // ============================================================
+    // ---- 1b. 增益效果 + 月蚀独特技能（玩家状态下方） ----
+    // ============================================================
+    const playerStoreForBuff = getPlayerStore();
+    const { buffLevel: usBuffLevel, buffPercent } = getUniqueSkillBuffLevel();
+    const uniqueSkill = getUniqueSkill();
+    let buffSection = '';
+    const buffRows = [];
+
+    // 常规增益列表（formatBuffsForDisplay 返回管道分隔字符串）
+    const buffStr = formatBuffsForDisplay(playerStoreForBuff?.buffs);
+    if (buffStr) {
+        buffRows.push(`<div class="sao-status-row"><span style="font-weight:600">增益</span><span>${esc(buffStr)}</span></div>`);
+    }
+
+    // 月蚀增益
+    if (uniqueSkill && usBuffLevel > 0) {
+        const visualStage = getVisualStage(usBuffLevel);
+        buffRows.push(`<div class="sao-status-row"><span style="font-weight:600">月蝕の残光</span><span>+${buffPercent}% (${usBuffLevel}/6层) — ${esc(visualStage)}</span></div>`);
+    }
+
+    // 计算过载
+    if (playerStoreForBuff?.incapacitated) {
+        buffRows.push(`<div class="sao-status-row" style="color:var(--danger,#e74c3c)"><span style="font-weight:600">⚠ 计算过载</span><span>无法战斗（约30秒）</span></div>`);
+    }
+
+    if (buffRows.length > 0) {
+        buffSection = `<div class="sao-status-section" data-sao-section="buffs">
+                <div class="sao-status-section-title">增益/状态</div>
+                <div class="sao-hud-card">${buffRows.join('')}</div>
+            </div>`;
+    }
+
+    // ============================================================
+    // ---- 1c. 月蚀独特技能子技（增益下方） ----
+    // ============================================================
+    let uniqueSkillSection = '';
+    if (uniqueSkill) {
+        const medProf = playerStoreForBuff?.meditationProficiency || 0;
+        const subRows = Object.entries(uniqueSkill.subTechniques)
+            .filter(([_, t]) => t.unlocked)
+            .map(([id, t]) => {
+                return `<div class="sao-status-row"><span class="sao-status-label">${esc(t.name)}</span><span>熟练 ${t.proficiency || 0}</span></div>`;
+            });
+
+        let usContent = '';
+        if (medProf > 0) {
+            usContent += `<div class="sao-status-row"><span class="sao-status-label">冥想熟练度</span><span>${medProf}</span></div>`;
+        }
+        usContent += `<div class="sao-status-row"><span class="sao-status-label">${esc(uniqueSkill.name)} (${esc(uniqueSkill.title || '无')})</span><span>${usBuffLevel}/6层 +${buffPercent}%</span></div>`;
+        usContent += subRows.join('');
+
+        uniqueSkillSection = `<div class="sao-status-section" data-sao-section="unique-skill">
+                <div class="sao-status-section-title">独特技能</div>
+                <div class="sao-hud-card">${usContent}</div>
+            </div>`;
+    } else {
+        // 无独特技能时仍可能有冥想熟练度
+        const medProf = playerStoreForBuff?.meditationProficiency || 0;
+        if (medProf > 0) {
+            uniqueSkillSection = `<div class="sao-status-section" data-sao-section="unique-skill">
+                    <div class="sao-status-section-title">独特技能</div>
+                    <div class="sao-hud-card"><div class="sao-status-row"><span class="sao-status-label">冥想熟练度</span><span>${medProf}</span></div></div>
+                </div>`;
+        }
+    }
+
+    // ============================================================
     // ---- 2. 世界状态（HUD 世界行卡） ----
     // 总是渲染（占位 -），保持视觉密度稳定。
     // ============================================================
@@ -1047,13 +1115,21 @@ export function projectStatusPanelHtml() {
 
     // ---- 装配：新布局 ----
     // Row 1：玩家状态 (左 55%) | 世界状态 (右 45%)
+    // Row 1b：增益/状态 + 独特技能（合并行）
     // Row 2：技能 (左 55%) | 任务 (右 45%)
     // Row 3：物品 (左 55%) | 装备 (右 45%)
+    const buffUniqueRow = (buffSection || uniqueSkillSection)
+        ? `<div class="sao-status-row sao-status-row1b">
+                <div class="sao-status-col">${buffSection || ''}</div>
+                <div class="sao-status-col">${uniqueSkillSection || ''}</div>
+            </div>`
+        : '';
     return [
         `<div class="sao-status-row sao-status-row1">`,
             `<div class="sao-status-col sao-status-col-player">${playerSection}</div>`,
             `<div class="sao-status-col sao-status-col-world">${worldSection}</div>`,
         `</div>`,
+        buffUniqueRow,
         `<div class="sao-status-row sao-status-row2">`,
             `<div class="sao-status-col">${skillsSection || ''}</div>`,
             `<div class="sao-status-col">${questSection}</div>`,

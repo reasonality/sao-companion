@@ -118,6 +118,7 @@ function buildNpcSummaryBlock(entries) {
         if (npc.state?.relationship) parts.push(npc.state.relationship);
         if (npc.state?.affinity != null) parts.push(`好感${npc.state.affinity}`);
         if (npc.state?.floor_id) parts.push(`${npc.state.floor_id}F`);
+        if (npc.uniqueSkill?.name) parts.push(`独特技能:${npc.uniqueSkill.name}`);
         summaryNpcs.push(parts.join(','));
     }
 
@@ -162,6 +163,7 @@ function buildNpcKeywordProfiles(entries, recentLower) {
         }
         if (npc?.state?.relationship) lines.push(`[当前关系] ${npc.state.relationship}`);
         if (npc?.state?.affinity != null) lines.push(`[好感] ${npc.state.affinity}`);
+        if (npc?.uniqueSkill?.name) lines.push(`[独特技能] ${npc.uniqueSkill.name}`);
         if (npc?.observations?.length) {
             lines.push('[最近观察]');
             lines.push(...npc.observations.slice(-5).map(o => `- ${o}`));

@@ -51,7 +51,7 @@ export const LUNAR_ECLIPSE_DEFS = {
     },
     sanzen_sekai: {
         name: '三千世界', nameEn: 'Sanzen Sekai', unlockType: 'level', unlockValue: 50,
-        hits: 27, description: '现实改写。算尽三千平行现实选胜路27击忽略100%防御4秒无敌。时间停→世界碎成三千现实→她同时在各处出手→归一。副作用：释放后陷入无法战斗状态（计算过载），持续至下次长休息或HP恢复满。',
+        hits: 27, description: '现实改写。算尽三千平行现实选胜路27击忽略100%防御4秒无敌。时间停→世界碎成三千现实→她同时在各处出手→归一。副作用：释放后陷入无法战斗状态（计算过载），持续约30秒。',
     },
 };
 
@@ -175,6 +175,9 @@ export function checkUniqueSkillUnlocks() {
             };
             newlyUnlocked.push('现梦');
             log('[月蚀] 现梦 解锁 — 碎月 称号获得，月蝕の残光 +10%');
+            if (typeof toastr !== 'undefined') {
+                toastr.success('独特技能「月蚀」觉醒 — 获得称号「碎月」', '月蚀');
+            }
         }
     } else {
         // uniqueSkill 已存在，检查等级子技
@@ -186,6 +189,9 @@ export function checkUniqueSkillUnlocks() {
                 tech.unlockedAt = currentDate;
                 newlyUnlocked.push(tech.name);
                 log(`[月蚀] ${tech.name} 解锁 (Lv.${reqLevel})`);
+                if (typeof toastr !== 'undefined') {
+                    toastr.success(`月蚀子技解锁：${tech.name}`, '独特技能');
+                }
             }
         }
 

@@ -1136,6 +1136,7 @@ const _dataCollectionSchemas = {
         canon: { characterName: 'string' },
         state: { relationship: 'string', affinity: 'number', floor_id: 'string', location: 'string', last_seen_date: 'string', status: ['string'] },
         observations: ['string'],
+        uniqueSkill: { id: 'string', name: 'string' },
     },
     floor_id: {
         floor_number: 'number',
@@ -1174,6 +1175,13 @@ const _dataPlayerSchema = {
     cursor_type: 'string',
     equipment: { weapon: 'string', off_hand: 'string', head: 'string', chest: 'string', hands: 'string', legs: 'string', accessory: 'string' },
     skills: [{ skill_id: 'string', name: 'string', proficiency: 'number' }],
+    meditationProficiency: 'number',
+    uniqueSkill: { id: 'string', name: 'string', title: 'string', buffLevel: 'number', subTechniques: {} },
+    incapacitated: 'boolean',
+    buffs: ['string'],
+    customSkills: ['string'],
+    guild_id: 'string',
+    _baseVitals: { hp: 'number', maxHp: 'number', mp: 'number', maxMp: 'number' },
 };
 
 const _dataInventoryItemSchema = {
@@ -1263,6 +1271,24 @@ const _dataFieldLabels = {
     runtime: '运行时(runtime)', panels: '面板(panels)',
     // 世界 events 子字段
     floor_id: '楼层ID(floor_id)',
+    // 月蚀独特技能
+    meditationProficiency: '冥想熟练度(meditationProficiency)',
+    uniqueSkill: '独特技能(uniqueSkill)',
+    incapacitated: '计算过载(incapacitated)',
+    buffLevel: '增益等级(buffLevel)',
+    subTechniques: '子技(subTechniques)',
+    unlocked: '已解锁(unlocked)',
+    unlockedAt: '解锁于(unlockedAt)',
+    genmu: '现梦(genmu)',
+    tsuki_no_shizuku: '月之滴(tsuki_no_shizuku)',
+    mangekyou: '星夜万华镜(mangekyou)',
+    kami_no_inori: '神明的祈祷(kami_no_inori)',
+    shisou_rennai: '死奏怜音(shisou_rennai)',
+    sanzen_sekai: '三千世界(sanzen_sekai)',
+    // 玩家 store 其他
+    buffs: '增益效果(buffs)',
+    customSkills: '自定义技能(customSkills)',
+    _baseVitals: '基础血量(_baseVitals)',
 };
 
 /** 字段标签：有中文名则返回 中文(英文)，否则返回原文。 */

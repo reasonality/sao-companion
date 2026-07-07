@@ -1892,6 +1892,7 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
                 if (npc.affinity) parts.push(` 好感${npc.affinity}`);
                 if (npc.location) parts.push(` @${esc(npc.location)}`);
                 if (npc.status && npc.status.length) parts.push(` [${esc(npc.status.join(','))}]`);
+                if (npc.uniqueSkill?.name) parts.push(` 独特技能:${esc(npc.uniqueSkill.name)}`);
                 return parts.join('');
             }).join('\n');
         }

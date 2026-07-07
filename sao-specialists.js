@@ -365,7 +365,7 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 4. 输出月蚀独特技能相关字段（仅在叙事涉及这些内容时输出）：
 - 如果叙事中提到冥想修炼，输出 meditationProficiency (number, 当前冥想熟练度)
 - 如果叙事中提到使用了月蚀子技，输出 uniqueSkillProficiency (object: {"子技ID": 熟练度})。子技ID: genmu, tsuki_no_shizuku, mangekyou, kami_no_inori, shisou_rennai, sanzen_sekai
-- 如果主角因释放三千世界陷入无法战斗状态，输出 incapacitated: true；恢复后输出 false
+- 如果主角因释放三千世界陷入无法战斗状态，输出 incapacitated: true；约30秒后恢复，恢复后输出 false
 
 3. 输出 npcUpdates：识别叙事中出现的 NPC，更新其状态
 
