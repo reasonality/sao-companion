@@ -369,13 +369,16 @@ export function initFloorFromWorldBook(entries) {
                 if (store.numberToId[String(floorNum)] && store.byId[store.numberToId[String(floorNum)]]) {
                     const existing = store.byId[store.numberToId[String(floorNum)]];
                     const existingId = store.numberToId[String(floorNum)];
-                    // hash 变化 → 更新 canon（写入内存态）
+                    // canon 是内存态，页面刷新后丢失，必须每次重建
+                    // hash 变化时额外更新 source 并记日志
+                    _ephemeralCanon[existingId] = { canon: buildCanonFor(floorNum) };
                     if (existing._canonHash !== contentHash) {
-                        _ephemeralCanon[existingId] = { canon: buildCanonFor(floorNum) };
                         existing._canonHash = contentHash;
                         const src = jsonSourceFor(floorNum);
                         if (src) existing.source = src;
                         log(`楼层 canon 刷新: ${floorNum}F (hash 变化)`);
+                    } else {
+                        log(`楼层 canon 恢复: ${floorNum}F (hash 不变，重建内存态)`);
                     }
                     count++;
                     continue;
