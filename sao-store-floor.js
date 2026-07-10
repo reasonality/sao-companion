@@ -49,6 +49,26 @@ export function getFloorStore() {
     return store.floorStore;
 }
 
+/**
+ * 获取合并了 canon (内存态) 的 floorStore，供 UI 面板使用。
+ * 返回一个新对象，不修改持久化 store。
+ * @returns {{ byId: Object, numberToId: Object }}
+ */
+export function getFloorStoreWithCanon() {
+    const store = getFloorStore();
+    const mergedById = {};
+    for (const id of Object.keys(store.byId)) {
+        const persisted = store.byId[id];
+        const ephemeral = _ephemeralCanon[id];
+        mergedById[id] = {
+            ...persisted,
+            ...(ephemeral || {}),
+            state: persisted.state,
+        };
+    }
+    return { byId: mergedById, numberToId: store.numberToId };
+}
+
 // ============================================================
 // Regex 提取 helpers（内部）
 // ============================================================

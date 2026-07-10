@@ -44,7 +44,7 @@ import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
 } from './sao-tools.js';
-import { getFloorStore, getFloorById } from './sao-store-floor.js';
+import { getFloorStore, getFloorById, getFloorStoreWithCanon } from './sao-store-floor.js';
 import { runLorebookPreParser, parseTimelineEntries } from './sao-preparser.js';
 import { getWorldStore } from './sao-store-world.js';
 import { getNpcStore } from './sao-store-npc.js';
@@ -1040,7 +1040,7 @@ const _dataStoreDefs = [
     { key: 'world',      label: '世界',     kind: 'world',      get: () => getWorldStore() },
     { key: 'calendar',   label: '日历',     kind: 'calendar',   get: () => getStore().calendarStore },
     { key: 'npc',        label: 'NPC',     kind: 'collection', idField: 'npc_id',       get: () => getNpcStore() },
-    { key: 'floor',      label: '楼层',     kind: 'collection', idField: 'floor_id',     get: () => getFloorStore() },  // NOTE: canon 在内存态 (_ephemeralCanon)，此处仅含 state + meta
+    { key: 'floor',      label: '楼层',     kind: 'collection', idField: 'floor_id',     get: () => getFloorStoreWithCanon() },  // 合并内存态 canon 供 UI 显示
     { key: 'equipment',  label: '装备',     kind: 'collection', idField: 'equipment_id', get: () => getEquipmentStore() },
     { key: 'skill',      label: '技能',     kind: 'collection', idField: 'skill_id',     get: () => getSkillStore() },
     { key: 'consumable', label: '消耗品',   kind: 'collection', idField: 'consumable_id', get: () => getConsumableStore() },
