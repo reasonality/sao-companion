@@ -184,14 +184,23 @@ export function parseWorldRules(entries) {
     };
 
     // Topic mapping: regex pattern → worldStore.rules key
+    // IMPORTANT: more specific patterns must come BEFORE general ones
     const TOPIC_MAP = [
-        { pattern: /PK机制|PK规则/, topic: 'pk' },
-        { pattern: /经济系统/, topic: 'economy' },
-        { pattern: /等级|成长规则/, topic: 'leveling' },
-        { pattern: /技能/, topic: 'skills' },
-        { pattern: /冥想/, topic: 'meditation' },
-        { pattern: /房屋/, topic: 'housing' },
-        { pattern: /NPC档案构建/, topic: 'npc_rules' },
+        { pattern: /世界设定/, topic: '世界设定' },
+        { pattern: /PK机制|PK规则/, topic: 'PK机制' },
+        { pattern: /经济系统/, topic: '经济系统' },
+        { pattern: /NPC与怪物生成/, topic: 'NPC与怪物生成' },
+        { pattern: /NPC档案构建/, topic: 'NPC档案构建' },
+        { pattern: /野外Boss规则/, topic: '野外Boss规则' },
+        { pattern: /色色规则/, topic: '色情规则' },
+        { pattern: /小怪规则/, topic: '小怪规则' },
+        { pattern: /楼层通用设定/, topic: '楼层通用设定' },
+        { pattern: /输出与数值委托/, topic: '输出与数值委托' },
+        { pattern: /剑技获取/, topic: '剑技获取' },
+        { pattern: /冥想/, topic: '冥想系统' },
+        { pattern: /房屋/, topic: '房屋系统' },
+        { pattern: /等级|成长规则/, topic: '等级系统' },
+        { pattern: /技能/, topic: '技能系统' },
     ];
 
     if (!ws._rulesHashes) ws._rulesHashes = {};
@@ -282,6 +291,7 @@ const RULES_KEEP_ENABLED = [
     'sao-PK机制',
     'sao-经济系统',
     'sao-等级',
+    'sao-技能',
 ];
 
 /**
@@ -293,6 +303,12 @@ const RULES_TO_DISABLE = [
     'sao-剑技获取',
     'sao-冥想',
     'sao-房屋',
+    'sao-NPC与怪物生成规则',
+    'sao-野外Boss规则',
+    'sao-色色规则',
+    'sao-小怪规则',
+    'sao-楼层通用设定',
+    'sao-输出与数值委托规则',
 ];
 
 /** Check if comment starts with any prefix in a list (prefix match, not exact). */
