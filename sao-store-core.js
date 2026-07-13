@@ -19,6 +19,10 @@ const SIZE_CRITICAL_THRESHOLD = 500 * 1024;
  *  50条易累积到 265KB+ 触发警告；20条够覆盖最近会话回看） */
 const MAX_PANEL_ENTRIES = 20;
 
+/** 快照最大条目数（FIFO cap，按 messageId 索引）。
+ *  每条快照是处理 messageId 前 store 的深拷贝，用于 MESSAGE_DELETED 回滚。 */
+const MAX_SNAPSHOTS = 20;
+
 /** actionLog 最大条目数（FIFO cap） */
 const ACTION_LOG_CAP = 20;
 
@@ -267,6 +271,141 @@ export function resetStore() {
     meta[MODULE_NAME] = structuredClone(DEFAULT_STORE);
     meta[MODULE_NAME].calendar = preserved.calendar;
     log('[store-core] store 已重置');
+}
+
+// ============================================================
+// 快照与回滚（方案 A：每条 AI 消息处理前快照 store，删除消息时恢复 + 回放）
+// ============================================================
+
+/** 快照存储：messageId → 处理该消息前的 store 深拷贝。
+ *  存在 chatMetadata 内部（随聊天持久化），FIFO 上限 MAX_SNAPSHOTS。
+ *  键名：`${MODULE_NAME}_snapshots`，避免与 store 本身冲突。 */
+const SNAPSHOTS_KEY = MODULE_NAME + '_snapshots';
+
+function _getSnapshotsMap() {
+    const ctx = getContext();
+    const meta = ctx?.chatMetadata;
+    if (!meta) return null;
+    if (!meta[SNAPSHOTS_KEY]) meta[SNAPSHOTS_KEY] = {};
+    return meta[SNAPSHOTS_KEY];
+}
+
+/**
+ * 捕获处理 messageId 前的 store 快照。
+ * 在 MESSAGE_RECEIVED 处理链开始时调用（applyExtractedData 之前）。
+ * 仅深拷贝 store 数据字段，不含 panels/calendarPanels（面板由专门缓存管理）。
+ * @param {number} messageId
+ */
+export function captureSnapshot(messageId) {
+    if (messageId == null) return;
+    const d = getStore();
+    if (!d) return;
+    const map = _getSnapshotsMap();
+    if (!map) return;
+
+    // 深拷贝需要回滚的 store 字段（不含 panels/calendarPanels/runtime，
+    // 这些由专门机制管理：panels 是缓存、runtime 是瞬时态）
+    const snapshot = {
+        skillStore: structuredClone(d.skillStore || {}),
+        equipmentStore: structuredClone(d.equipmentStore || {}),
+        playerStore: d.playerStore ? structuredClone(d.playerStore) : null,
+        inventoryStore: d.inventoryStore ? structuredClone(d.inventoryStore) : null,
+        npcStore: structuredClone(d.npcStore || {}),
+        floorStore: structuredClone(d.floorStore || {}),
+        calendarStore: structuredClone(d.calendarStore || {}),
+        questStore: structuredClone(d.questStore || {}),
+        worldStore: structuredClone(d.worldStore || {}),
+        consumableStore: structuredClone(d.consumableStore || {}),
+        guildStore: structuredClone(d.guildStore || {}),
+        housingStore: structuredClone(d.housingStore || {}),
+        loreParsed: d.loreParsed ? structuredClone(d.loreParsed) : null,
+        actionLog: structuredClone(d.actionLog || {}),
+    };
+
+    // 存储 messageId（转 string 键）→ 快照
+    const key = String(messageId);
+    map[key] = snapshot;
+
+    // FIFO cap：只保留最近 MAX_SNAPSHOTS 条
+    const keys = Object.keys(map);
+    if (keys.length > MAX_SNAPSHOTS) {
+        // 按 messageId 数值排序，删除最早的
+        keys.sort((a, b) => parseInt(a) - parseInt(b));
+        const toRemove = keys.slice(0, keys.length - MAX_SNAPSHOTS);
+        for (const k of toRemove) delete map[k];
+    }
+}
+
+/**
+ * 获取 messageId 的快照（处理该消息前的 store 状态）。
+ * @param {number} messageId
+ * @returns {object|null}
+ */
+export function getSnapshot(messageId) {
+    if (messageId == null) return null;
+    const map = _getSnapshotsMap();
+    if (!map) return null;
+    return map[String(messageId)] || null;
+}
+
+/**
+ * 从快照恢复 store 状态（删除 messageId 时调用）。
+ * 恢复为处理该消息前的状态，然后由调用方回放后续消息。
+ * @param {number} messageId
+ * @returns {boolean} 恢复成功
+ */
+export function restoreSnapshot(messageId) {
+    if (messageId == null) return false;
+    const snapshot = getSnapshot(messageId);
+    if (!snapshot) {
+        log(`restoreSnapshot: 无 messageId ${messageId} 的快照`, 'warn');
+        return false;
+    }
+    const d = getStore();
+    if (!d) return false;
+
+    // 恢复各 store 字段
+    d.skillStore = structuredClone(snapshot.skillStore);
+    d.equipmentStore = structuredClone(snapshot.equipmentStore);
+    d.playerStore = snapshot.playerStore ? structuredClone(snapshot.playerStore) : null;
+    d.inventoryStore = snapshot.inventoryStore ? structuredClone(snapshot.inventoryStore) : null;
+    d.npcStore = structuredClone(snapshot.npcStore);
+    d.floorStore = structuredClone(snapshot.floorStore);
+    d.calendarStore = structuredClone(snapshot.calendarStore);
+    d.questStore = structuredClone(snapshot.questStore);
+    d.worldStore = structuredClone(snapshot.worldStore);
+    d.consumableStore = structuredClone(snapshot.consumableStore);
+    d.guildStore = structuredClone(snapshot.guildStore);
+    d.housingStore = structuredClone(snapshot.housingStore);
+    d.loreParsed = snapshot.loreParsed ? structuredClone(snapshot.loreParsed) : null;
+    d.actionLog = structuredClone(snapshot.actionLog);
+
+    // 清理 runtime（瞬时态，回滚后重置）
+    d.runtime = {};
+
+    // 删除该 messageId 及之后所有快照（它们已失效）
+    const map = _getSnapshotsMap();
+    if (map) {
+        for (const key of Object.keys(map)) {
+            if (parseInt(key) >= messageId) delete map[key];
+        }
+    }
+
+    log(`restoreSnapshot: 已恢复到 messageId ${messageId} 处理前的状态`);
+    return true;
+}
+
+/**
+ * 删除 messageId 及之后的所有快照（用于删除消息后清理）。
+ * @param {number} messageId
+ */
+export function clearSnapshotsFrom(messageId) {
+    if (messageId == null) return;
+    const map = _getSnapshotsMap();
+    if (!map) return;
+    for (const key of Object.keys(map)) {
+        if (parseInt(key) >= messageId) delete map[key];
+    }
 }
 
 // ============================================================

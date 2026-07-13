@@ -12,7 +12,7 @@ import {
     log, updateLogDisplay,
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
-import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
+import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot, clearSnapshotsFrom } from './sao-store-core.js';
 import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -597,6 +597,9 @@ function bindEvents() {
         // fillGenTags / processCombatIfNeeded / processLootIfNeeded 已删除（死代码，
         // 其内部 msg.mes 改写逻辑与本只读原则矛盾）。editMessage / updateMessageBlock
         // 同样不得在自动事件中调用。
+        // === 快照：处理该消息前的 store 状态，用于 MESSAGE_DELETED 回滚 ===
+        captureSnapshot(messageId);
+
         await withProcessingLock(`msg-${messageId}`, async () => {
             // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源；内部已 catch 返回 null）
             // 点10: 专家1始终运行（不再受 toggle 控制）
@@ -844,25 +847,47 @@ function bindEvents() {
         });
     }
 
-    // 消息删除后清理专家面板数据并重新渲染
-    // 注意：插件的 store 状态（playerStore/npcStore/calendarStore 等）不会回滚——
-    // 删除消息不会撤销已累积的状态变更。如需完全同步，重新生成上一条消息即可。
+    // 消息删除后回滚 store 状态并重新渲染面板
+    // 方案 A：恢复被删消息处理前的 store 快照，清除该消息及之后的专家面板缓存，
+    // 然后重新渲染剩余消息的面板。store 状态正确回滚；面板视觉在下条消息时
+    // 由专家刷新（或立即从 store projection 渲染）。
     if (event_types.MESSAGE_DELETED) {
         _bindEvt(event_types.MESSAGE_DELETED, (messageId) => {
             if (!isSaoCard()) return;
+
+            // 1. 恢复快照（被删消息处理前的 store 状态）
+            const restored = restoreSnapshot(messageId);
+
+            // 2. 清理被删消息及之后所有消息的专家面板缓存
+            //    （ST 删除消息后后续索引下移，旧面板缓存已失效）
             _clearSpecialistPanels(messageId);
-            // 重新渲染剩余消息的面板（Shadow DOM host 随消息 DOM 一起被 ST 移除，
-            // 但其他消息的面板不受影响）
+            clearSnapshotsFrom(messageId);
+            const d = getSaoData();
+            if (d?.panels) {
+                for (const key of Object.keys(d.panels)) {
+                    if (parseInt(key) >= messageId) delete d.panels[key];
+                }
+            }
+            if (d?.calendarPanels) {
+                for (const key of Object.keys(d.calendarPanels)) {
+                    if (parseInt(key) >= messageId) delete d.calendarPanels[key];
+                }
+            }
+
+            // 3. 保存回滚后的 store
+            saveStore().catch(e => log('删除消息后保存 store 失败: ' + e.message, 'warn'));
+
+            // 4. 重新渲染剩余消息的面板（从 store projection 渲染，刷新视觉）
             const ctx = getContext();
             if (ctx.chat && ctx.chat.length > 0) {
-                for (let i = Math.max(0, ctx.chat.length - 5); i < ctx.chat.length; i++) {
+                for (let i = Math.max(0, messageId); i < ctx.chat.length; i++) {
                     const msg = ctx.chat[i];
                     if (!msg || msg.is_user) continue;
                     const el = getMessageElement(i);
                     if (el) renderAllTags(el, msg.mes || '', i);
                 }
             }
-            log(`消息 ${messageId} 已删除，专家面板已清理（store 状态未回滚）`);
+            log(`消息 ${messageId} 已删除，store ${restored ? '已回滚' : '无快照可回滚'}，面板已重渲染`);
         });
     }
 
