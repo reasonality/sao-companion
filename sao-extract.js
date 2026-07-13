@@ -734,6 +734,30 @@ export async function applyExtractedData(extracted, customSkillDefs) {
             const d = getStore();
             if (!d.runtime) d.runtime = {};
             d.runtime._zd_parsed = s._zd_parsed;
+
+            // FRN teammates: also sync to npcStore so they appear in the NPC panel
+            // and get last_seen_date tracking. Combat vitals stay in _zd_parsed;
+            // here we only ensure NPC existence + presence markers. This is the
+            // fallback path's secondary NPC detection (when the status specialist
+            // misses an on-scene teammate that zd_status explicitly listed).
+            const tmList = s._zd_parsed.teammates || [];
+            for (const tm of tmList) {
+                if (!tm.name) continue;
+                try {
+                    const npcId = findOrCreateNpc(tm.name);
+                    if (!npcId) continue;
+                    const cur = getNpcById(npcId);
+                    const upd = {};
+                    // Update presence markers only if specialist didn't already
+                    // update them this turn (npcUpdates takes precedence above).
+                    if (!cur?.state?.last_seen_date) upd.last_seen_date = extracted._date || null;
+                    if (!cur?.state?.floor_id && extracted.state?.floor) upd.floor_id = extracted.state.floor;
+                    if (!cur?.state?.location && extracted.state?.location) upd.location = String(extracted.state.location);
+                    if (Object.keys(upd).length > 0) await updateNpcState(npcId, upd, true);
+                } catch (e) {
+                    log(`FRN 同步 NPC 失败 (${tm.name}): ${e.message}`, 'warn');
+                }
+            }
         }
 
         // 6. weather → worldStore.currentWeather（由 <time> 标签正则提取）
@@ -772,7 +796,17 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                 if (upd.floor_id != null) stateUpdate.floor_id = upd.floor_id;
                 if (upd.location != null) stateUpdate.location = String(upd.location);
                 if (upd.last_seen_date != null) stateUpdate.last_seen_date = String(upd.last_seen_date);
-                if (upd.status != null && Array.isArray(upd.status)) stateUpdate.status = upd.status;
+                if (upd.status != null && Array.isArray(upd.status)) {
+                    // Merge with existing status (union, preserving order: new statuses first, then existing ones not re-listed).
+                    // Avoids losing prior statuses (e.g. "中毒") when the specialist only outputs the latest change.
+                    const existing = getNpcById(npcId);
+                    const existingStatus = (existing?.state?.status && Array.isArray(existing.state.status)) ? existing.state.status : [];
+                    const merged = [...upd.status];
+                    for (const st of existingStatus) {
+                        if (!merged.includes(st)) merged.push(st);
+                    }
+                    stateUpdate.status = merged;
+                }
                 if (Object.keys(stateUpdate).length > 0) {
                     await updateNpcState(npcId, stateUpdate, true);
                 }

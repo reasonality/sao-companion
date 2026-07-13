@@ -552,7 +552,11 @@ export function projectNpcHint() {
             const parts = [];
             if (s.relationship) parts.push(s.relationship);
             if (s.affinity) parts.push(`好感${s.affinity}`);
-            return parts.length > 0 ? `${npc.name}(${parts.join(',')})` : npc.name;
+            // Include known aliases so the specialist can canonicalize name forms
+            // (e.g. output "亚丝娜" instead of "闪光" if both are registered).
+            const aliasList = (npc.aliases || []).filter(a => a && a !== npc.name);
+            const hint = parts.length > 0 ? `${npc.name}(${parts.join(',')})` : npc.name;
+            return aliasList.length > 0 ? `${hint}[亦称:${aliasList.join('/')}]` : hint;
         }).join(' | ');
     } catch (e) { return ''; }
 }

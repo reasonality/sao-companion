@@ -1890,9 +1890,14 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
                 const parts = [`<b>${esc(npc.name)}</b>`];
                 if (npc.relationship) parts.push(`(${esc(npc.relationship)})`);
                 if (npc.affinity) parts.push(` 好感${npc.affinity}`);
+                if (npc.floor_id) parts.push(` F${npc.floor_id}`);
                 if (npc.location) parts.push(` @${esc(npc.location)}`);
                 if (npc.status && npc.status.length) parts.push(` [${esc(npc.status.join(','))}]`);
                 if (npc.uniqueSkill?.name) parts.push(` 独特技能:${esc(npc.uniqueSkill.name)}`);
+                if (npc.observations && npc.observations.length) {
+                    const last3 = npc.observations.slice(-3).map(o => esc(o)).join('; ');
+                    parts.push(` 观察:${last3}`);
+                }
                 return parts.join('');
             }).join('\n');
         }
