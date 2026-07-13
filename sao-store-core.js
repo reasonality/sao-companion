@@ -383,13 +383,9 @@ export function restoreSnapshot(messageId) {
     // 清理 runtime（瞬时态，回滚后重置）
     d.runtime = {};
 
-    // 删除该 messageId 及之后所有快照（它们已失效）
-    const map = _getSnapshotsMap();
-    if (map) {
-        for (const key of Object.keys(map)) {
-            if (parseInt(key) >= messageId) delete map[key];
-        }
-    }
+    // 不删除快照——ST 删除消息后索引下移，后续删除会用移位后的索引
+    // 调用 restoreSnapshot，若删除快照会导致第二次删除找不到匹配。
+    // 快照由 FIFO 上限自动淘汰，不需要手动清理。
 
     log(`restoreSnapshot: 已恢复到 messageId ${messageId} 处理前的状态`);
     return true;

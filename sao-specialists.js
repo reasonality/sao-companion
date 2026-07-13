@@ -225,7 +225,7 @@ async function _callPanelSpecialist(panelType, panelName, instruction, stateHint
 
 /** 装饰面板专家配置（DRY 驱动） */
 const PANEL_SPECIALIST_CONFIG = [
-    { type: 'map',       name: '地图',   instruction: '反映当前位置、楼层、可探索区域、移动方向。', hint: () => '', rules: () => '' },
+    // map 专家已移除（面板不再渲染，避免浪费 API 调用）
     { type: 'equipment', name: '装备栏', instruction: '仅输出本回合新生成/获得的装备。若本回合无新增装备，返回空内容（不要列出已有装备）。', hint: () => projectEquipmentSummary(), rules: () => RULE_SKILL },
     { type: 'swordskill', name: '剑技',  instruction: '仅输出本回合新生成/获得的剑技或技能。若本回合无新增，返回空内容（不要列出已有剑技）。', hint: () => projectSkillSummary(), rules: () => RULE_SKILL + '\n\n' + RULE_SWORDSKILL },
 ];
@@ -235,7 +235,7 @@ const PANEL_SPECIALIST_CONFIG = [
  * 排除使用语言（使用/挥出/释放/使出）和单纯提及。
  * @type {RegExp}
  */
-const GENERATION_TRIGGER_RE = /习得|获得新|获得.*(?:剑技|装备|技能)|新(?:剑技|装备|技能)|掉落|装备了|拾取|开出|解锁.*(?:剑技|技能)|学会|领悟|更换|替换|入手|买[到入]?|购[买入入得]?/;
+const GENERATION_TRIGGER_RE = /习得|获得新|获得.*(?:剑技|装备|技能)|新(?:剑技|装备|技能)|掉落|装备了|拾取|开出|解锁.*(?:剑技|技能)|学会|领悟|更换|替换|入手|买[到入]?|购[买入得]?/;
 
 /**
  * 触发所有装饰面板专家（并行）。

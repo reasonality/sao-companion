@@ -12,7 +12,7 @@ import {
     log, updateLogDisplay,
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
-import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot, clearSnapshotsFrom } from './sao-store-core.js';
+import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot } from './sao-store-core.js';
 import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -861,7 +861,6 @@ function bindEvents() {
             // 2. 清理被删消息及之后所有消息的专家面板缓存
             //    （ST 删除消息后后续索引下移，旧面板缓存已失效）
             _clearSpecialistPanels(messageId);
-            clearSnapshotsFrom(messageId);
             const d = getSaoData();
             if (d?.panels) {
                 for (const key of Object.keys(d.panels)) {
