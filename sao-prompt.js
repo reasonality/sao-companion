@@ -87,6 +87,8 @@ export function injectMemoryAndState() {
     // Core State — 全量状态，始终注入（不依赖 tool call）
     const stateText = projectFullState();
     if (stateText) {
+        // 明确告知 AI 这是系统注入的状态，不要在叙事中复制此格式
+        parts.push('[系统状态参考 — 以下为系统自动注入的当前状态，不要在你的回复中复制或原样输出此信息块]');
         parts.push(stateText);
     }
 

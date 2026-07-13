@@ -693,17 +693,33 @@ function cleanupSaoLightDom(messageEl) {
  * 详见 PHASE_C_STATUS_PANEL_REDESIGN_EXECUTION.md C2。
  */
 function renderUserStatus(messageEl, rawText, messageId, refNode) {
-    // Phase C: 优先从 store projection 渲染；回退到 status 专家面板缓存；最后回退到 mes 标签
+    // 渲染优先级：
+    // 1. AI 输出的 <user_status> 标签内容（如果有 HTML 结构，反映 AI 本轮意图）
+    // 2. store projection（Phase C，结构化但可能因专家解析失败而过时）
+    // 3. status 专家面板缓存
+    // 4. rawText 标签（最终防线）
+    // 注：之前 store projection 优先，但用户反馈"状态栏没根据 LLM 输出更新"，
+    // 说明专家解析失败时 store 过时，而 AI 的标签是正确的。改为标签优先。
     let content = null;
 
-    // 1. 尝试 store projection（Phase C 主路径）
-    try {
-        content = projectStatusPanelHtml();
-    } catch (e) {
-        log(`projectStatusPanelHtml 失败: ${e.message}`, 'warn');
+    // 1. 优先：AI 的 <user_status> 标签内容（仅当含 HTML 结构时采用）
+    const tagContent = extractTag(rawText, 'user_status');
+    if (tagContent && /<[a-z][^>]*>/i.test(tagContent)) {
+        // 剥离嵌套的其他 SAO 自定义标签
+        const _stripRe = new RegExp(`<(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})\\b[^>]*>[\\s\\S]*?<\\/(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})>`, 'gi');
+        content = tagContent.replace(_stripRe, '');
     }
 
-    // 2. 回退：status 专家面板缓存（A0/P3 过渡兼容）
+    // 2. 回退：store projection（Phase C 主路径）
+    if (!content) {
+        try {
+            content = projectStatusPanelHtml();
+        } catch (e) {
+            log(`projectStatusPanelHtml 失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // 3. 回退：status 专家面板缓存（A0/P3 过渡兼容）
     if (!content && messageId != null) {
         const panel = getSaoData()?.panels?.[messageId]?.status;
         const panelData = panel && (typeof panel.html === 'string') ? safeJsonParse(panel.html) : panel?.html;
@@ -712,13 +728,10 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
         }
     }
 
-    // 3. 回退：rawText 标签提取
+    // 4. 回退：rawText 标签提取（无 HTML 结构的纯文本也接受）
     if (!content) {
-        content = extractTag(rawText, 'user_status')
-        if (content === null) return
-        // Bug2: 剥离嵌套的其他 SAO 自定义标签及其内容（DOMPurify 会保留文本导致异常显示）
-        const _stripRe = new RegExp(`<(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})\\b[^>]*>[\\s\\S]*?<\\/(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})>`, 'gi');
-        content = content.replace(_stripRe, '');
+        content = tagContent;
+        if (content === null) return;
     }
     const { shadow } = createSaoShadowHost(messageEl, 'user_status', refNode)
     // 保留已有 details 的 open 状态（renderAllTags 每次重建 innerHTML 会丢失）

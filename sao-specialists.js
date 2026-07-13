@@ -248,9 +248,13 @@ export function fireSpecialistPanels(messageId, narrativeText) {
     // 点10: 专家2始终运行（不再受 toggle 控制）
     const promises = [];
     for (const cfg of PANEL_SPECIALIST_CONFIG) {
-        // 装备/剑技专家仅在叙述包含生成/获取事件时触发（避免每轮重复列出）
-        if ((cfg.type === 'equipment' || cfg.type === 'swordskill') && !GENERATION_TRIGGER_RE.test(narrativeText)) {
-            continue;
+        // 装备/剑技专家触发条件：
+        // (a) 叙述包含生成/获取关键词，或
+        // (b) 消息中已有 <equip>/<swordskill> 标签（AI 已输出，需要专家生成更好的 HTML）
+        if (cfg.type === 'equipment' || cfg.type === 'swordskill') {
+            const hasKeyword = GENERATION_TRIGGER_RE.test(narrativeText);
+            const hasTag = narrativeText.includes(`<${cfg.type}>`) || narrativeText.includes(`<${cfg.type} `);
+            if (!hasKeyword && !hasTag) continue;
         }
         const p = _callPanelSpecialist(cfg.type, cfg.name, cfg.instruction, cfg.hint(), messageId, narrativeText, cfg.rules)
             .catch(e => log(cfg.type + ' 专家失败: ' + e.message, 'warn'));
