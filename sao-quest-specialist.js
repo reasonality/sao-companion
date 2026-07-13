@@ -183,12 +183,21 @@ ${messageText.substring(0, 2000)}
  */
 function _findQuestByTitle(title) {
     const store = getQuestStore();
+    const norm = (s) => (s || '').trim().toLowerCase().replace(/[【】\[\]()（）.,，。!！?？:：""''']/g, '');
+    const target = norm(title);
+    if (!target) return null;
+    let best = null;
+    let bestScore = 0;
     for (const quest of Object.values(store.byId)) {
-        // Strict equality: specialist must echo exact quest title from context.
-        // If no exact match, return null so specialist can create a new quest.
-        if (quest.title.trim() === title.trim()) {
-            return quest;
+        const qNorm = norm(quest.title);
+        if (!qNorm) continue;
+        // Exact normalized match wins immediately
+        if (qNorm === target) return quest;
+        // Fuzzy: either title contains the other (handles minor rewording / extra words)
+        if (qNorm.includes(target) || target.includes(qNorm)) {
+            const score = Math.min(qNorm.length, target.length) / Math.max(qNorm.length, target.length);
+            if (score > bestScore) { bestScore = score; best = quest; }
         }
     }
-    return null;
+    return best;
 }

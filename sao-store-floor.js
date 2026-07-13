@@ -212,8 +212,8 @@ export function initFloorFromWorldBook(entries) {
             const keys = (entry.keys || []).map(k => k.toLowerCase());
             const allText = (comment + ' ' + keys.join(' ')).toLowerCase();
 
-            // 判断是否为楼层条目
-            const isFloor = /层|floor|f\b/.test(allText);
+            // 判断是否为楼层条目（\d+f 匹配 "55F" 格式；避免 f\b 误匹配 Heathcliff 等含 f 词的条目）
+            const isFloor = /层|floor|\d+f/i.test(allText);
             if (!isFloor) continue;
 
             // 提取所有楼层号（支持合并条目如"第65层-第66层"）

@@ -414,14 +414,22 @@ export function registerGetWorldSetting(ctx) {
             '$schema': 'http://json-schema.org/draft-04/schema#',
             type: 'object',
             properties: {
-                topic: { type: 'string', description: '查询话题（必填）', 'enum': ['death_game', 'economy', 'pk', 'skills', 'leveling', 'housing', 'environment'] },
+                topic: { type: 'string', description: '查询话题（必填）', 'enum': ['world', 'pk', 'economy', 'npc_generation', 'npc_rules', 'field_boss', 'adult', 'mob', 'floor_general', 'output_rules', 'meditation', 'housing', 'leveling', 'skills', 'death_game', 'environment'] },
             },
             required: ['topic'],
         },
         action: wrapToolAction('get_world_setting', async (args) => {
             try {
-                const topic = args && args.topic;
+                let topic = args && args.topic;
                 if (!topic) return '请提供查询话题（topic）';
+
+                // Alias resolution: map legacy/LLM-friendly names to parsed keys
+                const ALIASES = {
+                    death_game: 'world',
+                    environment: 'world',
+                    combat: 'skills',
+                };
+                topic = ALIASES[topic] || topic;
 
                 const ws = getWorldStore();
                 const rules = ws.rules;

@@ -98,8 +98,21 @@ async function _fetchOpenAICompat(label, cfg, messages, maxTokens, opts) {
     };
     if (opts.prefill) body.messages.push({ role: 'assistant', content: opts.prefill });
     if (opts.jsonSchema) {
+        // Set response_format for OpenAI-compatible endpoints. For Ollama/Claude, the
+        // parameter is often ignored or unsupported, so we also append a strict JSON-only
+        // directive to the system message as a portable fallback.
         const isOpenAICompatible = !cfg.url?.includes('ollama') && !cfg.model?.includes('claude');
-        if (isOpenAICompatible) body.response_format = { type: 'json_object' };
+        if (isOpenAICompatible) {
+            body.response_format = { type: 'json_object' };
+        } else {
+            const sysIdx = messages.findIndex(m => m.role === 'system');
+            const directive = '\n\n[输出要求] 仅输出纯 JSON 对象，不要包含任何说明文字、markdown 代码块标记或前后缀。直接以 { 开头、以 } 结尾。';
+            if (sysIdx >= 0) {
+                messages[sysIdx] = { ...messages[sysIdx], content: messages[sysIdx].content + directive };
+            } else {
+                messages.unshift({ role: 'system', content: directive.trim() });
+            }
+        }
     }
 
     const controller = new AbortController();

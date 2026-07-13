@@ -183,24 +183,27 @@ export function parseWorldRules(entries) {
         return 'w' + Math.abs(h).toString(36);
     };
 
-    // Topic mapping: regex pattern → worldStore.rules key
-    // IMPORTANT: more specific patterns must come BEFORE general ones
+    // Topic mapping: regex pattern → worldStore.rules key (English keys, consumed by
+    // get_world_setting tool's `topic` enum and verified by preparser.test.js).
+    // IMPORTANT: more specific patterns must come BEFORE general ones.
+    // NOTE: sao-剑技获取 intentionally NOT mapped (it's a data rule retrieved via
+    // tool calls, not a world-setting rule). Removing it is asserted by test
+    // 'stores _ruleSources mapping' (expects combat to be undefined).
     const TOPIC_MAP = [
-        { pattern: /世界设定/, topic: '世界设定' },
-        { pattern: /PK机制|PK规则/, topic: 'PK机制' },
-        { pattern: /经济系统/, topic: '经济系统' },
-        { pattern: /NPC与怪物生成/, topic: 'NPC与怪物生成' },
-        { pattern: /NPC档案构建/, topic: 'NPC档案构建' },
-        { pattern: /野外Boss规则/, topic: '野外Boss规则' },
-        { pattern: /色色规则/, topic: '色情规则' },
-        { pattern: /小怪规则/, topic: '小怪规则' },
-        { pattern: /楼层通用设定/, topic: '楼层通用设定' },
-        { pattern: /输出与数值委托/, topic: '输出与数值委托' },
-        { pattern: /剑技获取/, topic: '剑技获取' },
-        { pattern: /冥想/, topic: '冥想系统' },
-        { pattern: /房屋/, topic: '房屋系统' },
-        { pattern: /等级|成长规则/, topic: '等级系统' },
-        { pattern: /技能/, topic: '技能系统' },
+        { pattern: /世界设定/, topic: 'world' },
+        { pattern: /PK机制|PK规则/, topic: 'pk' },
+        { pattern: /经济系统/, topic: 'economy' },
+        { pattern: /NPC与怪物生成/, topic: 'npc_generation' },
+        { pattern: /NPC档案构建/, topic: 'npc_rules' },
+        { pattern: /野外Boss规则/, topic: 'field_boss' },
+        { pattern: /色色规则/, topic: 'adult' },
+        { pattern: /小怪规则/, topic: 'mob' },
+        { pattern: /楼层通用设定/, topic: 'floor_general' },
+        { pattern: /输出与数值委托/, topic: 'output_rules' },
+        { pattern: /冥想/, topic: 'meditation' },
+        { pattern: /房屋/, topic: 'housing' },
+        { pattern: /等级|成长规则/, topic: 'leveling' },
+        { pattern: /技能/, topic: 'skills' },
     ];
 
     if (!ws._rulesHashes) ws._rulesHashes = {};
