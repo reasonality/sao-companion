@@ -378,6 +378,7 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 
 ## 规则
 - state 反映本回合结束时的状态（基于叙事变化）
+- 装备变更检测：叙事中提到购买/更换/装备/拾取/获得新武器或防具时，必须在 state.equipment 中更新对应槽位（weapon/off_hand/head/chest/hands/legs/accessory），包括名称、item_level、stats。不要遗漏装备变更
 - zdText 是战斗面板的原始数据，格式为 [KEY:VALUE] token 序列，用 ][ 分隔，不含外层 []
 - 若叙事中无战斗，zdText 中仍输出玩家基础属性（PR/GR/HP/MP/STR/AGI/INT/VIT），无队友/敌人段
 - 不确定时保持当前值不变（保守更新）
