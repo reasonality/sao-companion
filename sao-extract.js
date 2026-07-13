@@ -398,12 +398,18 @@ export async function extractAll(aiMessage, callModelFn, messageId) {
         try {
             const us = parseUserStatus(statusMatch[1]);
             // 合并规则：
-            // - equipment/inventory: user_status 优先（有描述/稀有度等详细信息）
+            // - equipment/inventory: 专家(P3) 优先（权威状态源），user_status 仅补充专家未提供的字段
             // - skills: zd_status 优先（有完整战斗属性 ATK/Hit%/Crit% 等），仅补充 skill_level
             for (const k of Object.keys(us)) {
                 if (k === 'equipment' || k === 'inventory') {
                     if (us[k] && (Array.isArray(us[k]) ? us[k].length > 0 : Object.keys(us[k]).length > 0)) {
-                        state[k] = us[k];
+                        if (!state[k] || (Array.isArray(state[k]) ? state[k].length === 0 : Object.keys(state[k]).length === 0)) {
+                            state[k] = us[k];
+                        } else if (k === 'equipment' && typeof state[k] === 'object') {
+                            for (const slot of Object.keys(us[k])) {
+                                if (!state[k][slot]) state[k][slot] = us[k][slot];
+                            }
+                        }
                     }
                 } else if (k === 'skills') {
                     // 技能：不覆盖 zd_status 的完整数据，仅补充 skill_level

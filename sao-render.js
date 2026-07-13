@@ -1932,7 +1932,10 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
     } else {
         const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
         if (matches.length === 0) return
-        itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+        // 内容验证：跳过 AI 规划文本（无 HTML 标签的纯文本，如 "step2：逐一查验..."）
+        const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()))
+        if (validMatches.length === 0) return
+        itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     }
     const { shadow } = createSaoShadowHost(messageEl, 'equip', refNode)
     shadow.innerHTML = `
@@ -1958,7 +1961,10 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
     } else {
         const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
         if (matches.length === 0) return
-        itemsHtml = matches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+        // 内容验证：跳过 AI 规划文本（无 HTML 标签的纯文本）
+        const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()))
+        if (validMatches.length === 0) return
+        itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
     }
     const { shadow } = createSaoShadowHost(messageEl, 'swordskill', refNode)
     shadow.innerHTML = `

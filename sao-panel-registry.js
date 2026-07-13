@@ -12,7 +12,7 @@ export const PANEL_REGISTRY = [
     { tag: 'swordskill' },
     { tag: 'user_status' },
     { tag: 'npc_status' },
-    { tag: 'map' },
+    // map 已移除：地图面板始终为空，无实际内容可渲染
     { tag: 'calendar' },
     { tag: 'zd_status' },
     { tag: 'digest' },

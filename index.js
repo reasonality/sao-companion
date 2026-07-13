@@ -844,6 +844,28 @@ function bindEvents() {
         });
     }
 
+    // 消息删除后清理专家面板数据并重新渲染
+    // 注意：插件的 store 状态（playerStore/npcStore/calendarStore 等）不会回滚——
+    // 删除消息不会撤销已累积的状态变更。如需完全同步，重新生成上一条消息即可。
+    if (event_types.MESSAGE_DELETED) {
+        _bindEvt(event_types.MESSAGE_DELETED, (messageId) => {
+            if (!isSaoCard()) return;
+            _clearSpecialistPanels(messageId);
+            // 重新渲染剩余消息的面板（Shadow DOM host 随消息 DOM 一起被 ST 移除，
+            // 但其他消息的面板不受影响）
+            const ctx = getContext();
+            if (ctx.chat && ctx.chat.length > 0) {
+                for (let i = Math.max(0, ctx.chat.length - 5); i < ctx.chat.length; i++) {
+                    const msg = ctx.chat[i];
+                    if (!msg || msg.is_user) continue;
+                    const el = getMessageElement(i);
+                    if (el) renderAllTags(el, msg.mes || '', i);
+                }
+            }
+            log(`消息 ${messageId} 已删除，专家面板已清理（store 状态未回滚）`);
+        });
+    }
+
     // 角色（AI）消息 DOM 渲染完成后渲染 tags（替代 MESSAGE_RECEIVED 中的 renderAllTags）
     if (event_types.CHARACTER_MESSAGE_RENDERED) {
         _bindEvt(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
