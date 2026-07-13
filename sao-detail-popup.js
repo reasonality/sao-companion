@@ -65,6 +65,17 @@ export function renderDetailSkill(sk, describeEnFn) {
     if (sk.weapon_type) rows.push(detailRow('武器类型', esc(sk.weapon_type)));
     if (sk.proficiency != null) rows.push(detailRow('技能等级', 'Lv' + esc(sk.proficiency)));
     if (sk.rarity) rows.push(detailRow('稀有度', esc(sk.rarity), rarityClass(sk.rarity)));
+    // combat 字段：ATK/Hit%/Crit%/APT/TPA/MP/CD（技能详情弹窗之前缺失，只剩等级+稀有度）
+    if (sk.combat) {
+        const c = sk.combat;
+        if (c.atk != null) rows.push(detailRow('⚔️ 基础攻击力 (ATK)', esc(c.atk)));
+        if (c.hit != null) rows.push(detailRow('🎯 命中率 (Hit%)', esc(c.hit) + '%'));
+        if (c.crit != null) rows.push(detailRow('💥 暴击率 (Crit%)', esc(c.crit) + '%'));
+        if (c.apt != null) rows.push(detailRow('🌀 攻击次数 (APT)', esc(c.apt) + ' 次/轮'));
+        if (c.tpa != null) rows.push(detailRow('👥 目标数量 (TPA)', esc(c.tpa) + ' 个'));
+        if (c.mpCost != null) rows.push(detailRow('💧 法力消耗 (MPCost)', esc(c.mpCost) + ' MP'));
+        if (c.cd != null) rows.push(detailRow('⏳ 冷却时间 (CD)', esc(c.cd) + ' 回合'));
+    }
     if (sk.effects && sk.effects.wn) rows.push(detailRow('核心功能', esc(coreCodeLabel(sk.effects.wn))));
     if (sk.effects && sk.effects.en && sk.effects.en.length > 0) {
         const affixHtml = sk.effects.en.map(raw => {

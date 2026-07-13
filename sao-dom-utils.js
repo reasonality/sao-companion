@@ -6,7 +6,9 @@ import { PANEL_TAGS } from './sao-panel-registry.js';
 // SAO 自定义标签列表 — DOMPurify 钩子保留这些标签；hideSaoLightDomTags/cleanupSaoLightDom 也引用。
 // 单一事实来源：PANEL_REGISTRY（sao-panel-registry.js）→ PANEL_TAGS → 此处别名。
 // 所有使用点均为 .includes() 或遍历全体，顺序无关。
-export const SAO_CUSTOM_TAGS = PANEL_TAGS;
+// 额外添加 system_state_ref：状态注入包裹标签，需要 DOMPurify 保留 + CSS 隐藏，
+// 但不需要渲染器（不是面板），因此不加入 PANEL_REGISTRY。
+export const SAO_CUSTOM_TAGS = [...PANEL_TAGS, 'system_state_ref'];
 
 /**
  * 创建（或复用）Shadow DOM 宿主，并插入到消息 DOM。

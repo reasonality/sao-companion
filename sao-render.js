@@ -18,8 +18,9 @@ import { useConsumable, getConsumableById } from './sao-store-consumable.js';
 import { getInventoryStore } from './sao-store-inventory.js';
 import { appendActionLog } from './sao-store-core.js';
 
-// 模块级预编译：PANEL_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
-const _SAO_TAG_RE = new RegExp(`<(?:${PANEL_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
+// 模块级预编译：SAO_CUSTOM_TAGS 固定不变，正则与渲染函数映射构造一次，避免热路径重复构造。
+// 用 SAO_CUSTOM_TAGS（含 system_state_ref）而非 PANEL_TAGS，确保 system_state_ref 也能被检测并隐藏。
+const _SAO_TAG_RE = new RegExp(`<(?:${SAO_CUSTOM_TAGS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
 
 // 每条消息的日历视图月份（messageId → Date），支持聊天日历月份翻页
 const _chatCalViewDates = new Map();

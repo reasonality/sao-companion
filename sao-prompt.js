@@ -33,6 +33,7 @@ const SAO_PROMPT_STRIP_TAGS = [
     'action',
     'preview',
     'output_instruction',
+    'system_state_ref',
 ];
 
 /**
@@ -87,9 +88,14 @@ export function injectMemoryAndState() {
     // Core State — 全量状态，始终注入（不依赖 tool call）
     const stateText = projectFullState();
     if (stateText) {
-        // 明确告知 AI 这是系统注入的状态，不要在叙事中复制此格式
-        parts.push('[系统状态参考 — 以下为系统自动注入的当前状态，不要在你的回复中复制或原样输出此信息块]');
+        // 用 XML 标签包裹状态注入，明确标识为系统元数据，防止 AI 复制此格式到叙事中。
+        // 标签名使用 system_state 以区别于 SAO 游戏标签（equip/swordskill 等）。
+        parts.push('<system_state_ref>');
+        parts.push('以下为系统自动注入的当前游戏状态参考，仅供你了解当前数值。');
+        parts.push('严禁在你的回复中复制、原样输出、或以任何形式复述此状态块。');
+        parts.push('状态显示由系统专家管理，你只需输出叙事正文和 <equip>/<swordskill> 标签。');
         parts.push(stateText);
+        parts.push('</system_state_ref>');
     }
 
     // P2b: inject calendar date if available (from calendarStore)
