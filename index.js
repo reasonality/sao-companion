@@ -491,6 +491,44 @@ function bindEvents() {
                 log(`Pre-parser 完成: ${entries.length} 条目`);
             }
 
+            // 新游戏初始化：如果是新聊天（仅 first_mes，store 未从 AI 回复中初始化），
+            // 从 first_mes 的 <user_status>/<zd_status>/<equip>/<swordskill> 标签提取初始状态。
+            // first_mes 不触发 MESSAGE_RECEIVED，状态专家不会运行，store 停留在默认值。
+            // 这里手动 extractAll + applyExtractedData 从 first_mes 初始化。
+            {
+                const chatCtx2 = getContext();
+                const chat2 = chatCtx2.chat;
+                const store2 = getStore();
+                // 判断是否需要从 first_mes 初始化：
+                // (a) 聊天只有 1 条消息（first_mes），且
+                // (b) playerStore 还是默认状态（无装备、level=1）
+                if (chat2 && chat2.length <= 2 && store2) {
+                    const firstAiMsg = chat2.find(m => m && !m.is_user);
+                    if (firstAiMsg && firstAiMsg.mes) {
+                        const player = getPlayerStore();
+                        const isDefault = !player?.equipment?.weapon && (player?.progression?.level ?? 1) === 1;
+                        if (isDefault) {
+                            log('检测到新游戏，从 first_mes 初始化 store');
+                            (async () => {
+                                try {
+                                    const extracted = await extractAll(firstAiMsg.mes, callModel, null);
+                                    if (extracted) {
+                                        await applyExtractedData(extracted, CUSTOM_SKILL_DEFS);
+                                        await saveStore();
+                                        log('从 first_mes 初始化完成');
+                                        // 重新渲染面板
+                                        const el = getMessageElement(chat2.indexOf(firstAiMsg));
+                                        if (el) renderAllTags(el, firstAiMsg.mes, chat2.indexOf(firstAiMsg));
+                                    }
+                                } catch (e) {
+                                    log('从 first_mes 初始化失败: ' + e.message, 'warn');
+                                }
+                            })();
+                        }
+                    }
+                }
+            }
+
             injectMemoryAndState();
             initCalendarIfNeeded();
 
@@ -598,7 +636,8 @@ function bindEvents() {
         // 其内部 msg.mes 改写逻辑与本只读原则矛盾）。editMessage / updateMessageBlock
         // 同样不得在自动事件中调用。
         // === 快照：处理该消息前的 store 状态，用于 MESSAGE_DELETED 回滚 ===
-        captureSnapshot(messageId);
+        // 包裹 try/catch 防止 structuredClone 失败导致整个 MESSAGE_RECEIVED 处理链中断
+        try { captureSnapshot(messageId); } catch (e) { log('captureSnapshot 失败: ' + e.message, 'warn'); }
 
         await withProcessingLock(`msg-${messageId}`, async () => {
             // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源；内部已 catch 返回 null）
