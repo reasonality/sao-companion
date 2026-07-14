@@ -10,7 +10,7 @@ import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
 import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared } from './sao-detail-popup.js';
-import { equipItem, unequipItem, getPlayerStore } from './sao-store-player.js';
+import { equipItem, unequipItem, getPlayerStore, forgetPlayerSkill } from './sao-store-player.js';
 import { getEquipmentById } from './sao-store-equipment.js';
 import { getSkillById } from './sao-store-skill.js';
 import { createQuest, completeQuest, abandonQuest, getCompletedQuests } from './sao-store-quest.js';
@@ -1803,6 +1803,27 @@ function _attachStatusPanelListeners(shadow) {
         }
         if (title && html) {
             _showShadowModal(shadow, title, `<div style="max-height:60vh;overflow-y:auto;">${html}</div>`);
+            // Attach forget-skill handler to the modal
+            const modalOverlay = shadow.querySelector('.sao-shadow-modal');
+            if (modalOverlay) {
+                const forgetBtn = modalOverlay.querySelector('[data-sao-action="forget-skill"]');
+                if (forgetBtn) {
+                    forgetBtn.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const skillId = forgetBtn.dataset.saoSkillId;
+                        if (!skillId) return;
+                        if (!confirm('确定遗忘此剑技？此操作不可撤销。')) return;
+                        try {
+                            await forgetPlayerSkill(skillId);
+                            modalOverlay.remove();
+                            _refreshStatusPanelContent(shadow);
+                        } catch (err) {
+                            log(`遗忘技能失败: ${err.message}`, 'warn');
+                        }
+                    });
+                }
+            }
         }
     });
     }

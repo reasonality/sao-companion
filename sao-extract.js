@@ -4,7 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, unequipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -703,6 +703,27 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                             await removeEquipmentItem(invItem.equipment_id, true);
                             sold = true;
                             log(`sellActions: 装备售出 ${action.name} (equipment_id=${invItem.equipment_id})`);
+                            break;
+                        }
+                    }
+                }
+                // Fallback: check if the item is currently equipped (not in inventory)
+                if (!sold) {
+                    const player = getPlayerStore();
+                    for (const [slot, equipId] of Object.entries(player.equipment || {})) {
+                        if (!equipId) continue;
+                        const eqDef = getEquipmentById(equipId);
+                        if (eqDef && eqDef.name === action.name) {
+                            try {
+                                await unequipItem(slot, true);
+                                await removeEquipmentItem(equipId, true);
+                                const { removeEquipmentById } = await import('./sao-store-equipment.js');
+                                await removeEquipmentById(equipId, true);
+                                sold = true;
+                                log(`sellActions: 装备售出(已装备) ${action.name} (slot=${slot})`);
+                            } catch (e) {
+                                log(`sellActions: 卸下并售出装备失败: ${e.message}`, 'warn');
+                            }
                             break;
                         }
                     }

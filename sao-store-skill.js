@@ -135,6 +135,28 @@ export function getSkillByName(name) {
 }
 
 /**
+ * 从 skillStore 彻底删除技能定义（byId + nameToId）。
+ * @param {string} skillId
+ * @param {boolean} skipSave
+ * @returns {boolean} 是否删除成功
+ */
+export function removeSkill(skillId, skipSave) {
+    const store = getSkillStore();
+    const skill = store.byId[skillId];
+    if (!skill) {
+        log(`removeSkill: ${skillId} 不存在`, 'warn');
+        return false;
+    }
+    delete store.byId[skillId];
+    if (store.nameToId[skill.name]) {
+        delete store.nameToId[skill.name];
+    }
+    log(`技能删除: ${skill.name} (${skillId})`);
+    if (skipSave !== true) saveStore();
+    return true;
+}
+
+/**
  * 校验技能条目数据。
  * @param {object} data
  * @returns {{ valid: boolean, errors: string[] }}

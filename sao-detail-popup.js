@@ -95,6 +95,12 @@ export function renderDetailSkill(sk, describeEnFn) {
         }
     }
     if (sk.description) rows.push(detailRow('描述', esc(sk.description)));
+    // 遗忘剑技按钮
+    if (sk.skill_id) {
+        rows.push(`<div style="margin-top:12px;text-align:center;">
+            <button class="sao-btn sao-btn-secondary" data-sao-action="forget-skill" data-sao-skill-id="${esc(sk.skill_id)}" style="background:rgba(255,46,74,0.15);border:1px solid rgba(255,46,74,0.4);color:#ff7d8a;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85em;">遗忘此剑技</button>
+        </div>`);
+    }
     return rows.join('');
 }
 

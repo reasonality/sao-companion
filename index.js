@@ -13,7 +13,7 @@ import {
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
 import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot } from './sao-store-core.js';
-import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
+import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, forgetPlayerSkill, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
@@ -1012,6 +1012,21 @@ function showDetailModal(title, html) {
     const modal = document.getElementById('sao_detail_modal');
     if (titleEl) titleEl.textContent = title;
     if (bodyEl) bodyEl.innerHTML = DOMPurify.sanitize(html);
+    // 遗忘技能按钮事件绑定
+    bodyEl?.querySelectorAll('[data-sao-action="forget-skill"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const skillId = btn.dataset.saoSkillId;
+            if (!skillId) return;
+            if (!confirm('确定遗忘此剑技？此操作不可撤销。')) return;
+            try {
+                await forgetPlayerSkill(skillId);
+                closeDetailModal();
+                refreshStatus();
+            } catch (e) {
+                log('遗忘技能失败: ' + e.message, 'warn');
+            }
+        });
+    });
     if (modal) {
         modal.style.display = 'flex';
         // 聚焦模态层以激活 Esc 键关闭（panel.html 中 onkeydown 监听需 focus 才能触发）
@@ -3032,7 +3047,8 @@ function refreshStatus() {
     // 背包装备 - 渲染到 sao_equipment_list（物品section的装备tab）
     const equipEl = document.getElementById('sao_equipment_list');
     if (equipEl) {
-        const invEquipItems = (inventory?.items || []).filter(i => i.type === 'equipment' && i.equipment_id && i.qty > 0);
+        const equippedIds = new Set(Object.values(player.equipment || {}).filter(Boolean));
+        const invEquipItems = (inventory?.items || []).filter(i => i.type === 'equipment' && i.equipment_id && i.qty > 0 && !equippedIds.has(i.equipment_id));
         if (invEquipItems.length > 0) {
             equipEl.innerHTML = invEquipItems.map((item) => {
                 const eq = getEquipmentById(item.equipment_id);

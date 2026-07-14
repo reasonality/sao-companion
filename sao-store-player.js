@@ -494,6 +494,37 @@ export async function addPlayerSkill(skill_id, name, proficiency, skipSave) {
 }
 
 /**
+ * 遗忘玩家技能：从 playerStore.skills 移除引用 + 从 skillStore 删除定义。
+ * @param {string} skillId
+ * @param {boolean} skipSave
+ */
+export async function forgetPlayerSkill(skillId, skipSave) {
+    const playerStore = getPlayerStore();
+    const idx = playerStore.skills.findIndex(s => s.skill_id === skillId);
+    if (idx < 0) {
+        log(`forgetPlayerSkill: 玩家未拥有技能 ${skillId}`, 'warn');
+        return false;
+    }
+    const skillName = playerStore.skills[idx].name;
+    playerStore.skills.splice(idx, 1);
+    // 也从 customSkills 移除
+    if (playerStore.customSkills) {
+        const ci = playerStore.customSkills.indexOf(skillId);
+        if (ci >= 0) playerStore.customSkills.splice(ci, 1);
+    }
+    // 从 skillStore 删除定义
+    try {
+        const { removeSkill } = await import('./sao-store-skill.js');
+        removeSkill(skillId, true);
+    } catch (e) {
+        log(`forgetPlayerSkill: 删除技能定义失败: ${e.message}`, 'warn');
+    }
+    if (skipSave !== true) await saveStore();
+    log(`玩家遗忘技能: ${skillName} (${skillId})`);
+    return true;
+}
+
+/**
  * 设置自定义技能 ID 列表。
  * @param {string[]} ids
  */

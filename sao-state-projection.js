@@ -737,6 +737,19 @@ export function renderInventoryPanel() {
     const items = (inv?.items || [])
         .map((item, rawIndex) => ({ _item: item, _rawIndex: rawIndex }))
         .filter(({ _item }) => (_item.qty ?? 1) > 0)
+        .filter(({ _item }) => {
+            // 排除已穿戴的装备：已在 equipment 槽位中的 equipment_id 不应出现在背包列表
+            if (_item.type === 'equipment' && _item.equipment_id) {
+                try {
+                    const ps = getPlayerStore();
+                    if (ps?.equipment) {
+                        const equippedIds = new Set(Object.values(ps.equipment).filter(Boolean));
+                        if (equippedIds.has(_item.equipment_id)) return false;
+                    }
+                } catch { /* ignore */ }
+            }
+            return true;
+        })
         .map(({ _item: item, _rawIndex: rawIndex }) => {
         // bug-fix: 消耗品条目只有 consumable_id，没有 name
         // 必须从 consumableStore.byId[item.consumable_id].name 取真实名字
