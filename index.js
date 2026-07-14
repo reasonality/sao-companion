@@ -924,17 +924,25 @@ function bindEvents() {
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
 
-            // 跳过正在生成的最新消息：CHARACTER_MESSAGE_RENDERED 在流式输出期间就触发，
-            // 此时 msg.mes 可能不完整，store 还是上一轮的旧数据。
-            // MESSAGE_RECEIVED 会在生成完成后处理并渲染，不需要这里抢先渲染。
-            // 只对历史消息（非最后一条 AI 消息）渲染。
+            // 判断是否是最后一条消息
             const isLatest = (messageId === ctx.chat.length - 1);
             if (isLatest) {
-                // 最新消息：检查 MESSAGE_RECEIVED 是否已处理过此消息
-                // 如果有 shadow host 说明已渲染过（swipe/编辑场景），跳过
+                // 最新消息：检查是否已有 shadow host
                 const msgEl = getMessageElement(messageId);
                 if (msgEl && !msgEl.querySelector('.sao-render-host')) {
-                    log(`CHARACTER_MESSAGE_RENDERED: 跳过最新消息 #${messageId}（等待 MESSAGE_RECEIVED 处理）`);
+                    // 无 shadow host：可能是重新加载的旧消息（MESSAGE_RECEIVED 不会触发）
+                    // 延迟渲染兜底：如果是新消息，MESSAGE_RECEIVED 会先渲染（createSaoShadowHost 去重）
+                    // 如果是重新加载的旧消息，2秒后延迟渲染兜底
+                    log(`CHARACTER_MESSAGE_RENDERED: 延迟渲染最新消息 #${messageId}（兜底重载场景）`);
+                    setTimeout(() => {
+                        const el = getMessageElement(messageId);
+                        if (!el || el.querySelector('.sao-render-host')) return; // 已渲染或不存在
+                        const ctx2 = getContext();
+                        const msg2 = ctx2.chat?.[messageId];
+                        if (!msg2 || msg2.is_user) return;
+                        renderAllTags(el, msg2.mes || '', messageId);
+                        log(`CHARACTER_MESSAGE_RENDERED: 延迟渲染完成 #${messageId}`);
+                    }, 2000);
                     return;
                 }
                 // 已有 shadow host（swipe/编辑场景）→ 重新渲染
