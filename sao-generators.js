@@ -290,19 +290,33 @@ export async function generateEquipment(context, callModelFn) {
     }
 
     // 7) 仅请求模型生成名称和描述（传入已计算的数值）
-    const namePrompt = `为一件SAO游戏装备生成名称和描述，返回JSON:
-{"name":string,"description":string}
+    const weaponSubtypeHint = slotEntry.slot === 'weapon'
+        ? '\n武器子类: 请从「短刀/匕首/单手剑/双手剑/矛/弓/斧/钝器」中选择一个具体武器类型作为名称的一部分'
+        : slotEntry.slot === 'off_hand'
+            ? '\n副手武器: 请从「盾牌/短刀/匕首/法器」中选择一个'
+            : '';
+    const namePrompt = `为一件SAO游戏装备生成名称和描述。
+
+输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
+JSON 必须包含以下字段:
+- "name": 字符串，装备名称（如「暗影短刀」「铁壁圆盾」）
+- "description": 字符串，1-2句装备描述
+
+示例输出:
+{"name": "暗影短刀", "description": "一把轻巧的短刀，刀身泛着淡淡的寒光。"}
+
+装备信息:
 槽位: ${slotEntry.label}
 类型: ${typeEntry.type}
 稀有度: ${rarityEntry.name}
 物品等级: ${itemLevel}
 数值: HP+${hpFinal} STR+${stats.str} AGI+${stats.agi} INT+${stats.int} VIT+${stats.vit}
-词缀: ${affixNames.join(', ') || '无'}
-要求: 名称和描述要有SAO风格，描述1-2句话`;
+词缀: ${affixNames.join(', ') || '无'}${weaponSubtypeHint}
+要求: 名称要有SAO风格，描述1-2句话`;
 
     try {
         const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO装备命名器。只输出JSON。' },
+            { role: 'system', content: '你是SAO装备命名器。只输出JSON对象，格式为 {"name": "装备名", "description": "描述"}，不要输出任何其他内容。' },
             { role: 'user', content: namePrompt },
         ], 256, { jsonSchema: true });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
@@ -401,8 +415,18 @@ export async function generateSkill(context, callModelFn) {
 
     // 请求模型生成名称和描述
     const weaponType = context.weaponType || '\u5355\u624B\u76F4\u5251';
-    const namePrompt = `为SAO剑技生成名称和描述，返回JSON:
-{"name":string,"description":string,"effects_description":string}
+    const namePrompt = `为SAO剑技生成名称和描述。
+
+输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
+JSON 必须包含以下字段:
+- "name": 字符串，剑技名称（如「星爆气流斩」「音速冲击」等SAO风格技能名）
+- "description": 字符串，1-2句技能描述（描述该剑技的动作或效果）
+- "effects_description": 字符串，技能特效的简短描述（如「对单体造成连续斩击」「范围横扫」）
+
+示例输出:
+{"name": "星爆气流斩", "description": "以极高速度连续斩击目标，产生十六连击。", "effects_description": "对单体造成连续16次斩击伤害"}
+
+剑技信息:
 武器类型: ${weaponType}
 技能等级: ${skillLevel}
 稀有度: ${rarityEntry.name}
@@ -410,11 +434,11 @@ export async function generateSkill(context, callModelFn) {
 ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
 连击数: ${apt}  目标数: ${tpa}  MP消耗: ${mpCost}  冷却: ${cd}回合
 词缀: ${affixNames.join(', ')}
-要求: 名称要有SAO剑技风格(如「星爆气流斩」「音速冲击」等)`;
+要求: 名称要有SAO剑技风格`;
 
     try {
         const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO剑技命名器。只输出JSON。' },
+            { role: 'system', content: '你是SAO剑技命名器。只输出JSON对象，格式为 {"name": "剑技名", "description": "描述", "effects_description": "特效描述"}，不要输出任何其他内容。' },
             { role: 'user', content: namePrompt },
         ], 256, { jsonSchema: true });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
@@ -537,17 +561,25 @@ export async function generateConsumable(context, callModelFn) {
         return '';
     }).join('，');
 
-    const namePrompt = `为SAO消耗品生成名称和描述，返回JSON:
-{"name":string,"description":string}
+    const namePrompt = `为SAO消耗品生成名称和描述。
+
+输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
+JSON 必须包含以下字段:
+- "name": 字符串，消耗品名称（如「治愈药水」「高级回复药」等）
+- "description": 字符串，1-2句描述，中文
+
+示例输出:
+{"name": "初级治疗药水", "description": "瞬间恢复少量生命值的红色药水。"}
+
+消耗品信息:
 类型: ${typeEntry.label} (${typeEntry.category})
 稀有度: ${rarityEntry.name}
 物品等级: ${itemLevel}
-效果: ${effectDesc}
-要求: 名称要有SAO风格（如「治愈药水」「高级回复药」等），描述1-2句话，中文`;
+效果: ${effectDesc}`;
 
     try {
         const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO消耗品命名器。只输出JSON。' },
+            { role: 'system', content: '你是SAO消耗品命名器。只输出JSON对象，格式为 {"name": "名称", "description": "描述"}，不要输出任何其他内容。' },
             { role: 'user', content: namePrompt },
         ], 256, { jsonSchema: true });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
@@ -660,8 +692,15 @@ export async function generateLoot(context, callModelFn) {
     // === LLM for naming/description only (256 tokens) — skip items already named ===
     const unnamedItems = lootItems.filter(item => !item.name);
     if (unnamedItems.length > 0) {
-        const namePrompt = `为SAO掉落物生成名称和描述，返回JSON:
-{"items":[{"name":string,"description":string}]}
+        const namePrompt = `为SAO掉落物生成名称和描述。
+
+输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
+JSON 必须包含以下字段:
+- "items": 数组，每个元素含 "name"(字符串) 和 "description"(字符串)
+
+示例输出:
+{"items": [{"name": "哥布林耳朵", "description": "一只沾满泥土的尖锐耳朵。"}, {"name": "破损的短刀", "description": "一把已经卷刃的旧短刀。"}]}
+
 掉落物信息:
 ${unnamedItems.map((item, i) => `${i+1}. 类型:${item.type} 稀有度:${item.rarity}${item.qty ? ' 数量:'+item.qty : ''}`).join('\n')}
 敌人等级: ${enemyLevel}
@@ -669,7 +708,7 @@ ${unnamedItems.map((item, i) => `${i+1}. 类型:${item.type} 稀有度:${item.ra
 
         try {
             const result = await callModelFn('equipment', [
-                { role: 'system', content: '你是SAO物品命名器。只输出JSON。' },
+                { role: 'system', content: '你是SAO物品命名器。只输出JSON对象，格式为 {"items": [{"name": "名称", "description": "描述"}]}，不要输出任何其他内容。' },
                 { role: 'user', content: namePrompt },
             ], 256, { jsonSchema: true });
             const jsonMatch = result.match(/\{[\s\S]*\}/);
