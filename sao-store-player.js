@@ -213,15 +213,32 @@ export function recalcStatsFromEquipment(skipSave, oldBonuses) {
         };
     }
     const bv = playerStore._baseVitals;
+    // 记录装备变更前的 maxHp/maxMp，用于同步当前 hp/mp
+    const oldMaxHp = playerStore.vitals.maxHp ?? 100;
+    const oldMaxMp = playerStore.vitals.maxMp ?? 20;
     playerStore.vitals.maxHp = (bv.maxHp ?? 100) + newBonuses.maxHp;
     playerStore.vitals.maxMp = (bv.maxMp ?? 20) + newBonuses.maxMp;
 
-    // 卸下装备后 maxHp/maxMp 可能下降，当前 hp/mp 不能超过上限
+    // 装备变更后同步当前 hp/mp：
+    // - maxHp 增加（装备 HP 加成）：当前 hp 也增加相同增量（装备提升血量上限时回血）
+    // - maxHp 减少（卸下 HP 加成）：当前 hp 不超过新上限（clamp）
+    const hpDelta = playerStore.vitals.maxHp - oldMaxHp;
+    const mpDelta = playerStore.vitals.maxMp - oldMaxMp;
     if (playerStore.vitals.hp != null) {
-        playerStore.vitals.hp = Math.max(0, Math.min(playerStore.vitals.hp, playerStore.vitals.maxHp));
+        if (hpDelta > 0) {
+            // 装备增加上限 → 当前 hp 同步增加
+            playerStore.vitals.hp = Math.max(0, Math.min(playerStore.vitals.hp + hpDelta, playerStore.vitals.maxHp));
+        } else {
+            // 卸下减少上限 → clamp 到新上限
+            playerStore.vitals.hp = Math.max(0, Math.min(playerStore.vitals.hp, playerStore.vitals.maxHp));
+        }
     }
     if (playerStore.vitals.mp != null) {
-        playerStore.vitals.mp = Math.max(0, Math.min(playerStore.vitals.mp, playerStore.vitals.maxMp));
+        if (mpDelta > 0) {
+            playerStore.vitals.mp = Math.max(0, Math.min(playerStore.vitals.mp + mpDelta, playerStore.vitals.maxMp));
+        } else {
+            playerStore.vitals.mp = Math.max(0, Math.min(playerStore.vitals.mp, playerStore.vitals.maxMp));
+        }
     }
 
     if (skipSave !== true) saveStore();
