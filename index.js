@@ -478,17 +478,13 @@ function bindEvents() {
             const char = getCurrentCharacter();
             if (char?.data?.character_book?.entries) {
                 const entries = char.data.character_book.entries;
-                const result = runLorebookPreParser(entries);
-                if (result) {
-                    saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
+                if (entries.length > 0) {
+                    const result = runLorebookPreParser(entries);
+                    if (result) {
+                        saveStore().catch(e => log('保存 NPC/楼层数据失败: ' + (e.message || e), 'warn'));
+                    }
+                    log(`Pre-parser 完成: ${entries.length} 条目`);
                 }
-
-                // Note: runLorebookPreParser already calls parseTimelineEntries internally
-                // (sao-preparser.js Phase 3). On the skip path (hash match), calendarStore
-                // already holds events from the previous session (persisted via saveStore),
-                // and ST's load-time `disable = !enabled` keeps data entries disabled, so
-                // there is no double-injection risk and no need to re-extract timelines here.
-                log(`Pre-parser 完成: ${entries.length} 条目`);
             }
 
             // 新游戏初始化：如果是新聊天（仅 first_mes，store 未从 AI 回复中初始化），
@@ -3269,13 +3265,14 @@ export function init() {
 
     document.body.classList.toggle('sao-card-active', isSaoCard());
 
-    // ─── 安全网：页面刷新后补渲染 ───
+    // ─── 安全网：页面刷新后补渲染 + 补解析 ───
     // 问题：刷新酒馆后，CHAT_CHANGED 可能 (a) 在角色数据加载前就触发（isSaoCard()=false），
     // (b) DOM 尚未就绪导致批量轮询超时，(c) 跳过最后一条 AI 消息但 CHARACTER_MESSAGE_RENDERED
-    // 未对已有消息触发。结果：所有美化（body class + Shadow DOM 面板）失效。
-    // 此安全网在 init() 后延迟轮询，等角色就绪后补渲染所有未渲染的消息。
+    // 未对已有消息触发。结果：所有美化（body class + Shadow DOM 面板）失效 + store 未初始化。
+    // 此安全网在 init() 后延迟轮询，等角色就绪后补渲染消息 + 补运行 preparser/日历/状态注入。
     {
         let safetyAttempts = 0;
+        let safetyInitialized = false; // 防止重复运行 preparser 等
         const safetyNet = () => {
             safetyAttempts++;
             if (safetyAttempts > 80) return; // 80 × 200ms = 16s 超时
@@ -3288,6 +3285,36 @@ export function init() {
 
             // 角色就绪，确保 body class 已添加
             document.body.classList.add('sao-card-active');
+
+            // 补运行初始化链（与 CHAT_CHANGED handler 相同的逻辑，但只运行一次）
+            if (!safetyInitialized) {
+                safetyInitialized = true;
+                log('安全网: 角色就绪，补运行初始化链');
+                try {
+                    stabilizeSaoRegexScripts();
+                    enableCompatMode();
+                    const char = getCurrentCharacter();
+                    if (char?.data?.character_book?.entries) {
+                        const entries = char.data.character_book.entries;
+                        if (entries.length > 0) {
+                            const result = runLorebookPreParser(entries);
+                            if (result) {
+                                saveStore().catch(e => log('安全网: 保存数据失败: ' + (e.message || e), 'warn'));
+                            }
+                            log(`安全网: Pre-parser 完成: ${entries.length} 条目`);
+                        }
+                    }
+                    injectMemoryAndState();
+                    initCalendarIfNeeded();
+                    initPresetGuilds();
+                    const calStore = getStore()?.calendarStore;
+                    if (calStore?.currentDate) {
+                        checkGuildDiscovery(calStore.currentDate);
+                    }
+                } catch (e) {
+                    log('安全网: 初始化链失败: ' + (e.message || e), 'warn');
+                }
+            }
 
             // 补渲染所有未渲染的 AI 消息（包括 CHAT_CHANGED 跳过的最后一条）
             const ctx = getContext();
