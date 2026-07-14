@@ -529,7 +529,7 @@ ${aiMessage.substring(0, 8000)}`;
 
 // === 数据应用函数（customSkillDefs 通过参数注入） ===
 
-export async function applyExtractedData(extracted, customSkillDefs, isNewGame = false) {
+export async function applyExtractedData(extracted, customSkillDefs, isNewGame = false, aiMessage = '') {
     if (!extracted) return;
     const data = getStore();
     if (!data) return;
@@ -804,6 +804,17 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 if (!sk.name) continue;
                 // Skip custom skills (don't overwrite)
                 if (customSkillNames.has(sk.name)) continue;
+
+                // 防幻觉: 如果是玩家未拥有的新技能，必须验证主LLM消息中提到了该技能
+                const existingSkill = player.skills.find(ps => ps.name === sk.name);
+                if (!existingSkill) {
+                    // 新技能: 检查主LLM消息中是否提到
+                    const mentioned = aiMessage && aiMessage.includes(sk.name);
+                    if (!mentioned) {
+                        log(`防幻觉: 跳过未在主LLM消息中提到的技能 "${sk.name}"`, 'warn');
+                        continue;
+                    }
+                }
 
                 // Find or create skill definition in skillStore
                 // (findOrCreateSkill already merges combat/effects when found)
