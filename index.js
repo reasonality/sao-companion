@@ -8,7 +8,7 @@ import {
     esc, getContext, getCurrentCharacter, isSaoCard,
     getSettings,
     getSaoData,
-    safeJsonParse,
+    safeJsonParse, safe,
     log, updateLogDisplay,
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
@@ -59,24 +59,15 @@ import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchMo
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
 import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
+import { DANGER_LABEL } from './sao-state-projection.js';
 // sao-rules.js 已删除（规则段落直接内联到各专家 systemPrompt）
 
-// 安全执行函数，失败时返回 null（数据存储浏览器各 helper 共用）。
-// 注意:本模块未从 sao-state-projection/sao-store-world 导入 safe——这两个模块的 safe 均为模块内私有，
-// 故在此本地定义。语义与上述两处一致。
-function safe(fn, label) {
-    try {
-        return fn();
-    } catch (e) {
-        log(`[data-tab] ${label || ''} 失败: ${e.message}`, 'warn');
-        return null;
-    }
-}
 
 // ============================================================
 // 常量
 // ============================================================
 
+/** 装备槽中文标签 — 侧栏/装备列表用（完整 slot 集，与 sao-state-projection.js SLOT_DISPLAY 不同：投影用短标签） */
 const SLOT_LABELS = {
     weapon: '武器', off_hand: '副手',
     armor: '防具', chest: '胸部', helmet: '头盔', head: '头部',
@@ -98,19 +89,6 @@ const SLOT_LABELS = {
 // ============================================================
 // 工具函数
 // ============================================================
-
-function wrapAsync(fn) {
-    return (...args) => {
-        try {
-            const result = fn(...args);
-            if (result && typeof result.catch === 'function') {
-                result.catch(e => log(`${fn.name || 'event handler'} error: ${e.message}`, 'error'));
-            }
-        } catch (e) {
-            log(`${fn.name || 'event handler'} error: ${e.message}`, 'error');
-        }
-    };
-}
 
 const _processingLocks = {};
 let _saoCurrentData = {};
@@ -496,13 +474,17 @@ function bindEvents() {
                 const chat2 = chatCtx2.chat;
                 const store2 = getStore();
                 // 判断是否需要从 first_mes 初始化：
-                // (a) 聊天只有 1 条消息（first_mes），且
-                // (b) playerStore 还是默认状态（无装备、level=1）
-                if (chat2 && chat2.length <= 2 && store2) {
+                // (a) 聊天仅有 first_mes（chat2.length === 1），且
+                // (b) playerStore 完全处于初始状态（无装备、无经验、无技能、无名字、level=1）
+                if (chat2 && chat2.length === 1 && store2) {
                     const firstAiMsg = chat2.find(m => m && !m.is_user);
                     if (firstAiMsg && firstAiMsg.mes) {
                         const player = getPlayerStore();
-                        const isDefault = !player?.equipment?.weapon && (player?.progression?.level ?? 1) === 1;
+                        const isDefault = !player?.equipment?.weapon
+                            && (player?.progression?.level ?? 1) === 1
+                            && (player?.progression?.totalExp ?? 0) === 0
+                            && (player?.skills?.length ?? 0) === 0
+                            && !player?.identity?.name;
                         if (isDefault) {
                             log('检测到新游戏，从 first_mes 初始化 store');
                             (async () => {
@@ -611,7 +593,9 @@ function bindEvents() {
         }
     });
 
-    _bindEvt(event_types.MESSAGE_RECEIVED, wrapAsync(async (messageId, type) => {
+    _bindEvt(event_types.MESSAGE_RECEIVED, (..._wrapArgs) => {
+        try {
+        const _wrapResult = (async (messageId, type) => {
         if (!isSaoCard()) return;
         const settings = getSettings();
         if (!settings.enabled) return;
@@ -777,7 +761,14 @@ function bindEvents() {
 
         // 新消息的 Shadow DOM 渲染已由 CHARACTER_MESSAGE_RENDERED 事件接管（见 H1）
 
-    }));
+        })(..._wrapArgs);
+        if (_wrapResult && typeof _wrapResult.catch === 'function') {
+            _wrapResult.catch(e => log(`MESSAGE_RECEIVED handler error: ${e.message}`, 'error'));
+        }
+        } catch (e) {
+            log(`MESSAGE_RECEIVED handler error: ${e.message}`, 'error');
+        }
+    });
 
     _bindEvt(event_types.GENERATION_AFTER_COMMANDS, () => {
         if (!isSaoCard()) return;
@@ -2901,6 +2892,34 @@ function updateModelStatus(role, ok) {
     }
 }
 
+/** 渲染消耗品/任务物品/材料列表 — 三者结构相同，抽取公共函数 */
+function _renderInvList(elId, inventory, type, defaultName) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const items = (inventory?.items || []).filter(i => i.type === type && i.qty > 0);
+    if (items.length > 0) {
+        el.innerHTML = items.map((item) => {
+            const idx = (inventory.items || []).indexOf(item);
+            let name;
+            if (type === 'consumable') {
+                const def = item.consumable_id ? getConsumableById(item.consumable_id) : null;
+                name = def?.name || item.name || defaultName;
+            } else {
+                name = item.name || defaultName;
+            }
+            const btn = (type === 'consumable' && item.item_id)
+                ? `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" title="使用">✓</button>` : '';
+            if (btn) {
+                return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
+                    `<span data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</span>${btn}</div>`;
+            }
+            return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</div>`;
+        }).join('');
+    } else {
+        el.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
+    }
+}
+
 function refreshStatus() {
     const settings = getSettings();
     
@@ -2911,30 +2930,11 @@ function refreshStatus() {
     const player = getPlayerStore();
     if (!player) {
         // Clear data-dependent panels to avoid showing stale data
-        setText('sao_player_name', '-');
-        setText('sao_hp_text', '-');
-        setText('sao_mp_text', '-');
-        setText('sao_stat_str', '-');
-        setText('sao_stat_agi', '-');
-        setText('sao_stat_int', '-');
-        setText('sao_stat_vit', '-');
-        setText('sao_level_text', '-');
+        ['sao_player_name','sao_hp_text','sao_mp_text','sao_stat_str','sao_stat_agi','sao_stat_int','sao_stat_vit','sao_level_text','sao_player_location','sao_world_location','sao_world_weather','sao_world_area','sao_world_clearing','sao_world_events'].forEach(id => setText(id, '-'));
+        ['sao_hp_bar','sao_mp_bar'].forEach(id => setBar(id, 0));
         const _cursorEmpty = document.getElementById('sao_cursor_text');
         if (_cursorEmpty) _cursorEmpty.innerHTML = '<span class="sao-cursor-badge sao-cursor-green" style="opacity:0.4;filter:saturate(0.2);"><span class="sao-cursor-text">—</span></span>';
-        setText('sao_player_location', '-');
-        setText('sao_world_location', '-');
-        setText('sao_world_weather', '-');
-        setText('sao_world_area', '-');
-        setText('sao_world_clearing', '-');
-        setText('sao_world_events', '-');
-        setBar('sao_hp_bar', 0);
-        setBar('sao_mp_bar', 0);
-        const eqEl = document.getElementById('sao_equipment_list'); if (eqEl) eqEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
-        const eqdEl = document.getElementById('sao_equipped_list'); if (eqdEl) eqdEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
-        const csEl = document.getElementById('sao_consumable_list'); if (csEl) csEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
-        const qiEl = document.getElementById('sao_questitem_list'); if (qiEl) qiEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
-        const mtEl = document.getElementById('sao_material_list'); if (mtEl) mtEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
-        const skEl = document.getElementById('sao_skills_list'); if (skEl) skEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>';
+        ['sao_equipment_list','sao_equipped_list','sao_consumable_list','sao_questitem_list','sao_material_list','sao_skills_list'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">无数据</span>'; });
         const testEl = document.getElementById('sao_generate_test'); if (testEl) { testEl.className = 'sao-test-result'; testEl.textContent = ''; }
         _saoCurrentData = {};
         return;
@@ -2982,7 +2982,6 @@ function refreshStatus() {
     setText('sao_world_location', worldStore.areaStatus?.location || player.position?.location || '-');
     setText('sao_world_weather', worldStore.currentWeather?.condition || '-');
     const area = worldStore.areaStatus;
-    const DANGER_LABEL = { safe:'安全', low:'低危', medium:'中危', high:'高危', extreme:'极危' };
     setText('sao_world_area', area ? `${DANGER_LABEL[area.danger_level]||area.danger_level} - ${area.description||''}` : '-');
     // 攻略情况：只显示当前楼层攻略状态（R2: 不再列出全部楼层）
     const currentFloorId = player.position?.floor_id;
@@ -3049,55 +3048,10 @@ function refreshStatus() {
         }
     }
 
-    // 消耗品列表
-    const consEl = document.getElementById('sao_consumable_list');
-    if (consEl) {
-        const consItems = (inventory?.items || []).filter(i => i.type === 'consumable' && i.qty > 0);
-        if (consItems.length > 0) {
-            consEl.innerHTML = consItems.map((item) => {
-                const def = item.consumable_id ? getConsumableById(item.consumable_id) : null;
-                const name = def?.name || item.name || '消耗品';
-                const idx = (inventory.items || []).indexOf(item);
-                // Bug4c: item_id 为空时不渲染使用按钮（useConsumable 需要 item_id）
-                return `<div class="sao-tag sao-tag-inv" style="display:inline-flex;align-items:center;gap:6px;cursor:default;">` +
-                    `<span data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</span>` +
-                    `${item.item_id ? `<button class="sao-btn sao-btn-sm" data-action="useConsumable" data-item-id="${esc(item.item_id)}" title="使用">✓</button>` : ''}` +
-                    `</div>`;
-            }).join('');
-        } else {
-            consEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-        }
-    }
-
-    // 任务物品列表
-    const qiEl = document.getElementById('sao_questitem_list');
-    if (qiEl) {
-        const qiItems = (inventory?.items || []).filter(i => i.type === 'quest_item' && i.qty > 0);
-        if (qiItems.length > 0) {
-            qiEl.innerHTML = qiItems.map((item) => {
-                const name = item.name || '任务物品';
-                const idx = (inventory.items || []).indexOf(item);
-                return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</div>`;
-            }).join('');
-        } else {
-            qiEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-        }
-    }
-
-    // 材料列表
-    const mtEl = document.getElementById('sao_material_list');
-    if (mtEl) {
-        const mtItems = (inventory?.items || []).filter(i => i.type === 'material' && i.qty > 0);
-        if (mtItems.length > 0) {
-            mtEl.innerHTML = mtItems.map((item) => {
-                const name = item.name || '材料';
-                const idx = (inventory.items || []).indexOf(item);
-                return `<div class="sao-tag sao-tag-inv" data-detail-type="inv" data-detail-index="${idx}" style="cursor:pointer;">${esc(name)} x${esc(item.qty)}</div>`;
-            }).join('');
-        } else {
-            mtEl.innerHTML = '<span style="opacity:0.5;font-size:0.85em;">空</span>';
-        }
-    }
+    // 消耗品 / 任务物品 / 材料列表（共用渲染逻辑）
+    _renderInvList('sao_consumable_list', inventory, 'consumable', '消耗品');
+    _renderInvList('sao_questitem_list', inventory, 'quest_item', '任务物品');
+    _renderInvList('sao_material_list', inventory, 'material', '材料');
 
     // 更新 _saoCurrentData.inventory（详情弹窗索引用原始 inventory.items 下标）
     _saoCurrentData = _saoCurrentData || {};

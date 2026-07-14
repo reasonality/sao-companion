@@ -18,14 +18,14 @@ import { getPlayerGuild } from './sao-store-guild.js';
 import { getPlayerHousing, getActiveFurnitureBuffs } from './sao-store-housing.js';
 import { getUniqueSkill, getUniqueSkillBuffLevel, getVisualStage } from './sao-skills.js';
 
-/** 区域危险度 → 中文标签（与面板侧栏 index.js DANGER_LABEL 对齐） */
-const DANGER_LABEL = { safe: '安全', low: '低危', medium: '中危', high: '高危', extreme: '极危' };
+/** 区域危险度 → 中文标签（index.js 也导入此值） */
+export const DANGER_LABEL = { safe: '安全', low: '低危', medium: '中危', high: '高危', extreme: '极危' };
 
 // ============================================================
 // 常量 & 映射
 // ============================================================
 
-/** 内部 slot 名 → 中文显示名 */
+/** 内部 slot 名 → 短中文显示名（投影/聊天用，与 index.js SLOT_LABELS 不同：侧栏用完整标签） */
 const SLOT_DISPLAY = {
     weapon:    '主手',
     off_hand:  '副手',
