@@ -529,7 +529,31 @@ ${aiMessage.substring(0, 8000)}`;
 
 // === 数据应用函数（customSkillDefs 通过参数注入） ===
 
-export async function applyExtractedData(extracted, customSkillDefs, isNewGame = false) {
+/**
+ * 检查叙事文本中是否包含技能获取信号。
+ * 需要同时包含获取动词和技能名词，以减少误判：
+ * - 单独"技能" → "你的技能很生疏"误判
+ * - 单独"获得" → "获得了经验值"误判
+ * - 动词+名词交集 → 高置信度获取信号
+ */
+function hasSkillAcquisitionSignal(text) {
+    if (!text) return false;
+    const acquisitionVerbs = [
+        '学会了', '习得了', '获得了', '解锁了', '领悟了', '掌握了',
+        '觉醒了', '觉醒', '爆出', '掉落了', '突破了', '跨越了',
+        '学会', '习得', '获得', '解锁', '领悟', '掌握',
+        '新技能', '新剑技', '新招式',
+    ];
+    const skillNouns = [
+        '剑技', '技能', '剑招', '招式', '武技', '战技', '刀技',
+        '连击', '必杀技', '奥义', '绝技',
+    ];
+    const hasVerb = acquisitionVerbs.some(v => text.includes(v));
+    const hasNoun = skillNouns.some(n => text.includes(n));
+    return hasVerb && hasNoun;
+}
+
+export async function applyExtractedData(extracted, customSkillDefs, isNewGame = false, rawText = '') {
     if (!extracted) return;
     const data = getStore();
     if (!data) return;
@@ -800,10 +824,26 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 }
             }
 
+            // 技能获取信号验证：新技能仅在叙事有获取信号时才创建
+            const existingSkillNames = new Set((player.skills || []).map(s => s.name));
+            const hasSignal = isNewGame || hasSkillAcquisitionSignal(rawText);
+            if (!hasSignal) {
+                const blockedNames = s.skills
+                    .filter(sk => sk.name && !customSkillNames.has(sk.name) && !existingSkillNames.has(sk.name))
+                    .map(sk => sk.name);
+                if (blockedNames.length > 0) {
+                    log(`[技能验证] 叙事无习得信号，拒绝新增技能: ${blockedNames.join(', ')}`, 'warn');
+                }
+            }
+
             for (const sk of s.skills) {
                 if (!sk.name) continue;
                 // Skip custom skills (don't overwrite)
                 if (customSkillNames.has(sk.name)) continue;
+
+                // 防幻觉: 新技能仅在叙事有获取信号时才创建
+                const isNewSkill = !existingSkillNames.has(sk.name);
+                if (isNewSkill && !hasSignal) continue;
 
                 // Find or create skill definition in skillStore
                 // (findOrCreateSkill already merges combat/effects when found)

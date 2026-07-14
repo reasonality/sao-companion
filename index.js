@@ -625,7 +625,7 @@ function bindEvents() {
             await callStatusSpecialist(messageId, rawText);
             // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
             const extracted = await extractAll(rawText, callModel, messageId);
-            const newNpcs = extracted ? await applyExtractedData(extracted, CUSTOM_SKILL_DEFS) : [];
+            const newNpcs = extracted ? await applyExtractedData(extracted, CUSTOM_SKILL_DEFS, false, rawText) : [];
 
             // P3e: 新 NPC 档案生成（fire-and-forget，非阻塞）
             if (Array.isArray(newNpcs) && newNpcs.length > 0) {
