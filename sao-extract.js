@@ -21,8 +21,13 @@ import { setPlayerHousing, updatePlayerHousing, addDecoration, addFurniture, rem
 /** 中文装备槽位名 → 英文 slot 键映射（避免循环内重复构造） */
 const SLOT_CN_TO_EN = { '武器':'weapon', '副手':'off_hand', '防具':'armor', '头部':'head', '头盔':'helmet', '胸部':'chest', '手部':'hands', '手套':'gloves', '腿部':'legs', '靴子':'boots', '盾牌':'shield', '饰品':'accessory', '戒指':'ring', '项链':'necklace', '披风':'cape', '腰带':'belt' };
 
-/** 武器/防具关键词正则：物品名匹配到这些关键词时，即使 LLM 未标注 type 也按装备处理。 */
-const EQUIP_NAME_RE = /匕首|短刀|长刀|太刀|刀|剑|枪|矛|斧|弓|弩|锤|杖|棍|镰|盾|盔|甲|护手|护腿|护肩|披风|斗篷|戒指|项链|腰带|靴|鞋|头盔|胸甲|护腕/;
+/** 武器/防具关键词正则：物品名匹配到这些关键词时，即使 LLM 未标注 type 也按装备处理。
+ *  注意：需配合 CONSUMABLE_NAME_RE 排除药水/食物等消耗品，避免"剑技药水"等含武器词的消耗品误判。 */
+const EQUIP_NAME_RE = /匕首|短刀|长刀|太刀|刀|剑|枪|矛|斧|弓|弩|锤|杖|棍|镰|盾|盔|护手|护腿|护肩|披风|斗篷|戒指|项链|腰带|靴|鞋|头盔|胸甲|护腕/;
+
+/** 消耗品关键词正则：物品名含这些词时强制为消耗品，覆盖 EQUIP_NAME_RE 的误匹配。
+ *  例："初级剑技药水"含"剑"匹配 EQUIP_NAME_RE，但"药水"匹配 CONSUMABLE_NAME_RE → 判为消耗品。 */
+const CONSUMABLE_NAME_RE = /药水|药丸|药膏|药剂|药片|卷轴|地图|食物|面包|干粮|水壶|口粮|精华|碎片|结晶|矿石|草药|蘑菇|肉干|果汁|茶|酒/;
 
 // === 纯解析函数 ===
 
@@ -526,6 +531,26 @@ export async function applyExtractedData(extracted, customSkillDefs) {
     if (extracted.state) {
         const s = extracted.state;
 
+        // 0. 属性漂移守卫：拒绝单回合内不合理的属性剧变
+        // 原因：status specialist LLM 可能在当前值上重复叠加装备加成（如 VIT 7+6=13→19）
+        // 守卫：如果属性变化超过 +10（单回合），视为 LLM 错误，保留当前值
+        {
+            const player = getPlayerStore();
+            if (player?.attributes) {
+                const cur = player.attributes;
+                const ATTR_MAX_DELTA = 10;
+                for (const [k, v] of [['str', s.str], ['agi', s.agi], ['int', s.int], ['vit', s.vit]]) {
+                    if (v != null && cur[k] != null && cur[k] > 0) {
+                        const delta = v - cur[k];
+                        if (delta > ATTR_MAX_DELTA) {
+                            log(`属性漂移守卫: ${k.toUpperCase()} ${cur[k]}→${v} (Δ${delta}>${ATTR_MAX_DELTA})，拒绝更新`, 'warn');
+                            s[k] = cur[k]; // 回退到当前值
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Scalars → playerStore
         if (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null) {
             await updatePlayerVitals({
@@ -605,9 +630,11 @@ export async function applyExtractedData(extracted, customSkillDefs) {
             for (const item of s.inventory) {
                 if (!item || !item.name) continue;
                 // Determine type: if item has stats/equipment-like fields OR matches weapon/armor name keywords,
-                // route to equipment+inventory (backpack)
-                const looksLikeEquipment = !item.type && EQUIP_NAME_RE.test(item.name);
-                if (item.stats || item.slot || item._equip_backpack || item.durability || item.type === 'equipment' || looksLikeEquipment) {
+                // route to equipment+inventory (backpack).
+                // 消耗品名称优先：即使含武器关键词（如"剑技药水"含"剑"），含药水/食物等词则判为消耗品。
+                const isConsumableByName = CONSUMABLE_NAME_RE.test(item.name);
+                const looksLikeEquipment = !item.type && !isConsumableByName && EQUIP_NAME_RE.test(item.name);
+                if (!isConsumableByName && (item.stats || item.slot || item._equip_backpack || item.durability || item.type === 'equipment' || looksLikeEquipment)) {
                     // 装备背包项：从中文槽位名映射为英文 slot（SLOT_CN_TO_EN 已提到模块级）
                     const mappedSlot = item.slot || SLOT_CN_TO_EN[item.type];
                     if (item.type && !item.slot && !SLOT_CN_TO_EN[item.type] && item._equip_backpack) {
