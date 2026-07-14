@@ -272,10 +272,10 @@ describe('runLorebookPreParser — Idempotency', () => {
         expect(result1.npcCount).toBe(1);
         vi.mocked(log).mockClear();
 
-        // Second run — should skip
+        // Second run — should skip re-parse
         const result2 = runLorebookPreParser(entries);
         expect(result2).toBeNull();
-        expect(log).toHaveBeenCalledWith('Lore pre-parser: already parsed, skipping');
+        expect(log).toHaveBeenCalledWith('Lore pre-parser: already parsed, skipping re-parse');
     });
 
     it('re-parses when entry content changes (hash mismatch)', () => {
@@ -340,7 +340,11 @@ describe('runLorebookPreParser — Idempotency', () => {
         // so it should match and skip (no re-parse despite re-enabled entries)
         const result2 = runLorebookPreParser(entries);
         expect(result2).toBeNull();
-        expect(log).toHaveBeenCalledWith('Lore pre-parser: already parsed, skipping');
+        expect(log).toHaveBeenCalledWith('Lore pre-parser: already parsed, skipping re-parse');
+        // After reload skip path, entries should be re-disabled in-memory
+        expect(entries[0].disable).toBe(true);
+        expect(entries[1].disable).toBe(true);
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('re-disabled'));
     });
 });
 

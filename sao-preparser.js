@@ -435,7 +435,20 @@ export function runLorebookPreParser(entries) {
     if (store.loreParsed?.version === CURRENT_LORE_PARSER_VERSION) {
         const currentHash = computeEntriesHash(entries);
         if (store.loreParsed.entryHash === currentHash) {
-            log('Lore pre-parser: already parsed, skipping');
+            log('Lore pre-parser: already parsed, skipping re-parse');
+            // CRITICAL: entry.disable 是 in-memory 的，页面刷新后丢失。
+            // 即使 hash 匹配（卡片内容未变），也必须重新禁用已解析的条目，
+            // 否则 ST 会重新注入楼层/日历/NPC/规则条目到提示词。
+            const cachedResults = {
+                npcCount: store.loreParsed.npcCount || 0,
+                floorCount: store.loreParsed.floorCount || 0,
+                timelineCount: store.loreParsed.timelineCount || 0,
+                rulesCount: store.loreParsed.rulesCount || 0,
+            };
+            const reDisabled = disableParsedEntries(entries, cachedResults);
+            if (reDisabled > 0) {
+                log(`Lore pre-parser: re-disabled ${reDisabled} entries after reload`);
+            }
             return null;
         }
         log('Lore pre-parser: card content changed, re-parsing');
