@@ -932,6 +932,26 @@ function bindEvents() {
             const ctx = getContext();
             const msg = ctx.chat?.[messageId];
             if (!msg || msg.is_user) return;
+
+            // 跳过正在生成的最新消息：CHARACTER_MESSAGE_RENDERED 在流式输出期间就触发，
+            // 此时 msg.mes 可能不完整，store 还是上一轮的旧数据。
+            // MESSAGE_RECEIVED 会在生成完成后处理并渲染，不需要这里抢先渲染。
+            // 只对历史消息（非最后一条 AI 消息）渲染。
+            const isLatest = (messageId === ctx.chat.length - 1);
+            if (isLatest) {
+                // 最新消息：检查 MESSAGE_RECEIVED 是否已处理过此消息
+                // 如果有 shadow host 说明已渲染过（swipe/编辑场景），跳过
+                const msgEl = getMessageElement(messageId);
+                if (msgEl && !msgEl.querySelector('.sao-render-host')) {
+                    log(`CHARACTER_MESSAGE_RENDERED: 跳过最新消息 #${messageId}（等待 MESSAGE_RECEIVED 处理）`);
+                    return;
+                }
+                // 已有 shadow host（swipe/编辑场景）→ 重新渲染
+                if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
+                return;
+            }
+
+            // 历史消息：直接渲染
             const msgEl = getMessageElement(messageId);
             if (msgEl) renderAllTags(msgEl, msg.mes || '', messageId);
         });
