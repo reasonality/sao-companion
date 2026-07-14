@@ -42,8 +42,31 @@ const DEFAULT_PLAYER = Object.freeze({
 });
 
 // ============================================================
-// 内部工具
+// 逻辑定义的初始角色数值（不由卡片/LLM 决定）
+// 战斗系统已删除，HP 为叙事驱动，不再受战斗公式约束
 // ============================================================
+const STARTING_BASE_ATTRIBUTES = { str: 1, agi: 1, int: 1, vit: 1 };
+const STARTING_MAX_HP = 100;
+const STARTING_MAX_MP = 20;
+export const STARTING_COR = 1000;
+
+/**
+ * 初始化逻辑管理的新游戏角色数值。
+ * 不从卡片/LLM 读取数值，全部由插件逻辑定义。
+ * 装备加成在调用此函数前的 equipItem 流程中已处理，此函数设置 base 后 recalc 同步总值。
+ */
+export function initStartingCharacter() {
+    const player = getPlayerStore();
+    player.baseAttributes = { ...STARTING_BASE_ATTRIBUTES };
+    player._baseVitals = { maxHp: STARTING_MAX_HP, maxMp: STARTING_MAX_MP };
+    // recalc 同步总属性（base + 装备加成）与总上限
+    recalcStatsFromEquipment(true);
+    // 满血满蓝
+    player.vitals.hp = player.vitals.maxHp;
+    player.vitals.mp = player.vitals.maxMp;
+    player._logicManaged = true;
+    log(`逻辑初始化角色: baseAttributes=${JSON.stringify(player.baseAttributes)} maxHp=${player.vitals.maxHp} maxMp=${player.vitals.maxMp}`);
+}
 
 /**
  * 获取 playerStore 引用（惰性初始化）。

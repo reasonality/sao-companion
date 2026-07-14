@@ -4,7 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -579,31 +579,21 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
             }
         }
 
-        // 1. 数值 → playerStore（逻辑管理：仅新游戏首次从卡片初始化数值，
-        //    卡片 first_mes 是静态模板（非 LLM 动态输出），可信任作为初始值。
-        //    updatePlayerAttributes 会从总值减去装备加成推导 baseAttributes（正确）。
+        // 1. 数值 → playerStore（逻辑管理：新游戏数值全部由插件逻辑定义，
+        //    不从卡片/LLM 读取 STR/AGI/INT/VIT/HP/MP。装备加成在上方 equipItem 中已处理。
         //    之后 LLM 消息不再覆盖数值；maxHp/maxMp 由升级成长 + 装备加成管理。
         if (isNewGame) {
-            // 装备已在上方 equipItem 中处理，bonuses 已在 attributes 中。
-            // updatePlayerAttributes 写入卡片总值（含装备加成），内部推导 base = total - bonuses
-            if (s.str != null || s.agi != null || s.int != null || s.vit != null) {
-                await updatePlayerAttributes({ str: s.str, agi: s.agi, int: s.int, vit: s.vit }, true);
-            }
-            // HP/MP：写入卡片初始值，updatePlayerVitals 内部推导 _baseVitals = max - bonuses
-            if (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null) {
-                await updatePlayerVitals({ hp: s.hp, maxHp: s.max_hp, mp: s.mp, maxMp: s.max_mp }, true);
-            }
-            const player = getPlayerStore();
-            player._logicManaged = true;
-            log('新游戏初始化: baseAttributes=' + JSON.stringify(player.baseAttributes)
-                + ' maxHp=' + player.vitals.maxHp + ' maxMp=' + player.vitals.maxMp);
+            initStartingCharacter();
         }
         // 非新游戏：hp/mp/str/agi/int/vit 不再从 LLM 提取覆盖
 
         if (s.level != null || s.exp != null) {
             await updatePlayerProgression(s.level, s.exp, true);
         }
-        if (s.cor != null) {
+        if (isNewGame) {
+            // 珂尔初始化为逻辑定义值（不从卡片读取）
+            await updateCurrency(STARTING_COR, true);
+        } else if (s.cor != null) {
             await updateCurrency(s.cor, true);
         }
         if (s.location != null || s.floor != null) {
