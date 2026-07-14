@@ -129,13 +129,15 @@ export function applyEventChanges(calStore, changes) {
     let count = 0;
     if (Array.isArray(changes.added)) {
         for (const ev of changes.added) {
-            if (!ev || !ev.date || !ev.title) continue;
+            // 兼容 LLM 输出 description 作为 title 的别名
+            const title = ev?.title || ev?.description;
+            if (!ev || !ev.date || !title) continue;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
             if (!overrides[ev.date]) overrides[ev.date] = {};
             if (!Array.isArray(overrides[ev.date].added)) overrides[ev.date].added = [];
             overrides[ev.date].added.push({
-                title: ev.title,
-                description: ev.description || ev.title,
+                title: title,
+                description: ev.description || title,
                 type: ev.type || 'custom',
                 time: ev.time || '',
                 source: 'llm',
@@ -145,29 +147,33 @@ export function applyEventChanges(calStore, changes) {
     }
     if (Array.isArray(changes.deleted)) {
         for (const ev of changes.deleted) {
-            if (!ev || !ev.date || !ev.title) continue;
+            // 兼容 LLM 输出 description 作为 title 的别名
+            const title = ev?.title || ev?.description;
+            if (!ev || !ev.date || !title) continue;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
             if (!overrides[ev.date]) overrides[ev.date] = {};
             if (Array.isArray(overrides[ev.date].added)) {
                 const before = overrides[ev.date].added.length;
-                overrides[ev.date].added = overrides[ev.date].added.filter(a => a.title !== ev.title);
+                overrides[ev.date].added = overrides[ev.date].added.filter(a => a.title !== title);
                 if (overrides[ev.date].added.length < before) { count++; continue; }
             }
             if (!overrides[ev.date].hideCanonTitles) overrides[ev.date].hideCanonTitles = [];
-            if (!overrides[ev.date].hideCanonTitles.includes(ev.title)) {
-                overrides[ev.date].hideCanonTitles.push(ev.title);
+            if (!overrides[ev.date].hideCanonTitles.includes(title)) {
+                overrides[ev.date].hideCanonTitles.push(title);
                 count++;
             }
         }
     }
     if (Array.isArray(changes.modified)) {
         for (const ev of changes.modified) {
-            if (!ev || !ev.date || !ev.old_title) continue;
+            // 兼容 LLM 输出 old_description 作为 old_title 的别名
+            const oldTitle = ev?.old_title || ev?.old_description;
+            if (!ev || !ev.date || !oldTitle) continue;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) continue;
             if (!overrides[ev.date]) overrides[ev.date] = {};
             if (!overrides[ev.date].modifiedCanon) overrides[ev.date].modifiedCanon = {};
-            overrides[ev.date].modifiedCanon[ev.old_title] = {
-                title: ev.new_title || ev.old_title,
+            overrides[ev.date].modifiedCanon[oldTitle] = {
+                title: ev.new_title || ev.new_description || oldTitle,
                 description: ev.new_description || '',
             };
             count++;

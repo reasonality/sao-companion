@@ -477,6 +477,7 @@ export function projectStateHint() {
     // 基础
     if (player.identity?.name) parts.push(player.identity.name);
     if (player.progression?.level != null) parts.push(`Lv${player.progression.level}`);
+    if (player.progression?.totalExp != null) parts.push(`Exp:${player.progression.totalExp}`);
 
     // HP / MP
     if (player.vitals) {
@@ -493,6 +494,14 @@ export function projectStateHint() {
         if (attr.int != null) parts.push(`INT:${attr.int}`);
         if (attr.vit != null) parts.push(`VIT:${attr.vit}`);
     }
+
+    // 珂尔（货币）— 必须提供当前值，否则 LLM 无法"保持当前值不变"
+    const cor = safe(() => getCurrency(), 'getCurrency');
+    if (cor != null) parts.push(`Cor:${cor}`);
+
+    // 位置
+    if (player.position?.floor_id != null) parts.push(`位置:${player.position.floor_id}F`);
+    if (player.position?.location) parts.push(player.position.location);
 
     const mainParts = [parts.join(' ')];
 
