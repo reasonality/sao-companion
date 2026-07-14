@@ -331,41 +331,35 @@ export async function updatePlayerAttributes(attrs, skipSave) {
 }
 
 // ============================================================
-// 数值推导公式（逻辑管理：maxHp/maxMp 由 baseVIT/baseINT 推导，不由 LLM 决定）
+// 升级成长（逻辑管理：固定成长值，不由 LLM 决定）
+// 注意：不使用 VIT/INT 公式推导 maxHp/maxMp — 卡片作者自行设定了基础 HP/MP（如基础 maxHp=510），
+// 公式 (100+VIT*10) 与卡片设计不兼容。改为在卡片初始 _baseVitals 基础上每级固定增长。
 // ============================================================
 
-/** 基础 maxHp = 100 + baseVIT * 10 */
-function deriveBaseMaxHp(baseVit) {
-    return 100 + (baseVit || 0) * 10;
-}
-/** 基础 maxMp = 20 + baseINT * 5 */
-function deriveBaseMaxMp(baseInt) {
-    return 20 + (baseInt || 0) * 5;
-}
-/** 每级成长：四维各 +1（SAO 固定成长，无手动分配） */
-function getLevelUpGrowth(_level) {
-    return { str: 1, agi: 1, int: 1, vit: 1 };
-}
+/** 每级固定成长：四维各 +1，maxHp +50，maxMp +10（SAO 固定成长，无手动分配） */
+const LEVEL_UP_STAT_GROWTH = { str: 1, agi: 1, int: 1, vit: 1 };
+const LEVEL_UP_HP_GROWTH = 50;
+const LEVEL_UP_MP_GROWTH = 10;
 
 /**
- * 升级时按公式成长 baseAttributes，并重新推导 maxHp/maxMp，满血满蓝。
+ * 升级时按固定值成长 baseAttributes 和 _baseVitals，满血满蓝。
+ * maxHp/maxMp 在卡片初始 _baseVitals 基础上每级 +50/+10，不由 VIT/INT 公式推导。
  * @param {number} oldLevel
  * @param {number} newLevel
  */
 export function applyLevelUpGrowth(oldLevel, newLevel) {
     const player = getPlayerStore();
     const times = newLevel - oldLevel;
-    if (times <= 0 || !player.baseAttributes) return;
+    if (times <= 0 || !player.baseAttributes || !player._baseVitals) return;
     for (let i = 0; i < times; i++) {
-        const g = getLevelUpGrowth(oldLevel + i + 1);
-        player.baseAttributes.str += g.str;
-        player.baseAttributes.agi += g.agi;
-        player.baseAttributes.int += g.int;
-        player.baseAttributes.vit += g.vit;
+        player.baseAttributes.str += LEVEL_UP_STAT_GROWTH.str;
+        player.baseAttributes.agi += LEVEL_UP_STAT_GROWTH.agi;
+        player.baseAttributes.int += LEVEL_UP_STAT_GROWTH.int;
+        player.baseAttributes.vit += LEVEL_UP_STAT_GROWTH.vit;
+        player._baseVitals.maxHp += LEVEL_UP_HP_GROWTH;
+        player._baseVitals.maxMp += LEVEL_UP_MP_GROWTH;
     }
     const bonuses = _getEquipmentBonuses();
-    player._baseVitals.maxHp = deriveBaseMaxHp(player.baseAttributes.vit);
-    player._baseVitals.maxMp = deriveBaseMaxMp(player.baseAttributes.int);
     player.vitals.maxHp = player._baseVitals.maxHp + bonuses.maxHp;
     player.vitals.maxMp = player._baseVitals.maxMp + bonuses.maxMp;
     // 升级满血满蓝（SAO 惯例）
@@ -378,7 +372,7 @@ export function applyLevelUpGrowth(oldLevel, newLevel) {
         int: player.baseAttributes.int + bonuses.int,
         vit: player.baseAttributes.vit + bonuses.vit,
     };
-    log(`升级: Lv.${oldLevel}→${newLevel}, 四维各+${times}, maxHp=${player.vitals.maxHp} maxMp=${player.vitals.maxMp}`);
+    log(`升级: Lv.${oldLevel}→${newLevel}, 四维各+${times}, maxHp+${times*LEVEL_UP_HP_GROWTH} maxMp+${times*LEVEL_UP_MP_GROWTH}, maxHp=${player.vitals.maxHp} maxMp=${player.vitals.maxMp}`);
 }
 
 /**
