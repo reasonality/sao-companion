@@ -34,6 +34,8 @@ const SAO_PROMPT_STRIP_TAGS = [
     'preview',
     'output_instruction',
     'system_state_ref',
+    'gain_skill',
+    'gain_equipment',
 ];
 
 /**
@@ -95,11 +97,13 @@ export function injectMemoryAndState() {
         parts.push('严禁在你的回复中复制、原样输出、或以任何形式复述此状态块。');
         parts.push('状态显示由系统专家管理，你只需输出叙事正文和 <equip>/<swordskill> 标签。');
         parts.push('## 获取标签（重要）');
-        parts.push('当叙事中玩家学会新剑技时，在叙事末尾输出: <gain_skill>武器类型</gain_skill>');
-        parts.push('  例: <gain_skill>单手直剑</gain_skill> — 插件自动生成技能名称和数值');
-        parts.push('当叙事中玩家获得新装备时，在叙事末尾输出: <gain_equipment>类型:稀有度</gain_equipment>');
-        parts.push('  例: <gain_equipment>敏捷型:蓝色</gain_equipment> — 插件自动生成装备名称和数值');
-        parts.push('仅在叙事确实描写了获取事件时才输出这些标签。不要凭空创造获取事件。');
+        parts.push('当叙事中玩家学会新剑技时，在叙事末尾输出:');
+        parts.push('<gain_skill name="剑技名" weapon_type="武器类型" description="1-2句描述">武器类型</gain_skill>');
+        parts.push('  例: <gain_skill name="风之轨迹" weapon_type="单手直剑" description="以风之势连续斩击目标三次">单手直剑</gain_skill>');
+        parts.push('当叙事中玩家获得新装备时，在叙事末尾输出:');
+        parts.push('<gain_equipment name="装备名" slot="槽位" stat_type="类型" rarity="稀有度" description="1-2句描述">类型:稀有度</gain_equipment>');
+        parts.push('  例: <gain_equipment name="暗影短刀" slot="weapon" stat_type="敏捷型" rarity="蓝色" description="轻巧的短刀，刀身泛着寒光">敏捷型:蓝色</gain_equipment>');
+        parts.push('数值由插件自动计算，你只需提供名称和描述。name和description必须填写。仅在叙事确实描写了获取事件时才输出这些标签。');
         parts.push(stateText);
         parts.push('</system_state_ref>');
     }
