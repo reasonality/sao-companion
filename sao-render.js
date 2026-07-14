@@ -11,8 +11,8 @@ import { buildCleanCalendarDays } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
 import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared } from './sao-detail-popup.js';
 import { equipItem, unequipItem, getPlayerStore, forgetPlayerSkill } from './sao-store-player.js';
-import { getEquipmentById } from './sao-store-equipment.js';
-import { getSkillById } from './sao-store-skill.js';
+import { getEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
+import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { createQuest, completeQuest, abandonQuest, getCompletedQuests } from './sao-store-quest.js';
 import { useConsumable, getConsumableById } from './sao-store-consumable.js';
 import { getInventoryStore } from './sao-store-inventory.js';
@@ -1974,25 +1974,106 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
     `;
 }
 
+// ============================================================
+// 新装备/新剑技通知面板 — row-based 渲染（与 sao-detail-popup.js 一致）
+// 数据源：equipmentStore.byId / playerStore.skills（结构化数据）
+// 直接复用 _renderEquipShared / _renderSkillShared 模板，避免布局漂移。
+// 模块级 Set 跟踪已展示 ID，避免同一会话内重复弹出。
+// ============================================================
+const _shownNotificationEquipmentIds = new Set();
+const _shownNotificationSkillIds = new Set();
+
+/** 通知面板 row 布局 CSS（与 _showShadowModal 内 row 样式一致），追加到现有 style 块末尾。 */
+const SAO_NOTIFY_ROW_CSS = `
+            .sao-detail-row{display:flex!important;justify-content:space-between!important;padding:6px 0!important;border-bottom:1px solid rgba(255,255,255,0.05)!important;gap:12px!important;align-items:baseline;}
+            .sao-detail-label{opacity:0.7!important;font-size:0.85em!important;color:#9fb0cc!important;font-family:"Rajdhani","Noto Sans SC",sans-serif!important;}
+            .sao-detail-value{font-weight:700!important;color:#eaf2ff!important;text-align:right!important;}
+            .sao-rarity-common{color:#9fb0cc!important;}
+            .sao-rarity-uncommon{color:#4ade80!important;}
+            .sao-rarity-rare{color:#60a5fa!important;}
+            .sao-rarity-epic{color:#c084fc!important;}
+            .sao-rarity-legendary{color:#fbbf24!important;text-shadow:0 0 10px rgba(255,184,0,0.35)!important;}
+            .sao-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.78em;background:rgba(0,210,255,0.1);border:1px solid rgba(0,210,255,0.2);color:#66e8ff;margin:2px 2px 2px 0;}
+            .sao-tag-affix{background:rgba(168,85,247,0.1);border-color:rgba(168,85,247,0.3);color:#c084fc;}
+            .sao-notify-item{margin:0 0 12px 0;padding:0 0 10px 0;border-bottom:1px dashed rgba(0,210,255,0.18);}
+            .sao-notify-item:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
+            .sao-notify-item-name{font-weight:700;font-size:1.05em;color:#eaf2ff;margin-bottom:6px;font-family:"Rajdhani","Noto Sans SC",sans-serif;letter-spacing:0.4px;}
+`;
+
+/**
+ * 收集本会话内尚未在通知面板中展示过的装备条目（结构化 fallback 路径）。
+ * @returns {object[]}
+ */
+function _collectNewEquipmentEntries() {
+    let store;
+    try { store = getEquipmentStore(); } catch { return []; }
+    if (!store?.byId) return [];
+    const newEntries = [];
+    for (const [id, entry] of Object.entries(store.byId)) {
+        if (!entry || _shownNotificationEquipmentIds.has(id)) continue;
+        // 附加 equipment_id 字段符合 _renderEquipShared 的预期（不影响输出）
+        newEntries.push({ ...entry, equipment_id: id });
+        _shownNotificationEquipmentIds.add(id);
+    }
+    return newEntries;
+}
+
+/**
+ * 收集本会话内尚未在通知面板中展示过的剑技条目。
+ * 与 sao-render.js 详情弹窗（行 1786-1791）相同模式：从 playerStore.skills 取 proficiency，
+ * 与 skillStore.byId[skill_id].def 合并。注意：剥离 skill_id 以阻止 _renderSkillShared
+ * 渲染"遗忘此剑技"按钮（通知面板上下文未绑定 forget handler，避免点击无响应）。
+ * @returns {object[]}
+ */
+function _collectNewSkillEntries() {
+    let store, player;
+    try { store = getSkillStore(); } catch { return []; }
+    try { player = getPlayerStore(); } catch { player = null; }
+    if (!store?.byId || !Array.isArray(player?.skills)) return [];
+    const newEntries = [];
+    for (const s of player.skills) {
+        const id = s?.skill_id;
+        if (!id || _shownNotificationSkillIds.has(id)) continue;
+        const def = store.byId[id];
+        if (!def) continue;
+        // 故意剥离 skill_id：suppress _renderSkillShared 中的"遗忘此剑技"按钮
+        const merged = { ...def, proficiency: s.proficiency ?? 0, name: def.name || s.name };
+        delete merged.skill_id;
+        newEntries.push(merged);
+        _shownNotificationSkillIds.add(id);
+    }
+    return newEntries;
+}
+
 function renderEquipment(messageEl, rawText, messageId, refNode) {
-    // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
+    // P2: 优先从专家面板数据读取（非空）；回退到 <equip> 标签（兼容旧 AI）；
+    // 仍无内容则从 equipmentStore.byId 投影渲染 row-based 视图。
     const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.equipment : null;
     let itemsHtml = '';
     if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
         itemsHtml = sanitizeInlineSaoHtml(panel.html);
     } else {
-        const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)]
-        if (matches.length === 0) return
-        // 内容验证：跳过 AI 规划文本（无 HTML 标签的纯文本，如 "step2：逐一查验..."）
-        const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()))
-        if (validMatches.length === 0) return
-        itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+        const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)];
+        if (matches.length > 0) {
+            const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()));
+            if (validMatches.length > 0) {
+                itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n');
+            }
+        }
+        if (!itemsHtml) {
+            const newEntries = _collectNewEquipmentEntries();
+            if (newEntries.length === 0) return;
+            itemsHtml = newEntries
+                .map(eq => `<div class="sao-notify-item"><div class="sao-notify-item-name">⚔️ ${esc(eq.name || eq.equipment_id)}</div>${_renderEquipShared(eq)}</div>`)
+                .join('');
+        }
     }
     const { shadow } = createSaoShadowHost(messageEl, 'equip', refNode)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
             ${SHARED_SAO_PANEL_CSS}
+            ${SAO_NOTIFY_ROW_CSS}
         </style>
         <div class="sao-panel-wrapper">
             <details class="sao-panel-details">
@@ -2004,24 +2085,34 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
 }
 
 function renderSwordSkill(messageEl, rawText, messageId, refNode) {
-    // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
+    // P2: 优先从专家面板数据读取（非空）；回退到 <swordskill> 标签（兼容旧 AI）；
+    // 仍无内容则从 playerStore.skills 投影渲染 row-based 视图。
     const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.swordskill : null;
     let itemsHtml = '';
     if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
         itemsHtml = sanitizeInlineSaoHtml(panel.html);
     } else {
         const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
-        if (matches.length === 0) return
-        // 内容验证：跳过 AI 规划文本（无 HTML 标签的纯文本）
-        const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()))
-        if (validMatches.length === 0) return
-        itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+        if (matches.length > 0) {
+            const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()));
+            if (validMatches.length > 0) {
+                itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
+            }
+        }
+        if (!itemsHtml) {
+            const newEntries = _collectNewSkillEntries();
+            if (newEntries.length === 0) return;
+            itemsHtml = newEntries
+                .map(sk => `<div class="sao-notify-item"><div class="sao-notify-item-name">✨ ${esc(sk.name || '(未命名剑技)')}</div>${_renderSkillShared(sk, null)}</div>`)
+                .join('');
+        }
     }
     const { shadow } = createSaoShadowHost(messageEl, 'swordskill', refNode)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
             ${SHARED_SAO_PANEL_CSS}
+            ${SAO_NOTIFY_ROW_CSS}
         </style>
         <div class="sao-panel-wrapper">
             <details class="sao-panel-details">
