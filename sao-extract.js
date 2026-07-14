@@ -254,6 +254,12 @@ function parseUserStatus(statusText) {
     const invMatches = statusText.matchAll(/[•]\s*(.+?)\s*x\s*(\d+)\s*(?:\((.+?)\))?/g);
     for (const m of invMatches) {
         const item = { name: m[1].trim(), qty: parseInt(m[2]) || 1 };
+        // 类型判断：消耗品名称关键词优先，其次武器/防具关键词
+        if (CONSUMABLE_NAME_RE.test(item.name)) {
+            item.type = 'consumable';
+        } else if (EQUIP_NAME_RE.test(item.name)) {
+            item.type = 'equipment';
+        }
         if (m[3]) {
             const detail = m[3].trim();
             // Try to extract item level: ⭐Lv.1 or ⭐Lv1
