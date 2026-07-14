@@ -1334,7 +1334,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 text-shadow: 0 0 8px rgba(0,210,255,0.35);
                 background: rgba(0,210,255,0.08);
             }
-            .sao-inv-tab-content { display: none; flex-direction: column; align-items: flex-start; }
+            .sao-inv-tab-content { display: none; flex-direction: column; align-items: flex-start; justify-content: flex-start; }
             .sao-inv-tab-content[data-content="consumable"] { display: flex; } /* default active tab */
 
             /* 物品标签: 胶囊形 + 按 type 区分边框色 (消耗品 = 浅黄) */
@@ -1719,7 +1719,7 @@ function _attachStatusPanelListeners(shadow) {
             // Show/hide tab contents
             shadow.querySelectorAll('.sao-inv-tab-content').forEach(c => {
                 c.style.display = (c.dataset.content === targetTab) ? 'flex' : 'none';
-                if (c.style.display === 'flex') { c.style.flexDirection = 'column'; c.style.alignItems = 'flex-start'; }
+                if (c.style.display === 'flex') { c.style.flexDirection = 'column'; c.style.alignItems = 'flex-start'; c.style.justifyContent = 'flex-start'; }
             });
         });
     });
