@@ -660,6 +660,29 @@ function cleanupSaoLightDom(messageEl) {
     for (const tag of tagsToRemove) {
         mesText.querySelectorAll(tag).forEach(el => el.remove());
     }
+    // 1b. 删除 DOMPurify 剥离标签后残留的纯文本内容
+    // DOMPurify 可能剥离 <swordskill> 等自定义标签（保留子文本节点），
+    // 导致标签内容作为纯文本泄漏到聊天中。此处用正则删除残留的标签文本块。
+    // 只在 mesText 的直接子 <p> 中搜索，避免误删 Shadow host 内部内容。
+    mesText.querySelectorAll(':scope > p').forEach(p => {
+        if (p.querySelector('.sao-render-host')) return; // 保护 Shadow host 容器
+        const text = p.textContent;
+        // 匹配 SAO 标签的转义形式（DOMPurify 剥离后残留的 &lt;swordskill&gt; 等）
+        // 或 specialist 输出格式的残留纯文本（📜 词条 / ⚔️ 基础攻击力 等 emoji 行）
+        const hasEscapedTag = /&lt;\/?(?:equip|swordskill|user_status|zd_status|calendar|map|system_state_ref|digest)&gt;/i.test(text);
+        // 检测 specialist 面板格式的残留文本（多行 emoji 属性列表）
+        const specialistPatterns = [
+            /📜\s*词条/, /⚔️\s*基础攻击力/, /🎯\s*命中率/, /💥\s*暴击率/,
+            /🔄\s*攻击次数/, /👥\s*目标数量/, /💧\s*法力消耗/, /⏳\s*冷却时间/,
+            /✨\s*特殊效果/, /🎮\s*效果代码/,
+            /=========.*【.*】.*==========/,
+            /领悟新剑技/, /你的剑技已随武器变更/,
+        ];
+        const hasSpecialistResidue = specialistPatterns.filter(re => re.test(text)).length >= 3;
+        if (hasEscapedTag || hasSpecialistResidue) {
+            p.remove();
+        }
+    });
     // 2. 删除逃逸的 <details> 块 — 只删除 mesText 的直接子节点（:scope > details）
     //    Shadow host 内部的 <details> 不会被 :scope > 匹配到
     const saoSummaryPatterns = [
