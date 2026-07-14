@@ -3269,7 +3269,56 @@ export function init() {
 
     document.body.classList.toggle('sao-card-active', isSaoCard());
 
-    // ─── 点4: 悬浮球 ─── 固定在 ST 聊天界面右下角，点击打开插件面板（默认模型配置 tab）
+    // ─── 安全网：页面刷新后补渲染 ───
+    // 问题：刷新酒馆后，CHAT_CHANGED 可能 (a) 在角色数据加载前就触发（isSaoCard()=false），
+    // (b) DOM 尚未就绪导致批量轮询超时，(c) 跳过最后一条 AI 消息但 CHARACTER_MESSAGE_RENDERED
+    // 未对已有消息触发。结果：所有美化（body class + Shadow DOM 面板）失效。
+    // 此安全网在 init() 后延迟轮询，等角色就绪后补渲染所有未渲染的消息。
+    {
+        let safetyAttempts = 0;
+        const safetyNet = () => {
+            safetyAttempts++;
+            if (safetyAttempts > 80) return; // 80 × 200ms = 16s 超时
+
+            // 等到角色就绪
+            if (!isSaoCard()) {
+                setTimeout(safetyNet, 200);
+                return;
+            }
+
+            // 角色就绪，确保 body class 已添加
+            document.body.classList.add('sao-card-active');
+
+            // 补渲染所有未渲染的 AI 消息（包括 CHAT_CHANGED 跳过的最后一条）
+            const ctx = getContext();
+            if (ctx.chat && ctx.chat.length > 0) {
+                let rendered = 0;
+                let pending = 0;
+                ctx.chat.forEach((msg, idx) => {
+                    if (!msg || msg.is_user) return;
+                    const el = getMessageElement(idx);
+                    if (!el) { pending++; return; }
+                    if (!el.querySelector('.mes_text')) { pending++; return; }
+                    // 只渲染没有 shadow host 的消息（避免重复渲染）
+                    if (el.querySelector('.sao-render-host')) return;
+                    renderAllTags(el, msg.mes || '', idx);
+                    rendered++;
+                });
+
+                if (rendered > 0) {
+                    log(`安全网: 补渲染 ${rendered} 条消息`);
+                }
+
+                // 如果有 DOM 尚未就绪的消息，继续轮询
+                if (pending > 0 && safetyAttempts < 80) {
+                    setTimeout(safetyNet, 200);
+                }
+            }
+        };
+        setTimeout(safetyNet, 500); // 延迟 500ms 等 ST 完成初始渲染
+    }
+
+
     if (!document.getElementById('sao_floating_ball')) {
         const ball = document.createElement('div');
         ball.id = 'sao_floating_ball';
