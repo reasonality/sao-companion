@@ -13,7 +13,7 @@ import {
     bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
 } from './sao-core.js';
 import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot } from './sao-store-core.js';
-import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns } from './sao-store-player.js';
+import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
@@ -491,7 +491,7 @@ function bindEvents() {
                                 try {
                                     const extracted = await extractAll(firstAiMsg.mes, callModel, null);
                                     if (extracted) {
-                                        await applyExtractedData(extracted, CUSTOM_SKILL_DEFS);
+                                        await applyExtractedData(extracted, CUSTOM_SKILL_DEFS, true);
                                         await saveStore();
                                         log('从 first_mes 初始化完成');
                                         // 重新渲染面板
@@ -3159,6 +3159,7 @@ export function init() {
     }
     console.log('[SAO Companion] v1.8.0 初始化中...');
     registerSaoDompurifyHook();
+    migrateToLogicManaged(); // 一次性迁移旧存档到逻辑管理模式（幂等，已迁移则跳过）
     loadSettingsPanel().catch(e => {
         console.error('[SAO Companion] loadSettingsPanel 失败:', e);
     });

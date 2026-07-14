@@ -67,6 +67,34 @@ export function getPlayerStore() {
     return store.playerStore;
 }
 
+/**
+ * 一次性迁移到逻辑管理模式：旧存档从当前数值推导 baseAttributes/_baseVitals 并锁定。
+ * 迁移后 applyExtractedData 不再从 LLM 覆盖数值，只由插件逻辑（升级/装备）管理。
+ * 必须在 init 中调用一次（不能在 getPlayerStore 内调用，会与 _getEquipmentBonuses 递归）。
+ */
+export function migrateToLogicManaged() {
+    const player = getPlayerStore();
+    if (player._logicManaged) return;
+    const bonuses = _getEquipmentBonuses();
+    if (!player.baseAttributes) {
+        player.baseAttributes = {
+            str: (player.attributes?.str ?? 0) - bonuses.str,
+            agi: (player.attributes?.agi ?? 0) - bonuses.agi,
+            int: (player.attributes?.int ?? 0) - bonuses.int,
+            vit: (player.attributes?.vit ?? 0) - bonuses.vit,
+        };
+    }
+    if (!player._baseVitals) {
+        player._baseVitals = {
+            maxHp: (player.vitals?.maxHp ?? 100) - bonuses.maxHp,
+            maxMp: (player.vitals?.maxMp ?? 20) - bonuses.maxMp,
+        };
+    }
+    player._logicManaged = true;
+    log('迁移到逻辑管理模式: baseAttributes=' + JSON.stringify(player.baseAttributes)
+        + ' baseVitals=' + JSON.stringify(player._baseVitals));
+}
+
 // ============================================================
 // 装备属性加成计算（BUG #4 修复）
 // ============================================================
@@ -302,16 +330,72 @@ export async function updatePlayerAttributes(attrs, skipSave) {
     if (skipSave !== true) await saveStore();
 }
 
+// ============================================================
+// 数值推导公式（逻辑管理：maxHp/maxMp 由 baseVIT/baseINT 推导，不由 LLM 决定）
+// ============================================================
+
+/** 基础 maxHp = 100 + baseVIT * 10 */
+function deriveBaseMaxHp(baseVit) {
+    return 100 + (baseVit || 0) * 10;
+}
+/** 基础 maxMp = 20 + baseINT * 5 */
+function deriveBaseMaxMp(baseInt) {
+    return 20 + (baseInt || 0) * 5;
+}
+/** 每级成长：四维各 +1（SAO 固定成长，无手动分配） */
+function getLevelUpGrowth(_level) {
+    return { str: 1, agi: 1, int: 1, vit: 1 };
+}
+
 /**
- * 更新玩家等级与经验值。
+ * 升级时按公式成长 baseAttributes，并重新推导 maxHp/maxMp，满血满蓝。
+ * @param {number} oldLevel
+ * @param {number} newLevel
+ */
+export function applyLevelUpGrowth(oldLevel, newLevel) {
+    const player = getPlayerStore();
+    const times = newLevel - oldLevel;
+    if (times <= 0 || !player.baseAttributes) return;
+    for (let i = 0; i < times; i++) {
+        const g = getLevelUpGrowth(oldLevel + i + 1);
+        player.baseAttributes.str += g.str;
+        player.baseAttributes.agi += g.agi;
+        player.baseAttributes.int += g.int;
+        player.baseAttributes.vit += g.vit;
+    }
+    const bonuses = _getEquipmentBonuses();
+    player._baseVitals.maxHp = deriveBaseMaxHp(player.baseAttributes.vit);
+    player._baseVitals.maxMp = deriveBaseMaxMp(player.baseAttributes.int);
+    player.vitals.maxHp = player._baseVitals.maxHp + bonuses.maxHp;
+    player.vitals.maxMp = player._baseVitals.maxMp + bonuses.maxMp;
+    // 升级满血满蓝（SAO 惯例）
+    player.vitals.hp = player.vitals.maxHp;
+    player.vitals.mp = player.vitals.maxMp;
+    // 同步总属性（base + 装备加成）
+    player.attributes = {
+        str: player.baseAttributes.str + bonuses.str,
+        agi: player.baseAttributes.agi + bonuses.agi,
+        int: player.baseAttributes.int + bonuses.int,
+        vit: player.baseAttributes.vit + bonuses.vit,
+    };
+    log(`升级: Lv.${oldLevel}→${newLevel}, 四维各+${times}, maxHp=${player.vitals.maxHp} maxMp=${player.vitals.maxMp}`);
+}
+
+/**
+ * 更新玩家等级与经验值。检测升级并触发属性成长。
  * @param {number} level
  * @param {number} totalExp
  */
 export async function updatePlayerProgression(level, totalExp, skipSave) {
     const playerStore = getPlayerStore();
+    const oldLevel = playerStore.progression.level;
     // L11: 防 null/undefined 写入（specialist JSON 可能只传其中一个字段，另一个为 undefined）
     if (level != null) playerStore.progression.level = level;
     if (totalExp != null) playerStore.progression.totalExp = totalExp;
+    // 升级时按公式成长属性（逻辑管理，不依赖 LLM 数值）
+    if (level != null && level > oldLevel && playerStore.baseAttributes) {
+        applyLevelUpGrowth(oldLevel, level);
+    }
     if (skipSave !== true) await saveStore();
 }
 

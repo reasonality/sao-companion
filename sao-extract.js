@@ -4,7 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, recalcStatsFromEquipment } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
 import { findOrCreateSkill, getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -529,7 +529,7 @@ ${aiMessage.substring(0, 8000)}`;
 
 // === 数据应用函数（customSkillDefs 通过参数注入） ===
 
-export async function applyExtractedData(extracted, customSkillDefs) {
+export async function applyExtractedData(extracted, customSkillDefs, isNewGame = false) {
     if (!extracted) return;
     const data = getStore();
     if (!data) return;
@@ -579,15 +579,29 @@ export async function applyExtractedData(extracted, customSkillDefs) {
             }
         }
 
-        // 1. Scalars → playerStore（装备已处理完毕，bonuses 已在 attributes 中）
-        if (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null) {
-            await updatePlayerVitals({
-                hp: s.hp, maxHp: s.max_hp, mp: s.mp, maxMp: s.max_mp
-            }, true);
+        // 1. 数值 → playerStore（逻辑管理：仅新游戏首次初始化时从卡片提取基础数值，
+        //    之后 maxHp/maxMp 由 baseVIT/baseINT 公式推导，四维由升级公式成长，
+        //    HP/MP current 由战斗面板/消耗品管理。LLM 不再覆盖数值。）
+        if (isNewGame && (s.str != null || s.agi != null || s.int != null || s.vit != null)) {
+            // 新游戏：从卡片设置 baseAttributes，推导 maxHp/maxMp，满血满蓝
+            const player = getPlayerStore();
+            player.baseAttributes = {
+                str: s.str || 0, agi: s.agi || 0, int: s.int || 0, vit: s.vit || 0,
+            };
+            player._baseVitals = {
+                maxHp: 100 + (s.vit || 0) * 10,
+                maxMp: 20 + (s.int || 0) * 5,
+            };
+            // 装备加成已在上方 equipItem 中处理，recalc 同步总属性与上限
+            recalcStatsFromEquipment(true);
+            player.vitals.hp = player.vitals.maxHp;
+            player.vitals.mp = player.vitals.maxMp;
+            player._logicManaged = true;
+            log('新游戏初始化: baseAttributes=' + JSON.stringify(player.baseAttributes)
+                + ' maxHp=' + player.vitals.maxHp + ' maxMp=' + player.vitals.maxMp);
         }
-        if (s.str != null || s.agi != null || s.int != null || s.vit != null) {
-            await updatePlayerAttributes({ str: s.str, agi: s.agi, int: s.int, vit: s.vit }, true);
-        }
+        // 非新游戏：hp/mp/str/agi/int/vit 不再从 LLM 提取覆盖
+
         if (s.level != null || s.exp != null) {
             await updatePlayerProgression(s.level, s.exp, true);
         }
