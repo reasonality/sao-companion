@@ -681,7 +681,7 @@ function bindEvents() {
         try { captureSnapshot(messageId); } catch (e) { log('captureSnapshot 失败: ' + e.message, 'warn'); }
 
         await withProcessingLock(`msg-${messageId}`, async () => {
-            // P3: 先触发 status 专家（await，extractAll 依赖其输出作为主数据源；内部已 catch 返回 null）
+          try {
             // 点10: 专家1始终运行（不再受 toggle 控制）
             await callStatusSpecialist(messageId, rawText);
             // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
@@ -765,15 +765,15 @@ function bindEvents() {
 
             // Persist all state changes from this processing cycle
             await saveStore();
-
-            // Phase B: 重渲染所有面板。
-            // status 专家 + extractAll + updateCalendarIncremental 已写入 chatMetadata，
-            // CHARACTER_MESSAGE_RENDERED 可能已用占位数据渲染过。此处用真实数据覆盖。
-            // createSaoShadowHost 去重复用已有 host，各渲染器从 chatMetadata 读最新数据。
+          } catch (e) {
+            log(`处理链出错(仍会渲染): ${e.message}`, 'error');
+          } finally {
+            // Phase B: 重渲染所有面板（无论处理是否成功，确保面板始终更新）
             try {
                 const el = getMessageElement(messageId);
                 if (el) renderAllTags(el, rawText, messageId);
             } catch (e) { log('锁内重渲染失败: ' + e.message, 'warn'); }
+          }
 
             // v2 CALENDAR MODEL: fire-and-forget 触发（发-晚，saveStore 之后、lock 块结束前）。
             // 不 await，不阻塞后处理链。opt-in 由 shouldTriggerCalendarModel 内部守护（§10.2）。
