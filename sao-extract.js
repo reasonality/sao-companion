@@ -664,7 +664,19 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     // 装备背包项：从中文槽位名映射为英文 slot（SLOT_CN_TO_EN 已提到模块级）
                     const mappedSlot = item.slot || SLOT_CN_TO_EN[item.type];
                     if (item.type && !item.slot && !SLOT_CN_TO_EN[item.type] && item._equip_backpack) {
-                        log(`applyExtractedData: 未知装备槽位名 "${item.type}"（装备: ${item.name}），尝试原样使用`, 'warn');
+                        log(`applyExtractedData: 未知装备槽位名 "${item.type}"（装备: ${item.name}），按名称推断`, 'warn');
+                    }
+                    // 推断有效 slot：mappedSlot 优先，否则按名称关键词推断，最后回退 weapon
+                    let finalSlot = mappedSlot;
+                    if (!finalSlot || !SLOT_ENUM.includes(finalSlot)) {
+                        const nameLower = (item.name || '').toLowerCase();
+                        if (/盾|副手|off.?hand|shield/.test(nameLower)) finalSlot = 'off_hand';
+                        else if (/头|盔|hat|helmet|head/.test(nameLower)) finalSlot = 'head';
+                        else if (/胸|甲|chest|armor/.test(nameLower)) finalSlot = 'chest';
+                        else if (/手|套|glove|hand/.test(nameLower)) finalSlot = 'hands';
+                        else if (/腿|靴|leg|boot/.test(nameLower)) finalSlot = 'legs';
+                        else if (/戒指|项链|饰|ring|neck|access/.test(nameLower)) finalSlot = 'accessory';
+                        else finalSlot = 'weapon';  // 默认主手
                     }
                     // durability 解析：NaN 保护（非标准格式时回退 undefined）
                     let parsedDurability = undefined;
@@ -680,7 +692,7 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     }
                     const equipData = {
                         name: item.name,
-                        slot: mappedSlot || item.type,
+                        slot: finalSlot,
                         weapon_type: item.weapon_type,
                         statType: item.statType,
                         rarity: item.rarity || 'common',
