@@ -537,29 +537,49 @@ export async function applyExtractedData(extracted, customSkillDefs) {
     if (extracted.state) {
         const s = extracted.state;
 
-        // 0. 属性漂移守卫：拒绝单回合内不合理的属性变化
-        // 原因：status specialist LLM 可能在当前总属性值上重复叠加装备加成
-        // （如 VIT:7 是已含装备加成的总值，LLM 又加 VIT+6 → 13）
-        // 守卫：如果属性变化超过 +3（单回合正常升级不会超过+3），视为 LLM 错误，保留当前值
-        // 注意：VIT 从 0 变化时不守卫（初始设置场景）
-        {
-            const player = getPlayerStore();
-            if (player?.attributes) {
-                const cur = player.attributes;
-                const ATTR_MAX_DELTA = 3;
-                for (const [k, v] of [['str', s.str], ['agi', s.agi], ['int', s.int], ['vit', s.vit]]) {
-                    if (v != null && cur[k] != null && cur[k] > 0) {
-                        const delta = v - cur[k];
-                        if (delta > ATTR_MAX_DELTA) {
-                            log(`属性漂移守卫: ${k.toUpperCase()} ${cur[k]}→${v} (Δ${delta}>${ATTR_MAX_DELTA})，拒绝更新`, 'warn');
-                            s[k] = cur[k]; // 回退到当前值
-                        }
-                    }
+        // 2. Equipment → equipmentStore + playerStore.equipment (via equipItem)
+        // 必须在属性/vitals 之前处理！原因：卡片 <user_status> 中的属性值是总值（含装备加成），
+        // 如果先设属性后装装备，equipItem 的 recalcStatsFromEquipment 会把装备加成叠加到
+        // 已含加成的总值上 → 双重计算（如 VIT:7 + 装备6 = 13，实际应为7）。
+        // 先装装备 → bonuses 已在 attributes 中 → updatePlayerAttributes 写入总值时
+        // baseAttributes = 总值 - bonuses = 固有值，正确。
+        if (s.equipment && typeof s.equipment === 'object') {
+            for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
+                if (!equipData || typeof equipData !== 'object') continue;
+                const newSlot = oldSlot;
+                if (!SLOT_ENUM.includes(newSlot)) {
+                    log(`applyExtractedData: 非法槽位 "${newSlot}"，跳过装备 ${equipData.name || '(无名)'}`, 'warn');
+                    continue;
+                }
+                if (!equipData.name) {
+                    log('applyExtractedData: 装备缺少 name，跳过', 'warn');
+                    continue;
+                }
+                const equipId = findOrCreateEquipment({
+                    name: equipData.name,
+                    slot: newSlot,
+                    weapon_type: equipData.weapon_type,
+                    statType: equipData.statType || equipData.type,
+                    rarity: equipData.rarity || 'common',
+                    item_level: equipData.item_level || 1,
+                    stats: equipData.stats || {},
+                    affixes: equipData.affixes || [],
+                    description: equipData.description || '',
+                    source: 'specialist'
+                });
+                if (!equipId) {
+                    log(`applyExtractedData: findOrCreateEquipment 返回 null，跳过装备 "${equipData.name}"`, 'warn');
+                    continue;
+                }
+                try {
+                    await equipItem(newSlot, equipId, true);
+                } catch (e) {
+                    log(`applyExtractedData: equipItem 失败 (${newSlot}/${equipData.name}): ${e.message}`, 'warn');
                 }
             }
         }
 
-        // 1. Scalars → playerStore
+        // 1. Scalars → playerStore（装备已处理完毕，bonuses 已在 attributes 中）
         if (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null) {
             await updatePlayerVitals({
                 hp: s.hp, maxHp: s.max_hp, mp: s.mp, maxMp: s.max_mp
@@ -591,45 +611,6 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                 player.cursor_type = s.cursor_type;
             } else {
                 player.cursor_type = 'green';
-            }
-        }
-
-        // 2. Equipment → equipmentStore + playerStore.equipment (via equipItem)
-        if (s.equipment && typeof s.equipment === 'object') {
-            for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
-                if (!equipData || typeof equipData !== 'object') continue;
-                const newSlot = oldSlot;
-                // Bug#1/#2-fix: 槽位名校验 + 空 equipId 守卫，避免 equipItem 抛错中断整条 applyExtractedData
-                // （抛错会跳过 saveStore 致 HP/MP 等已变更静默丢失）。
-                if (!SLOT_ENUM.includes(newSlot)) {
-                    log(`applyExtractedData: 非法槽位 "${newSlot}"，跳过装备 ${equipData.name || '(无名)'}`, 'warn');
-                    continue;
-                }
-                if (!equipData.name) {
-                    log('applyExtractedData: 装备缺少 name，跳过', 'warn');
-                    continue;
-                }
-                const equipId = findOrCreateEquipment({
-                    name: equipData.name,
-                    slot: newSlot,
-                    weapon_type: equipData.weapon_type,
-                    statType: equipData.statType || equipData.type,
-                    rarity: equipData.rarity || 'common',
-                    item_level: equipData.item_level || 1,
-                    stats: equipData.stats || {},
-                    affixes: equipData.affixes || [],
-                    description: equipData.description || '',
-                    source: 'specialist'
-                });
-                if (!equipId) {
-                    log(`applyExtractedData: findOrCreateEquipment 返回 null，跳过装备 "${equipData.name}"`, 'warn');
-                    continue;
-                }
-                try {
-                    await equipItem(newSlot, equipId, true);
-                } catch (e) {
-                    log(`applyExtractedData: equipItem 失败 (${newSlot}/${equipData.name}): ${e.message}`, 'warn');
-                }
             }
         }
 
