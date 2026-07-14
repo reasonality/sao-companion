@@ -232,7 +232,7 @@ export function resolveAffixArgs(affixCode, skill) {
  * @param {Function} callModelFn - 模型调用函数
  * @returns {Promise<object|null>} 装备对象
  */
-export async function generateEquipment(context, callModelFn, prefilledName, prefilledDesc) {
+export async function generateEquipment(context, callModelFn) {
     if (!callModelFn) throw new Error('callModelFn is required');
     const settings = getSettings();
     if (!settings.enabled) return null;
@@ -297,33 +297,6 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
             ? '（请从「盾牌/短刀/匕首/法器」中选择）'
             : '';
     const rarityEn = RARITY_TO_EN[rarityEntry.name] || 'common';
-
-    // 如果主LLM已提供名称和描述，跳过子LLM调用
-    if (prefilledName) {
-        const equip = {
-            name: prefilledName,
-            slot: slotEntry.slot,
-            statType: typeEntry.mainStat,
-            rarity: rarityEn,
-            item_level: itemLevel,
-            stats,
-            affixes: affixNames,
-            description: prefilledDesc || '',
-        };
-        try {
-            const equipId = findOrCreateEquipment({ ...equip, source: 'specialist' });
-            if (equipId) {
-                await addEquipmentItem(equipId, true);  // skipSave，调用方负责 save
-                equip.equipment_id = equipId;
-                log('装备入Store: ' + equip.name + ' → ' + equipId);
-            }
-        } catch (e) {
-            log('装备直写Store失败(非致命): ' + e.message, 'warn');
-        }
-        log('装备生成完成: ' + equip.name);
-        return equip;
-    }
-
     const fullEquipJson = JSON.stringify({
         name: '',
         slot: slotEntry.slot,
@@ -388,7 +361,7 @@ ${fullEquipJson}
  * @param {Function} callModelFn - 模型调用函数
  * @returns {Promise<object|null>} 剑技对象
  */
-export async function generateSkill(context, callModelFn, prefilledName, prefilledDesc) {
+export async function generateSkill(context, callModelFn) {
     if (!callModelFn) throw new Error('callModelFn is required');
     const settings = getSettings();
     if (!settings.enabled) return null;
@@ -450,64 +423,6 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
     // 构造完整剑技记录，请求模型填充 name / description / effects_description
     const weaponType = context.weaponType || '单手直剑';
     const rarityEn = RARITY_TO_EN[rarityEntry.name] || 'common';
-
-    // 如果主LLM已提供名称和描述，跳过子LLM调用
-    if (prefilledName) {
-        const skill = {
-            name: prefilledName,
-            weapon_type: weaponType,
-            skill_level: skillLevel,
-            rarity: rarityEn,
-            base_damage: baseATK,
-            hit_rate: hitRate,
-            crit_rate: critRate,
-            mp_cost: mpCost,
-            cooldown: cd,
-            hits: apt,
-            targets: tpa,
-            core_code: coreEntry.code,
-            affix_codes: affixCodes,
-            affix_names: affixNames,
-            effects_description: '',
-            description: prefilledDesc || '',
-        };
-        // B2: 字段映射 + 直写 skillStore
-        try {
-            const skillId = findOrCreateSkill({
-                name: skill.name,
-                rarity: skill.rarity,
-                category: 'sword_skill',
-                weapon_type: skill.weapon_type,
-                combat: {
-                    atk: skill.base_damage,
-                    hit: skill.hit_rate,
-                    crit: skill.crit_rate,
-                    apt: skill.hits,
-                    tpa: skill.targets,
-                    mpCost: skill.mp_cost,
-                    cd: skill.cooldown,
-                },
-                effects: {
-                    wn: skill.core_code || '',
-                    en: Array.isArray(skill.affix_codes) ? skill.affix_codes : [],
-                    mn: [],
-                },
-                description: skill.description,
-                source: 'specialist',
-            });
-            if (skillId) {
-                skill.skill_id = skillId;
-                // 将技能加入玩家技能列表（否则状态栏看不到新技能）
-                await addPlayerSkill(skillId, skill.name, skillLevel, true);
-                log('技能入Store: ' + skill.name + ' → ' + skillId);
-            }
-        } catch (e) {
-            log('技能直写Store失败(非致命): ' + e.message, 'warn');
-        }
-        log('剑技生成完成: ' + skill.name);
-        return skill;
-    }
-
     const fullSkillJson = JSON.stringify({
         name: '',
         weapon_type: weaponType,

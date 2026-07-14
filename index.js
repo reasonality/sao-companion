@@ -397,65 +397,54 @@ async function processGainTags(rawText) {
     if (!rawText) return;
 
     // === <gain_skill> ===
-    const skillMatches = [...rawText.matchAll(/<gain_skill([^>]*)>([\s\S]*?)<\/gain_skill>/gi)];
+    const skillMatches = [...rawText.matchAll(/<gain_skill>\s*(.+?)\s*<\/gain_skill>/gis)];
     for (const m of skillMatches) {
-        const attrs = m[1] || '';
-        const innerContent = (m[2] || '').trim();
-        // Parse attributes
-        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
-        const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
-        const weaponTypeMatch = attrs.match(/weapon_type\s*=\s*["']([^"']*)["']/i);
-        const prefilledName = nameMatch ? nameMatch[1].trim() : null;
-        const prefilledDesc = descMatch ? descMatch[1].trim() : null;
-        const weaponType = weaponTypeMatch ? weaponTypeMatch[1].trim() : innerContent;
-        
+        const weaponType = m[1].trim();
+        if (!weaponType) continue;
         const player = getPlayerStore();
         const skillLevel = player?.progression?.level || 1;
-        log(`[gain_skill] name=${prefilledName || '(LLM生成)'} weapon=${weaponType} desc=${prefilledDesc ? '有' : '无'}`);
+        const playerLevel = player?.progression?.level || 1;
+        log(`[gain_skill] 主LLM请求新剑技: 武器类型=${weaponType}, 技能等级=${skillLevel}`);
         try {
-            const skill = await generateSkill({ weaponType, skillLevel, playerLevel: skillLevel }, callModel, prefilledName, prefilledDesc);
+            const skill = await generateSkill({ weaponType, skillLevel, playerLevel }, callModel);
             if (skill) {
-                log(`[gain_skill] 完成: ${skill.name} (ATK ${skill.base_damage})`);
+                log(`[gain_skill] 剑技生成完成: ${skill.name} (ATK ${skill.base_damage})`);
                 await saveStore();
             }
         } catch (e) {
-            log(`[gain_skill] 失败: ${e.message}`, 'warn');
+            log(`[gain_skill] 剑技生成失败: ${e.message}`, 'warn');
         }
     }
 
     // === <gain_equipment> ===
-    const equipMatches = [...rawText.matchAll(/<gain_equipment([^>]*)>([\s\S]*?)<\/gain_equipment>/gi)];
+    const equipMatches = [...rawText.matchAll(/<gain_equipment>\s*(.+?)\s*<\/gain_equipment>/gis)];
     for (const m of equipMatches) {
-        const attrs = m[1] || '';
-        const innerContent = (m[2] || '').trim();
-        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
-        const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
-        const slotMatch = attrs.match(/slot\s*=\s*["']([^"']*)["']/i);
-        const rarityMatch = attrs.match(/rarity\s*=\s*["']([^"']*)["']/i);
-        const statTypeMatch = attrs.match(/(?:stat_type|type)\s*=\s*["']([^"']*)["']/i);
-        const prefilledName = nameMatch ? nameMatch[1].trim() : null;
-        const prefilledDesc = descMatch ? descMatch[1].trim() : null;
-        
+        const spec = m[1].trim();
+        if (!spec) continue;
+        // 解析 "槽位:类型:稀有度" 或仅 "类型" 或 "类型:稀有度"
+        const parts = spec.split(/[:：]/).map(s => s.trim());
         const player = getPlayerStore();
         const playerLevel = player?.progression?.level || 1;
         const context = { playerLevel };
-        // Parse inner content as "类型:稀有度" fallback, or use attributes
-        const parts = innerContent.split(/[:：]/).map(s => s.trim());
         if (parts[0]) context.type = parts[0];
         if (parts[1]) context.rarity = parts[1];
-        if (slotMatch) context.slot = slotMatch[1];
-        if (rarityMatch) context.rarity = rarityMatch[1];
-        if (statTypeMatch) context.type = statTypeMatch[1];
-        
-        log(`[gain_equipment] name=${prefilledName || '(LLM生成)'} type=${context.type} rarity=${context.rarity || '随机'}`);
+        if (parts[2]) { context.type = parts[0]; context.rarity = parts[2]; }
+        // 中文槽位映射
+        const slotMap = { '武器': '武器', '防具': '防具', '饰品': '饰品', 'weapon': '武器', 'armor': '防具', 'accessory': '饰品' };
+        if (parts.length >= 3 && slotMap[parts[0]]) {
+            // 格式: 槽位:类型:稀有度 — type = parts[1], rarity = parts[2]
+            context.type = parts[1];
+            context.rarity = parts[2];
+        }
+        log(`[gain_equipment] 主LLM请求新装备: 类型=${context.type}, 稀有度=${context.rarity || '随机'}, 等级=${playerLevel}`);
         try {
-            const equip = await generateEquipment(context, callModel, prefilledName, prefilledDesc);
+            const equip = await generateEquipment(context, callModel);
             if (equip) {
-                log(`[gain_equipment] 完成: ${equip.name} (${equip.rarity})`);
+                log(`[gain_equipment] 装备生成完成: ${equip.name} (${equip.rarity})`);
                 await saveStore();
             }
         } catch (e) {
-            log(`[gain_equipment] 失败: ${e.message}`, 'warn');
+            log(`[gain_equipment] 装备生成失败: ${e.message}`, 'warn');
         }
     }
 }
