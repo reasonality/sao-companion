@@ -95,7 +95,7 @@ export function injectMemoryAndState() {
         parts.push('<system_state_ref>');
         parts.push('以下为系统自动注入的当前游戏状态参考，仅供你了解当前数值。');
         parts.push('严禁在你的回复中复制、原样输出、或以任何形式复述此状态块。');
-        parts.push('状态显示由系统专家管理，你只需输出叙事正文和 <equip>/<swordskill> 标签。');
+        parts.push('状态显示由系统自动管理，你只需输出叙事正文。装备和技能数值由系统自动计算，你只需在获取时输出获取标签。');
         parts.push('## 获取标签（重要）');
         parts.push('当叙事中玩家学会新剑技时，在叙事末尾输出:');
         parts.push('<gain_skill name="剑技名" weapon_type="武器类型" description="1-2句描述">武器类型</gain_skill>');
