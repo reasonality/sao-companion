@@ -1057,8 +1057,9 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-cursor-orange { color: #ffa766; background: rgba(255,138,61,0.16); border: 1px solid rgba(255,167,102,0.42); }
             .sao-cursor-red    { color: #ff7d8a; background: rgba(255,46,74,0.18); border: 1px solid rgba(255,125,138,0.45); }
 
-            /* === HP / MP 进度条 (6px 高 — 压缩紧凑) === */
+            /* === HP / MP 进度条 (6px 高) === */
             .sao-bar-row { margin: 0; padding: 0; line-height: 0; font-size: 0; }
+            .sao-bar-row + .sao-bar-row { margin-top: 6px; } /* HP 与 MP 条之间留间隙 */
             .sao-bar-row:last-child { margin: 0; }
             .sao-bar-labels {
                 display: flex;
@@ -1109,27 +1110,27 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 50% { filter: brightness(1.25); box-shadow: 0 0 10px rgba(255,46,74,0.55); }
             }
 
-            /* === 属性卡片 (56px高, 数字 18px — 压缩紧凑) === */
+            /* === 属性卡片 (64px高, 数字 18px) === */
             .sao-stat-grid {
                 display: grid;
                 grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-                margin-top: 4px;
+                gap: 12px;
+                margin-top: 12px;
             }
             .sao-stat-item {
                 width: 100%;
-                height: 56px;            /* 压缩紧凑 */
-                min-height: 56px;
-                max-height: 56px;
+                height: 64px;
+                min-height: 64px;
+                max-height: 64px;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                gap: 1px;
+                gap: 3px;
                 background: rgba(22,30,46,0.80);
                 border: 1px solid var(--border-subtle);
                 border-radius: 6px;
-                padding: 8px 6px;
+                padding: 10px 8px;
                 text-align: center;
                 box-sizing: border-box;
                 position: relative;
@@ -1159,7 +1160,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-stat-value {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
-                font-size: 18px;            /* 压缩紧凑 */
+                font-size: 18px;
                 line-height: 1;
                 font-weight: 700;
                 color: var(--primary);
@@ -1167,16 +1168,17 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-stat-label {
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
-                font-size: 0.70em;          /* 压缩紧凑 */
+                font-size: 0.70em;
                 color: var(--text-secondary);
                 letter-spacing: 0.4px;
                 line-height: 1;
                 text-transform: uppercase;
+                margin-top: 2px;
             }
 
             @media (max-width: 600px) {
                 .sao-stat-grid { grid-template-columns: repeat(2, 1fr); }
-                .sao-stat-item { height: 56px; min-height: 56px; max-height: 56px; }
+                .sao-stat-item { height: 64px; min-height: 64px; max-height: 64px; }
                 .sao-stat-value { font-size: 16px; }
             }
 
