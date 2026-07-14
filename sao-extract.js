@@ -537,14 +537,16 @@ export async function applyExtractedData(extracted, customSkillDefs) {
     if (extracted.state) {
         const s = extracted.state;
 
-        // 0. 属性漂移守卫：拒绝单回合内不合理的属性剧变
-        // 原因：status specialist LLM 可能在当前值上重复叠加装备加成（如 VIT 7+6=13→19）
-        // 守卫：如果属性变化超过 +10（单回合），视为 LLM 错误，保留当前值
+        // 0. 属性漂移守卫：拒绝单回合内不合理的属性变化
+        // 原因：status specialist LLM 可能在当前总属性值上重复叠加装备加成
+        // （如 VIT:7 是已含装备加成的总值，LLM 又加 VIT+6 → 13）
+        // 守卫：如果属性变化超过 +3（单回合正常升级不会超过+3），视为 LLM 错误，保留当前值
+        // 注意：VIT 从 0 变化时不守卫（初始设置场景）
         {
             const player = getPlayerStore();
             if (player?.attributes) {
                 const cur = player.attributes;
-                const ATTR_MAX_DELTA = 10;
+                const ATTR_MAX_DELTA = 3;
                 for (const [k, v] of [['str', s.str], ['agi', s.agi], ['int', s.int], ['vit', s.vit]]) {
                     if (v != null && cur[k] != null && cur[k] > 0) {
                         const delta = v - cur[k];
