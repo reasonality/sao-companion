@@ -555,6 +555,17 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     log('applyExtractedData: 装备缺少 name，跳过', 'warn');
                     continue;
                 }
+                // 规范化装备 stats 字段名：P3 status 专家输出用 snake_case (max_hp)，
+                // 内部统一用 camelCase (maxHp)。parseUserStatus 已用 camelCase。
+                let normalizedStats = equipData.stats || {};
+                if (normalizedStats.max_hp != null && normalizedStats.maxHp == null) {
+                    normalizedStats = { ...normalizedStats, maxHp: normalizedStats.max_hp };
+                    delete normalizedStats.max_hp;
+                }
+                if (normalizedStats.max_mp != null && normalizedStats.maxMp == null) {
+                    normalizedStats = { ...normalizedStats, maxMp: normalizedStats.max_mp };
+                    delete normalizedStats.max_mp;
+                }
                 const equipId = findOrCreateEquipment({
                     name: equipData.name,
                     slot: newSlot,
@@ -562,7 +573,7 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     statType: equipData.statType || equipData.type,
                     rarity: equipData.rarity || 'common',
                     item_level: equipData.item_level || 1,
-                    stats: equipData.stats || {},
+                    stats: normalizedStats,
                     affixes: equipData.affixes || [],
                     description: equipData.description || '',
                     source: 'specialist'
