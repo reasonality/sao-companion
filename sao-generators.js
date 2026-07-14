@@ -289,48 +289,54 @@ export async function generateEquipment(context, callModelFn) {
         if (affixEntry) affixNames.push(affixEntry.name);
     }
 
-    // 7) 仅请求模型生成名称和描述（传入已计算的数值）
+    // 7) 构造完整装备记录，请求模型填充 name 和 description
     const weaponSubtypeHint = slotEntry.slot === 'weapon'
-        ? '\n武器子类: 请从「短刀/匕首/单手剑/双手剑/矛/弓/斧/钝器」中选择一个具体武器类型作为名称的一部分'
+        ? '（请从「短刀/匕首/单手剑/双手剑/矛/弓/斧/钝器」中选择具体武器类型融入名称）'
         : slotEntry.slot === 'off_hand'
-            ? '\n副手武器: 请从「盾牌/短刀/匕首/法器」中选择一个'
+            ? '（请从「盾牌/短刀/匕首/法器」中选择）'
             : '';
+    const rarityEn = RARITY_TO_EN[rarityEntry.name] || 'common';
+    const fullEquipJson = JSON.stringify({
+        name: '',
+        slot: slotEntry.slot,
+        weapon_type: null,
+        statType: typeEntry.mainStat,
+        rarity: rarityEn,
+        item_level: itemLevel,
+        durability: { current: 100, max: 100 },
+        stats: { maxHp: stats.maxHp, str: stats.str, agi: stats.agi, int: stats.int, vit: stats.vit },
+        affixes: affixNames,
+        description: '',
+    }, null, 2);
+
     const namePrompt = `为一件SAO游戏装备生成名称和描述。
 
-输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
-JSON 必须包含以下字段:
-- "name": 字符串，装备名称（如「暗影短刀」「铁壁圆盾」）
-- "description": 字符串，1-2句装备描述
+以下JSON中数值字段已由系统计算完成。请填充 "name" 和 "description" 两个字段，保持其他字段不变，返回完整JSON对象。
+- "name": 装备名称，要有SAO风格（如「暗影短刀」「铁壁圆盾」）${weaponSubtypeHint}
+- "description": 1-2句装备描述
 
-示例输出:
-{"name": "暗影短刀", "description": "一把轻巧的短刀，刀身泛着淡淡的寒光。"}
+输入JSON（name 和 description 为空，请填充）:
+${fullEquipJson}
 
-装备信息:
-槽位: ${slotEntry.label}
-类型: ${typeEntry.type}
-稀有度: ${rarityEntry.name}
-物品等级: ${itemLevel}
-数值: HP+${hpFinal} STR+${stats.str} AGI+${stats.agi} INT+${stats.int} VIT+${stats.vit}
-词缀: ${affixNames.join(', ') || '无'}${weaponSubtypeHint}
-要求: 名称要有SAO风格，描述1-2句话`;
+要求: 只输出完整的JSON对象，不要包含markdown代码块标记或说明文字。`;
 
     try {
         const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO装备命名器。只输出JSON对象，格式为 {"name": "装备名", "description": "描述"}，不要输出任何其他内容。' },
+            { role: 'system', content: '你是SAO装备命名器。根据输入的装备JSON，填充name和description字段后返回完整JSON。不要改变其他字段的值，不要输出任何非JSON内容。' },
             { role: 'user', content: namePrompt },
-        ], 256, { jsonSchema: true });
+        ], 384, { jsonSchema: true });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
-        const nameDesc = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+        const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
         const equip = {
-            name: nameDesc.name || `${slotEntry.label}`,
+            name: modelResult.name || `${slotEntry.label}装备`,
             slot: slotEntry.slot,
             statType: typeEntry.mainStat,
-            rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
+            rarity: rarityEn,
             item_level: itemLevel,
             stats,
             affixes: affixNames,
-            description: nameDesc.description || '',
+            description: modelResult.description || '',
         };
         // B2: 直写 equipmentStore + 默认入背包（不自动穿戴）
         try {
@@ -413,42 +419,58 @@ export async function generateSkill(context, callModelFn) {
         }
     }
 
-    // 请求模型生成名称和描述
-    const weaponType = context.weaponType || '\u5355\u624B\u76F4\u5251';
+    // 构造完整剑技记录，请求模型填充 name / description / effects_description
+    const weaponType = context.weaponType || '单手直剑';
+    const rarityEn = RARITY_TO_EN[rarityEntry.name] || 'common';
+    const fullSkillJson = JSON.stringify({
+        name: '',
+        weapon_type: weaponType,
+        rarity: rarityEn,
+        category: 'sword_skill',
+        combat: {
+            atk: baseATK,
+            hit: hitRate,
+            crit: critRate,
+            apt: apt,
+            tpa: tpa,
+            mpCost: mpCost,
+            cd: cd,
+        },
+        effects: {
+            wn: coreEntry.code,
+            en: affixCodes,
+            mn: [],
+        },
+        affix_names: affixNames,
+        description: '',
+        effects_description: '',
+    }, null, 2);
+
     const namePrompt = `为SAO剑技生成名称和描述。
 
-输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
-JSON 必须包含以下字段:
-- "name": 字符串，剑技名称（如「星爆气流斩」「音速冲击」等SAO风格技能名）
-- "description": 字符串，1-2句技能描述（描述该剑技的动作或效果）
-- "effects_description": 字符串，技能特效的简短描述（如「对单体造成连续斩击」「范围横扫」）
+以下JSON中数值字段已由系统计算完成。请填充 "name"、"description" 和 "effects_description" 三个字段，保持其他字段不变，返回完整JSON对象。
+- "name": 剑技名称，要有SAO风格（如「星爆气流斩」「音速冲击」等）
+- "description": 1-2句技能描述（描述该剑技的动作或效果）
+- "effects_description": 技能特效简述（如「对单体造成连续斩击」「范围横扫」）
 
-示例输出:
-{"name": "星爆气流斩", "description": "以极高速度连续斩击目标，产生十六连击。", "effects_description": "对单体造成连续16次斩击伤害"}
+输入JSON（name/description/effects_description 为空，请填充）:
+${fullSkillJson}
 
-剑技信息:
-武器类型: ${weaponType}
-技能等级: ${skillLevel}
-稀有度: ${rarityEntry.name}
-核心功能: ${coreEntry.name}(${coreEntry.code})
-ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
-连击数: ${apt}  目标数: ${tpa}  MP消耗: ${mpCost}  冷却: ${cd}回合
-词缀: ${affixNames.join(', ')}
-要求: 名称要有SAO剑技风格`;
+要求: 只输出完整的JSON对象，不要包含markdown代码块标记或说明文字。`;
 
     try {
         const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO剑技命名器。只输出JSON对象，格式为 {"name": "剑技名", "description": "描述", "effects_description": "特效描述"}，不要输出任何其他内容。' },
+            { role: 'system', content: '你是SAO剑技命名器。根据输入的剑技JSON，填充name、description和effects_description字段后返回完整JSON。不要改变其他字段的值，不要输出任何非JSON内容。' },
             { role: 'user', content: namePrompt },
-        ], 256, { jsonSchema: true });
+        ], 384, { jsonSchema: true });
         const jsonMatch = result.match(/\{[\s\S]*\}/);
-        const nameDesc = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+        const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
         const skill = {
-            name: nameDesc.name || `\u5251\u6280`,
+            name: modelResult.name || '剑技',
             weapon_type: weaponType,
             skill_level: skillLevel,
-            rarity: RARITY_TO_EN[rarityEntry.name] || 'common',
+            rarity: rarityEn,
             base_damage: baseATK,
             hit_rate: hitRate,
             crit_rate: critRate,
@@ -459,8 +481,8 @@ ATK: ${baseATK}  命中率: ${hitRate}%  暴击率: ${critRate}%
             core_code: coreEntry.code,
             affix_codes: affixCodes,
             affix_names: affixNames,
-            effects_description: nameDesc.effects_description || '',
-            description: nameDesc.description || '',
+            effects_description: modelResult.effects_description || '',
+            description: modelResult.description || '',
         };
         // B2: \u5B57\u6BB5\u6620\u5C04 + \u76F4\u5199 skillStore
         try {
