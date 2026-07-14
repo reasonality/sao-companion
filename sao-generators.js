@@ -6,6 +6,7 @@ import { findOrCreateEquipment } from './sao-store-equipment.js';
 import { findOrCreateSkill } from './sao-store-skill.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
 import { addEquipmentItem, addConsumableItem } from './sao-store-inventory.js';
+import { addPlayerSkill } from './sao-store-player.js';
 
 // ============================================================
 // 骰子表
@@ -510,6 +511,8 @@ ${fullSkillJson}
             });
             if (skillId) {
                 skill.skill_id = skillId;
+                // 将技能加入玩家技能列表（否则状态栏看不到新技能）
+                await addPlayerSkill(skillId, skill.name, skillLevel, true);
                 log('\u6280\u80FD\u5165Store: ' + skill.name + ' \u2192 ' + skillId);
             }
         } catch (e) {
