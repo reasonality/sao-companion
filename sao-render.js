@@ -1303,12 +1303,12 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             .sao-inv-tabs {
                 display: flex;
                 gap: 0;
-                margin-bottom: 6px;
+                margin-bottom: 10px;
                 flex-wrap: wrap;
                 border-bottom: 1px solid var(--border-subtle);
             }
             .sao-inv-tab {
-                padding: 5px 10px;
+                padding: 6px 12px;
                 cursor: pointer;
                 border-bottom: 2px solid transparent;
                 margin-bottom: -1px;
@@ -1336,20 +1336,20 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 text-shadow: 0 0 8px rgba(0,210,255,0.35);
                 background: rgba(0,210,255,0.08);
             }
-            .sao-inv-tab-content { display: none; }
-            .sao-inv-tab-content[data-content="consumable"] { display: block; } /* default active tab */
+            .sao-inv-tab-content { display: none; padding-top: 8px; }
+            .sao-inv-tab-content[data-content="consumable"] { display: block; padding-top: 8px; } /* default active tab */
 
             /* 物品标签: 胶囊形 + 按 type 区分边框色 (消耗品 = 浅黄) */
             .sao-inv-tags {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 5px;
+                gap: 8px;
             }
             .sao-tag {
                 display: inline-flex;
                 align-items: center;
-                gap: 4px;
-                padding: 3px 9px;
+                gap: 5px;
+                padding: 5px 11px;
                 border-radius: 14px;
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
                 font-size: 0.82em;
@@ -1403,7 +1403,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 font-family: "Rajdhani", "Noto Sans SC", sans-serif;
                 font-size: 0.92em;
                 color: var(--warning);
-                margin-top: 8px;
+                margin-top: 12px;
             }
             .sao-cor-row b { color: var(--text-secondary); font-weight: 500; }
 
