@@ -93,27 +93,6 @@ export function findOrCreateEquipment(equipData) {
 
     // 创建新条目
     const id = generateEquipmentId();
-    // stats: 无 stats 或全零时，按 item_level + rarity 自动计算基础 stats
-    // （状态专家可能不提供 stats，此时用公式兜底避免空属性装备）
-    let computedStats = equipData.stats;
-    const _lvl = equipData.item_level || 1;
-    const _rarityMult = { common: 1.0, white: 1.0, uncommon: 1.2, green: 1.2, rare: 1.5, blue: 1.5, epic: 2.0, purple: 2.0, legendary: 2.5 }[equipData.rarity || 'common'] || 1.0;
-    const _statAllZero = !computedStats || (typeof computedStats === 'object' && Object.values(computedStats).every(v => !v || v === 0));
-    if (_statAllZero) {
-        computedStats = {
-            maxHp: Math.floor(_lvl * 10 * _rarityMult),
-            str: 0, agi: 0, int: 0, vit: 0,
-            atk: Math.floor(_lvl * 3 * _rarityMult),
-            hit: 0, crit: 0, maxMp: 0,
-        };
-        const _main = equipData.statType || 'all';
-        const _base = Math.ceil(_lvl / 5);
-        if (_main === 'all') {
-            computedStats.str = _base; computedStats.agi = _base; computedStats.int = _base; computedStats.vit = _base;
-        } else if (computedStats[_main] != null) {
-            computedStats[_main] = _base * 3;
-        }
-    }
     const entry = {
         equipment_id: id,
         name: name,
@@ -121,9 +100,9 @@ export function findOrCreateEquipment(equipData) {
         weapon_type: equipData.weapon_type || null,
         statType: equipData.statType || 'all',
         rarity: equipData.rarity || 'common',
-        item_level: _lvl,
+        item_level: equipData.item_level || 1,
         durability: equipData.durability || { current: 100, max: 100 },
-        stats: computedStats,
+        stats: equipData.stats || { atk: 0, str: 0, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0, hit: 0, crit: 0 },
         affixes: equipData.affixes || [],
         description: equipData.description || '',
         source: equipData.source || 'specialist'

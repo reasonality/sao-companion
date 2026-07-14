@@ -4,10 +4,10 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, addPlayerSkill, setCustomSkills, equipItem, unequipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, setCustomSkills, equipItem, unequipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
-import { findOrCreateEquipment, getEquipmentById } from './sao-store-equipment.js';
-import { findOrCreateSkill, getSkillById, getSkillStore } from './sao-store-skill.js';
+import { getEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
+import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById, getNpcByName } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
@@ -561,55 +561,38 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
     if (extracted.state) {
         const s = extracted.state;
 
-        // 2. Equipment → equipmentStore + playerStore.equipment (via equipItem)
-        // 必须在属性/vitals 之前处理！原因：卡片 <user_status> 中的属性值是总值（含装备加成），
-        // 如果先设属性后装装备，equipItem 的 recalcStatsFromEquipment 会把装备加成叠加到
-        // 已含加成的总值上 → 双重计算（如 VIT:7 + 装备6 = 13，实际应为7）。
-        // 先装装备 → bonuses 已在 attributes 中 → updatePlayerAttributes 写入总值时
-        // baseAttributes = 总值 - bonuses = 固有值，正确。
+        // 2. Equipment → 只更新已有装备的运行时状态（如耐久度），不创建新装备。
+        // 新装备只能通过 <gain_equipment> 标签 → generateEquipment 创建（路径A，逻辑管理）。
+        // 专家只报告当前装备状态，无权创建装备定义。
         if (s.equipment && typeof s.equipment === 'object') {
+            const equipStore = getEquipmentStore();
             for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
                 if (!equipData || typeof equipData !== 'object') continue;
                 const newSlot = oldSlot;
                 if (!SLOT_ENUM.includes(newSlot)) {
-                    log(`applyExtractedData: 非法槽位 "${newSlot}"，跳过装备 ${equipData.name || '(无名)'}`, 'warn');
+                    log(`applyExtractedData: 非法槽位 "${newSlot}"，跳过`, 'warn');
                     continue;
                 }
-                if (!equipData.name) {
-                    log('applyExtractedData: 装备缺少 name，跳过', 'warn');
+                if (!equipData.name) continue;
+                // 查找已存在的装备（按名称匹配）
+                const existingIds = equipStore?.nameToId?.[equipData.name] || [];
+                const existingId = existingIds.find(id => equipStore.byId[id]);
+                if (!existingId) {
+                    log(`applyExtractedData: 装备 "${equipData.name}" 不在 equipmentStore 中（需通过 gain_equipment 标签生成），跳过`, 'info');
                     continue;
                 }
-                // 规范化装备 stats 字段名：P3 status 专家输出用 snake_case (max_hp)，
-                // 内部统一用 camelCase (maxHp)。parseUserStatus 已用 camelCase。
-                let normalizedStats = equipData.stats || {};
-                if (normalizedStats.max_hp != null && normalizedStats.maxHp == null) {
-                    normalizedStats = { ...normalizedStats, maxHp: normalizedStats.max_hp };
-                    delete normalizedStats.max_hp;
+                // 已存在：仅更新运行时状态（耐久度），不覆盖 stats/affixes/rarity
+                const entry = equipStore.byId[existingId];
+                if (equipData.durability) {
+                    const parts = String(equipData.durability).split('/');
+                    const cur = parseInt(parts[0]);
+                    const max = parts[1] != null ? parseInt(parts[1]) : NaN;
+                    if (!isNaN(cur)) entry.durability = { current: cur, max: isNaN(max) ? cur : max };
                 }
-                if (normalizedStats.max_mp != null && normalizedStats.maxMp == null) {
-                    normalizedStats = { ...normalizedStats, maxMp: normalizedStats.max_mp };
-                    delete normalizedStats.max_mp;
-                }
-                const equipId = findOrCreateEquipment({
-                    name: equipData.name,
-                    slot: newSlot,
-                    weapon_type: equipData.weapon_type,
-                    statType: equipData.statType || equipData.type,
-                    rarity: equipData.rarity || 'common',
-                    item_level: equipData.item_level || 1,
-                    stats: normalizedStats,
-                    affixes: equipData.affixes || [],
-                    description: equipData.description || '',
-                    source: 'specialist'
-                });
-                if (!equipId) {
-                    log(`applyExtractedData: findOrCreateEquipment 返回 null，跳过装备 "${equipData.name}"`, 'warn');
-                    continue;
-                }
-                try {
-                    await equipItem(newSlot, equipId, true);
-                } catch (e) {
-                    log(`applyExtractedData: equipItem 失败 (${newSlot}/${equipData.name}): ${e.message}`, 'warn');
+                // 确保装备在对应槽位
+                const player = getPlayerStore();
+                if (player.equipment?.[newSlot] !== existingId) {
+                    try { await equipItem(newSlot, existingId, true); } catch (e) { log(`equipItem 失败: ${e.message}`, 'warn'); }
                 }
             }
         }
@@ -661,50 +644,25 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 const isConsumableByName = CONSUMABLE_NAME_RE.test(item.name);
                 const looksLikeEquipment = !item.type && !isConsumableByName && EQUIP_NAME_RE.test(item.name);
                 if (!isConsumableByName && (item.stats || item.slot || item._equip_backpack || item.durability || item.type === 'equipment' || looksLikeEquipment)) {
-                    // 装备背包项：从中文槽位名映射为英文 slot（SLOT_CN_TO_EN 已提到模块级）
-                    const mappedSlot = item.slot || SLOT_CN_TO_EN[item.type];
-                    if (item.type && !item.slot && !SLOT_CN_TO_EN[item.type] && item._equip_backpack) {
-                        log(`applyExtractedData: 未知装备槽位名 "${item.type}"（装备: ${item.name}），按名称推断`, 'warn');
+                    // 装备项：不通过专家创建，只在 equipmentStore 已存在时添加到背包
+                    // 新装备只能通过 <gain_equipment> 标签 → generateEquipment 创建（逻辑管理数值）
+                    const equipStore = getEquipmentStore();
+                    const existingIds = equipStore?.nameToId?.[item.name] || [];
+                    const existingId = existingIds.find(id => equipStore.byId[id]);
+                    if (!existingId) {
+                        log(`applyExtractedData: 装备 "${item.name}" 不在 equipmentStore 中（需通过 gain_equipment 标签生成），跳过`, 'info');
+                        continue;
                     }
-                    // 推断有效 slot：mappedSlot 优先，否则按名称关键词推断，最后回退 weapon
-                    let finalSlot = mappedSlot;
-                    if (!finalSlot || !SLOT_ENUM.includes(finalSlot)) {
-                        const nameLower = (item.name || '').toLowerCase();
-                        if (/盾|副手|off.?hand|shield/.test(nameLower)) finalSlot = 'off_hand';
-                        else if (/头|盔|hat|helmet|head/.test(nameLower)) finalSlot = 'head';
-                        else if (/胸|甲|chest|armor/.test(nameLower)) finalSlot = 'chest';
-                        else if (/手|套|glove|hand/.test(nameLower)) finalSlot = 'hands';
-                        else if (/腿|靴|leg|boot/.test(nameLower)) finalSlot = 'legs';
-                        else if (/戒指|项链|饰|ring|neck|access/.test(nameLower)) finalSlot = 'accessory';
-                        else finalSlot = 'weapon';  // 默认主手
-                    }
-                    // durability 解析：NaN 保护（非标准格式时回退 undefined）
-                    let parsedDurability = undefined;
+                    // 已存在：更新耐久度（如有），确保在背包中
                     if (item.durability) {
                         const parts = String(item.durability).split('/');
                         const cur = parseInt(parts[0]);
                         const max = parts[1] != null ? parseInt(parts[1]) : NaN;
-                        if (!isNaN(cur) && !isNaN(max)) {
-                            parsedDurability = { current: cur, max: max };
-                        } else if (!isNaN(cur)) {
-                            parsedDurability = { current: cur, max: cur };
+                        if (!isNaN(cur)) {
+                            equipStore.byId[existingId].durability = { current: cur, max: isNaN(max) ? cur : max };
                         }
                     }
-                    const equipData = {
-                        name: item.name,
-                        slot: finalSlot,
-                        weapon_type: item.weapon_type,
-                        statType: item.statType,
-                        rarity: item.rarity || 'common',
-                        item_level: item.item_level || 1,
-                        stats: item.stats || {},
-                        affixes: item.affixes || [],
-                        description: item.description || (item.durability ? `耐久: ${item.durability}` : ''),
-                        durability: parsedDurability,
-                        source: 'specialist'
-                    };
-                    const equipId = findOrCreateEquipment(equipData);
-                    if (equipId) await addEquipmentItem(equipId, true);
+                    await addEquipmentItem(existingId, true);
                     continue;
                 }
                 const type = item.type || 'consumable';
@@ -824,9 +782,10 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
             }
         }
 
-        // 4. Skills → skillStore (definitions) + playerStore.skills (references with proficiency)
+        // 4. Skills → 只更新已有技能的熟练度，不创建新技能。
+        // 新技能只能通过 <gain_skill> 标签 → generateSkill 创建（路径A，逻辑管理数值）。
+        // 专家只报告当前技能状态（熟练度），无权创建技能定义。
         if (Array.isArray(s.skills) && s.skills.length > 0) {
-            // Protect custom skills
             const player = getPlayerStore();
             const customSkillNames = new Set();
             const customIds = player.customSkills || [];
@@ -836,55 +795,31 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 }
             }
 
-            // 技能获取信号验证：新技能仅在叙事有获取信号时才创建
             const existingSkillNames = new Set((player.skills || []).map(s => s.name));
-            const hasSignal = isNewGame || hasSkillAcquisitionSignal(rawText);
-            if (!hasSignal) {
-                const blockedNames = s.skills
-                    .filter(sk => sk.name && !customSkillNames.has(sk.name) && !existingSkillNames.has(sk.name))
-                    .map(sk => sk.name);
-                if (blockedNames.length > 0) {
-                    log(`[技能验证] 叙事无习得信号，拒绝新增技能: ${blockedNames.join(', ')}`, 'warn');
-                }
-            }
 
             for (const sk of s.skills) {
                 if (!sk.name) continue;
                 // Skip custom skills (don't overwrite)
                 if (customSkillNames.has(sk.name)) continue;
 
-                // 防幻觉: 新技能仅在叙事有获取信号时才创建
-                const isNewSkill = !existingSkillNames.has(sk.name);
-                if (isNewSkill && !hasSignal) continue;
+                // 只更新已有技能的熟练度，不创建新技能
+                if (!existingSkillNames.has(sk.name)) {
+                    log(`[技能] "${sk.name}" 不在 playerStore.skills 中（需通过 gain_skill 标签生成），跳过`, 'info');
+                    continue;
+                }
 
-                // Find or create skill definition in skillStore
-                // (findOrCreateSkill already merges combat/effects when found)
-                const skillId = findOrCreateSkill({
-                    name: sk.name,
-                    rarity: sk.rarity || 'common',
-                    category: sk.category || 'sword_skill',
-                    weapon_type: sk.weapon_type,
-                    combat: {
-                        atk: sk.base_damage || sk.atk || 0,
-                        hit: sk.hit_rate || sk.hit || 0,
-                        crit: sk.crit_rate || sk.crit || 0,
-                        apt: sk.hits || sk.apt || 1,
-                        tpa: sk.targets || sk.tpa || 1,
-                        mpCost: sk.mp_cost || sk.mpCost || 0,
-                        cd: sk.cooldown || sk.cd || 0
-                    },
-                    effects: {
-                        wn: sk.core_code || sk.wn || '',
-                        en: sk.affix_codes || sk.en || [],
-                        mn: []
-                    },
-                    description: sk.effects_description || '',
-                    source: 'specialist'
-                });
-
-                // Add/update player skill reference with proficiency
-                const proficiency = sk.skill_level || sk.proficiency || 0;
-                await addPlayerSkill(skillId, sk.name, proficiency, true);
+                // 更新已有技能熟练度
+                const proficiency = sk.skill_level || sk.proficiency;
+                if (proficiency != null) {
+                    const existing = (player.skills || []).find(s => s.name === sk.name);
+                    if (existing) {
+                        // 防递减：熟练度只增不减
+                        if (proficiency > (existing.proficiency || 0)) {
+                            existing.proficiency = proficiency;
+                            log(`[技能] 更新 "${sk.name}" 熟练度 → ${proficiency}`);
+                        }
+                    }
+                }
             }
         }
 
