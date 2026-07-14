@@ -8,7 +8,7 @@ import { PANEL_TAGS } from './sao-panel-registry.js';
 // 所有使用点均为 .includes() 或遍历全体，顺序无关。
 // 额外添加 system_state_ref：状态注入包裹标签，需要 DOMPurify 保留 + CSS 隐藏，
 // 但不需要渲染器（不是面板），因此不加入 PANEL_REGISTRY。
-export const SAO_CUSTOM_TAGS = [...PANEL_TAGS, 'system_state_ref'];
+export const SAO_CUSTOM_TAGS = [...PANEL_TAGS, 'system_state_ref', 'gain_skill', 'gain_equipment'];
 
 /**
  * 创建（或复用）Shadow DOM 宿主，并插入到消息 DOM。

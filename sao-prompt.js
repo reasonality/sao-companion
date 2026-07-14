@@ -94,6 +94,12 @@ export function injectMemoryAndState() {
         parts.push('以下为系统自动注入的当前游戏状态参考，仅供你了解当前数值。');
         parts.push('严禁在你的回复中复制、原样输出、或以任何形式复述此状态块。');
         parts.push('状态显示由系统专家管理，你只需输出叙事正文和 <equip>/<swordskill> 标签。');
+        parts.push('## 获取标签（重要）');
+        parts.push('当叙事中玩家学会新剑技时，在叙事末尾输出: <gain_skill>武器类型</gain_skill>');
+        parts.push('  例: <gain_skill>单手直剑</gain_skill> — 插件自动生成技能名称和数值');
+        parts.push('当叙事中玩家获得新装备时，在叙事末尾输出: <gain_equipment>类型:稀有度</gain_equipment>');
+        parts.push('  例: <gain_equipment>敏捷型:蓝色</gain_equipment> — 插件自动生成装备名称和数值');
+        parts.push('仅在叙事确实描写了获取事件时才输出这些标签。不要凭空创造获取事件。');
         parts.push(stateText);
         parts.push('</system_state_ref>');
     }

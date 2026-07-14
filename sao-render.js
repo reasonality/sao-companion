@@ -977,7 +977,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 background: linear-gradient(180deg, rgba(22,30,46,0.92) 0%, rgba(15,21,34,0.92) 100%);
                 border: 1px solid var(--border-accent);
                 border-radius: 8px;
-                padding: 8px 10px;
+                padding: 12px 12px;
                 margin: 0;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.30), 0 0 12px rgba(0,210,255,0.08);
                 position: relative;
@@ -995,7 +995,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
 
             /* === 玩家状态 HUD 头部 (紧凑) === */
-            .sao-hud-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; }
+            .sao-hud-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
             .sao-hud-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
             .sao-hud-name {
                 font-family: "Orbitron", "Noto Sans SC", sans-serif;
@@ -1059,7 +1059,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
 
             /* === HP / MP 进度条 (6px 高) === */
             .sao-bar-row { margin: 0; padding: 0; line-height: 0; font-size: 0; }
-            .sao-bar-row + .sao-bar-row { margin-top: 6px; } /* HP 与 MP 条之间留间隙 */
+            .sao-bar-row + .sao-bar-row { margin-top: 8px; } /* HP 与 MP 条之间留间隙 */
             .sao-bar-row:last-child { margin: 0; }
             .sao-bar-labels {
                 display: flex;
@@ -1074,7 +1074,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             }
             .sao-bar-container {
                 height: 6px;
-                margin: 1px 0 0 0;
+                margin: 3px 0 0 0;
                 padding: 0;
                 background: rgba(0,0,0,0.45);
                 border-radius: 3px;
@@ -1115,7 +1115,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 display: grid;
                 grid-template-columns: repeat(4, 1fr);
                 gap: 12px;
-                margin-top: 12px;
+                margin-top: 16px;
             }
             .sao-stat-item {
                 width: 100%;

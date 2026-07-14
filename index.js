@@ -389,6 +389,67 @@ function enableCardRegex() {
 // ============================================================
 
 /**
+ * 处理 <gain_skill> 和 <gain_equipment> 标签：主LLM决定获取，插件生成数值。
+ * 格式: <gain_skill>武器类型</gain_skill>  e.g. <gain_skill>单手直剑</gain_skill>
+ *       <gain_equipment>槽位:类型:稀有度</gain_equipment>  e.g. <gain_equipment>weapon:敏捷型:蓝色</gain_equipment>
+ */
+async function processGainTags(rawText) {
+    if (!rawText) return;
+
+    // === <gain_skill> ===
+    const skillMatches = [...rawText.matchAll(/<gain_skill>\s*(.+?)\s*<\/gain_skill>/gis)];
+    for (const m of skillMatches) {
+        const weaponType = m[1].trim();
+        if (!weaponType) continue;
+        const player = getPlayerStore();
+        const skillLevel = player?.progression?.level || 1;
+        const playerLevel = player?.progression?.level || 1;
+        log(`[gain_skill] 主LLM请求新剑技: 武器类型=${weaponType}, 技能等级=${skillLevel}`);
+        try {
+            const skill = await generateSkill({ weaponType, skillLevel, playerLevel }, callModel);
+            if (skill) {
+                log(`[gain_skill] 剑技生成完成: ${skill.name} (ATK ${skill.base_damage})`);
+                await saveStore();
+            }
+        } catch (e) {
+            log(`[gain_skill] 剑技生成失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // === <gain_equipment> ===
+    const equipMatches = [...rawText.matchAll(/<gain_equipment>\s*(.+?)\s*<\/gain_equipment>/gis)];
+    for (const m of equipMatches) {
+        const spec = m[1].trim();
+        if (!spec) continue;
+        // 解析 "槽位:类型:稀有度" 或仅 "类型" 或 "类型:稀有度"
+        const parts = spec.split(/[:：]/).map(s => s.trim());
+        const player = getPlayerStore();
+        const playerLevel = player?.progression?.level || 1;
+        const context = { playerLevel };
+        if (parts[0]) context.type = parts[0];
+        if (parts[1]) context.rarity = parts[1];
+        if (parts[2]) { context.type = parts[0]; context.rarity = parts[2]; }
+        // 中文槽位映射
+        const slotMap = { '武器': '武器', '防具': '防具', '饰品': '饰品', 'weapon': '武器', 'armor': '防具', 'accessory': '饰品' };
+        if (parts.length >= 3 && slotMap[parts[0]]) {
+            // 格式: 槽位:类型:稀有度 — type = parts[1], rarity = parts[2]
+            context.type = parts[1];
+            context.rarity = parts[2];
+        }
+        log(`[gain_equipment] 主LLM请求新装备: 类型=${context.type}, 稀有度=${context.rarity || '随机'}, 等级=${playerLevel}`);
+        try {
+            const equip = await generateEquipment(context, callModel);
+            if (equip) {
+                log(`[gain_equipment] 装备生成完成: ${equip.name} (${equip.rarity})`);
+                await saveStore();
+            }
+        } catch (e) {
+            log(`[gain_equipment] 装备生成失败: ${e.message}`, 'warn');
+        }
+    }
+}
+
+/**
  * 定位消息 DOM 元素（SillyTavern 使用 mesid 属性标识消息）
  * @param {string|number} messageId - 消息 ID
  * @returns {HTMLElement|null}
@@ -650,6 +711,9 @@ function bindEvents() {
 
             // P4c: Custom skill unlock check
             checkCustomSkillUnlocks(rawText);
+
+            // gain_skill / gain_equipment 标签处理：主LLM决定获取，插件生成数值
+            await processGainTags(rawText);
 
             // 月蚀独特技能解锁检查
             checkUniqueSkillUnlocks();
