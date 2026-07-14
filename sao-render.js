@@ -9,7 +9,7 @@ import { PANEL_REGISTRY, PANEL_TAGS } from './sao-panel-registry.js';
 import { SAO_CALENDAR_CSS } from './sao-calendar-theme.js';
 import { buildCleanCalendarDays } from './sao-calendar.js';
 import { buildCalCellHtml } from './sao-calendar-cell.js';
-import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared } from './sao-detail-popup.js';
+import { renderDetailEquip as _renderEquipShared, renderDetailSkill as _renderSkillShared, renderDetailInv as _renderInvShared, rarityClass } from './sao-detail-popup.js';
 import { equipItem, unequipItem, getPlayerStore, forgetPlayerSkill } from './sao-store-player.js';
 import { getEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -1932,43 +1932,38 @@ function _showShadowModal(shadow, title, html) {
 }
 
 function renderNpcStatus(messageEl, rawText, messageId, refNode) {
-    let content = null;
-    // 1. 优先从 npcStore projection
+    let itemsHtml = '';
+    // 1. 优先从 npcStore projection — 结构化数据，渲染为每 NPC 一张 sub-card
     try {
         const npcData = renderNpcPanel();
         if (npcData && npcData.length > 0) {
-            content = npcData.map(npc => {
-                const parts = [`<b>${esc(npc.name)}</b>`];
-                if (npc.relationship) parts.push(`(${esc(npc.relationship)})`);
-                if (npc.affinity) parts.push(` 好感${npc.affinity}`);
-                if (npc.floor_id) parts.push(` F${npc.floor_id}`);
-                if (npc.location) parts.push(` @${esc(npc.location)}`);
-                if (npc.status && npc.status.length) parts.push(` [${esc(npc.status.join(','))}]`);
-                if (npc.uniqueSkill?.name) parts.push(` 独特技能:${esc(npc.uniqueSkill.name)}`);
-                if (npc.observations && npc.observations.length) {
-                    const last3 = npc.observations.slice(-3).map(o => esc(o)).join('; ');
-                    parts.push(` 观察:${last3}`);
-                }
-                return parts.join('');
-            }).join('\n');
+            itemsHtml = npcData.map(npc => _buildNpcCard(npc)).join('');
         }
     } catch (e) { /* ignore */ }
-    // 2. 回退：从 <npc_status> 标签提取
-    if (!content) {
-        content = extractTag(rawText, 'npc_status');
-        if (content === null) return;
+    // 2. 回退：从 <npc_status> 标签提取 — 旧 AI 输出格式，包在统一卡片外壳中保留视觉一致
+    if (!itemsHtml) {
+        const raw = extractTag(rawText, 'npc_status');
+        if (raw === null) return;
+        const safeContent = sanitizeInlineSaoHtml(raw.trim());
+        if (!safeContent) return;
+        itemsHtml = `<div class="sao-notify-item">
+            <div class="sao-notify-head">
+                <span class="sao-notify-head-name">👥 NPC 状态</span>
+            </div>
+            <div class="sao-notify-rows">${safeContent}</div>
+        </div>`;
     }
     const { shadow } = createSaoShadowHost(messageEl, 'npc_status', refNode);
-    const safeContent = sanitizeInlineSaoHtml(content.trim());
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
             ${SHARED_SAO_PANEL_CSS}
+            ${SAO_NOTIFY_ROW_CSS}
         </style>
         <div class="sao-panel-wrapper">
             <details class="sao-panel-details">
                 <summary>👥 NPC状态</summary>
-                <div>${safeContent}</div>
+                <div>${itemsHtml}</div>
             </details>
         </div>
     `;
@@ -1983,21 +1978,169 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
 const _shownNotificationEquipmentIds = new Set();
 const _shownNotificationSkillIds = new Set();
 
-/** 通知面板 row 布局 CSS（与 _showShadowModal 内 row 样式一致），追加到现有 style 块末尾。 */
+/** 通知面板共享 CSS — row 样式 + 每条目卡片 + 头/底布局（与 sao-detail-popup.js + panel.html 同一设计语言） */
 const SAO_NOTIFY_ROW_CSS = `
+            /* === 共享 row 样式（与 sao-detail-popup.js 的 modal 行一致，供 _renderEquipShared/_renderSkillShared 输出使用） === */
             .sao-detail-row{display:flex!important;justify-content:space-between!important;padding:6px 0!important;border-bottom:1px solid rgba(255,255,255,0.05)!important;gap:12px!important;align-items:baseline;}
-            .sao-detail-label{opacity:0.7!important;font-size:0.85em!important;color:#9fb0cc!important;font-family:"Rajdhani","Noto Sans SC",sans-serif!important;}
+            .sao-detail-label{opacity:0.72!important;font-size:0.85em!important;color:#9fb0cc!important;font-family:"Rajdhani","Noto Sans SC",sans-serif!important;text-transform:uppercase;letter-spacing:0.4px;}
             .sao-detail-value{font-weight:700!important;color:#eaf2ff!important;text-align:right!important;}
-            .sao-rarity-common{color:#9fb0cc!important;}
-            .sao-rarity-uncommon{color:#4ade80!important;}
-            .sao-rarity-rare{color:#60a5fa!important;}
-            .sao-rarity-epic{color:#c084fc!important;}
-            .sao-rarity-legendary{color:#fbbf24!important;text-shadow:0 0 10px rgba(255,184,0,0.35)!important;}
-            .sao-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.78em;background:rgba(0,210,255,0.1);border:1px solid rgba(0,210,255,0.2);color:#66e8ff;margin:2px 2px 2px 0;}
-            .sao-tag-affix{background:rgba(168,85,247,0.1);border-color:rgba(168,85,247,0.3);color:#c084fc;}
-            .sao-notify-item{margin:0 0 12px 0;padding:0 0 10px 0;border-bottom:1px dashed rgba(0,210,255,0.18);}
-            .sao-notify-item:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
-            .sao-notify-item-name{font-weight:700;font-size:1.05em;color:#eaf2ff;margin-bottom:6px;font-family:"Rajdhani","Noto Sans SC",sans-serif;letter-spacing:0.4px;}
+
+            /* === 稀有度颜色（与 panel.html token 对齐，保证与侧栏 modal 同色） === */
+            .sao-rarity-common{color:#9ca3af!important;}
+            .sao-rarity-uncommon{color:#00d68a!important;}
+            .sao-rarity-rare{color:#00d2ff!important;}
+            .sao-rarity-epic{color:#a855f7!important;}
+            .sao-rarity-legendary{color:#ffb800!important;text-shadow:0 0 10px rgba(255,184,0,0.35)!important;}
+
+            /* === 词条 / 附魔 chip === */
+            .sao-tag{display:inline-block!important;padding:2px 9px!important;border-radius:4px!important;font-size:0.78em!important;background:rgba(0,210,255,0.10)!important;border:1px solid rgba(0,210,255,0.22)!important;color:#66e8ff!important;margin:2px 2px 2px 0!important;font-family:"Rajdhani","Noto Sans SC",sans-serif!important;letter-spacing:0.3px;line-height:1.4!important;}
+            .sao-tag-affix{background:rgba(168,85,247,0.10)!important;border-color:rgba(168,85,247,0.30)!important;color:#c084fc!important;}
+
+            /* === 通知 summary 右上角小计数 chip === */
+            .sao-summary-count{
+                margin-left:auto;
+                padding:1px 8px;
+                border-radius:10px;
+                font-family:"Orbitron","Noto Sans SC",sans-serif;
+                font-size:0.72em;
+                font-weight:700;
+                letter-spacing:0.6px;
+                background:rgba(0,210,255,0.12);
+                border:1px solid rgba(0,210,255,0.30);
+                color:var(--primary-bright);
+                text-transform:uppercase;
+                line-height:1.4;
+                opacity:0.85;
+            }
+
+            /* === 每条目卡片 (sao-notify-item) — 装备/剑技/NPC 通用 === */
+            .sao-notify-item{
+                margin:0 0 12px 0;
+                padding:10px 12px 11px 12px;
+                background:linear-gradient(180deg, rgba(22,30,46,0.65) 0%, rgba(15,21,34,0.55) 100%);
+                border:1px solid rgba(0,210,255,0.22);
+                border-left:3px solid var(--primary);
+                border-radius:7px;
+                position:relative;
+                overflow:hidden;
+                box-shadow:0 2px 6px rgba(0,0,0,0.30);
+                transition:border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+            }
+            .sao-notify-item:hover{
+                border-color:var(--border-accent);
+                box-shadow:0 4px 14px rgba(0,210,255,0.15);
+            }
+            .sao-notify-item::before{
+                content:"";
+                position:absolute;
+                top:0;left:0;right:0;
+                height:1px;
+                background:linear-gradient(90deg, var(--primary) 0%, transparent 65%);
+                opacity:0.55;
+                pointer-events:none;
+            }
+            .sao-notify-item:last-child{margin-bottom:0;}
+
+            /* === 头部条: 左 name (Rajdhani 700) + 右 meta pills === */
+            .sao-notify-head{
+                display:flex;
+                align-items:center;
+                justify-content:space-between;
+                gap:10px;
+                flex-wrap:wrap;
+                margin:0 0 8px 0;
+                padding:0 0 7px 0;
+                border-bottom:1px solid rgba(0,210,255,0.18);
+            }
+            .sao-notify-head-name{
+                font-family:"Rajdhani","Noto Sans SC",sans-serif;
+                font-size:1.10em;
+                font-weight:700;
+                color:var(--text-primary);
+                letter-spacing:0.5px;
+                text-shadow:0 0 8px rgba(0,210,255,0.18)!important;
+                line-height:1.2;
+            }
+            .sao-notify-head-badges{
+                display:flex;
+                align-items:center;
+                gap:5px;
+                flex-wrap:wrap;
+            }
+
+            /* === 通用 pill (右上 meta) === */
+            .sao-pill{
+                display:inline-flex;
+                align-items:center;
+                padding:2px 9px;
+                border-radius:12px;
+                background:rgba(255,255,255,0.05);
+                border:1px solid rgba(255,255,255,0.12);
+                color:var(--text-secondary);
+                font-family:"Rajdhani","Noto Sans SC",sans-serif;
+                font-size:0.74em;
+                font-weight:600;
+                letter-spacing:0.5px;
+                text-transform:uppercase;
+                line-height:1.35;
+                white-space:nowrap;
+            }
+            /* pill: 稀有度色（背景 + 边框 与 sao-rarity-X 文本色对齐） */
+            .sao-pill.sao-pill-rarity.sao-rarity-common      {background:rgba(156,163,175,0.10)!important;border-color:rgba(156,163,175,0.32)!important;}
+            .sao-pill.sao-pill-rarity.sao-rarity-uncommon    {background:rgba(0,214,138,0.10)!important;border-color:rgba(0,214,138,0.32)!important;}
+            .sao-pill.sao-pill-rarity.sao-rarity-rare        {background:rgba(0,210,255,0.10)!important;border-color:rgba(0,210,255,0.36)!important;}
+            .sao-pill.sao-pill-rarity.sao-rarity-epic        {background:rgba(168,85,247,0.10)!important;border-color:rgba(168,85,247,0.36)!important;}
+            .sao-pill.sao-pill-rarity.sao-rarity-legendary   {background:rgba(255,184,0,0.14)!important;border-color:rgba(255,184,0,0.42)!important;}
+            /* pill: NPC 关系 (暖色) */
+            .sao-pill.sao-pill-relationship   {background:rgba(255,138,61,0.10)!important;border-color:rgba(255,138,61,0.34)!important;color:#ff9b66!important;}
+            /* pill: NPC 好感度 (绿色 + Orbitron 字体) */
+            .sao-pill.sao-pill-affinity       {background:rgba(0,214,138,0.10)!important;border-color:rgba(0,214,138,0.32)!important;color:#00d68a!important;font-family:"Orbitron","Noto Sans SC",sans-serif!important;letter-spacing:0.6px;}
+            /* pill: 楼层 (cyan) */
+            .sao-pill.sao-pill-floor          {background:rgba(0,210,255,0.10)!important;border-color:rgba(0,210,255,0.32)!important;color:var(--primary-bright)!important;font-family:"Orbitron","Noto Sans SC",sans-serif!important;letter-spacing:0.6px;}
+
+            /* === 行容器（包装 _renderEquipShared/_renderSkillShared 输出的 row 序列） === */
+            .sao-notify-rows{
+                display:flex;
+                flex-direction:column;
+                font-size:0.92em;
+            }
+
+            /* === 描述/观察行: 玻璃卡块 (italic, ▎ 装饰、与 stat rows 视觉隔离) === */
+            .sao-notify-desc{
+                margin:8px 0 0 0;
+                padding:8px 10px 8px 12px;
+                background:rgba(8,12,20,0.55);
+                border:1px solid rgba(0,210,255,0.10);
+                border-left:2px solid rgba(0,210,255,0.32);
+                border-radius:4px;
+                color:var(--text-secondary);
+                font-size:0.88em;
+                line-height:1.55;
+                font-style:italic;
+                position:relative;
+                word-break:break-word;
+            }
+            .sao-notify-desc::before{
+                content:"▎";
+                position:absolute;
+                top:7px;
+                left:4px;
+                color:var(--primary-bright);
+                font-style:normal;
+                opacity:0.7;
+                font-size:0.9em;
+            }
+            .sao-notify-desc > strong{
+                font-style:normal;
+                font-weight:600;
+                color:var(--primary-bright);
+                opacity:0.7;
+                font-family:"Rajdhani","Noto Sans SC",sans-serif;
+                font-size:0.85em;
+                letter-spacing:0.5px;
+                text-transform:uppercase;
+                margin-right:6px;
+            }
 `;
 
 /**
@@ -2045,6 +2188,87 @@ function _collectNewSkillEntries() {
     return newEntries;
 }
 
+/**
+ * 装备通知条目卡（结构化投影 fallback 专用） — 与 sao-detail-popup 的 row 结构同语言，但有清晰 sub-card 视觉层次。
+ * 调用策略：
+ *   - headers: 显示 name + 槽位 + 类型 + 稀有度 pill（在头部条）
+ *   - 共享行渲染：剥离已显示字段 + 描述（描述改在玻璃卡块），复用 _renderEquipShared 输出 stat/affix 行
+ *   - 描述：以 ▎ 玻璃卡块呈现，独立于 stat rows
+ */
+function _buildEquipmentCard(eq) {
+    const name = eq.name || eq.equipment_id || '未命名装备';
+    const rCls = rarityClass(eq.rarity);
+    const head = `<div class="sao-notify-head">
+            <span class="sao-notify-head-name">⚔️ ${esc(name)}</span>
+            <span class="sao-notify-head-badges">
+                ${eq.slot ? `<span class="sao-pill">${esc(eq.slot)}</span>` : ''}
+                ${eq.type ? `<span class="sao-pill">${esc(eq.type)}</span>` : ''}
+                ${eq.rarity ? `<span class="sao-pill sao-pill-rarity ${rCls}">${esc(eq.rarity)}</span>` : ''}
+            </span>
+        </div>`;
+    // 剥离：名称 + 槽位 + 类型 + 稀有度（已被 header pill 显示）+ 描述（改走玻璃卡块）
+    const stripped = { ...eq, name: null, slot: null, type: null, rarity: null, description: null };
+    const rowsHtml = _renderEquipShared(stripped);
+    const rowsBlock = rowsHtml ? `<div class="sao-notify-rows">${rowsHtml}</div>` : '';
+    const descBlock = eq.description ? `<div class="sao-notify-desc">${esc(eq.description)}</div>` : '';
+    return `<div class="sao-notify-item">${head}${rowsBlock}${descBlock}</div>`;
+}
+
+/**
+ * 剑技通知条目卡（结构化投影 fallback 专用） — 同 _buildEquipmentCard，但适用于剑技字段集合。
+ * header pill 显示: 武器类型 + 技能等级 (LvX) + 稀有度。
+ * 共享行渲染保留: combat.{atk,hit,crit,apt,tpa,mpCost,cd} + effects.wn + effects.en（词条 tags）。
+ */
+function _buildSkillCard(sk) {
+    const name = sk.name || '(未命名剑技)';
+    const rCls = rarityClass(sk.rarity);
+    const head = `<div class="sao-notify-head">
+            <span class="sao-notify-head-name">✨ ${esc(name)}</span>
+            <span class="sao-notify-head-badges">
+                ${sk.weapon_type ? `<span class="sao-pill">${esc(sk.weapon_type)}</span>` : ''}
+                ${sk.proficiency != null ? `<span class="sao-pill">Lv ${esc(sk.proficiency)}</span>` : ''}
+                ${sk.rarity ? `<span class="sao-pill sao-pill-rarity ${rCls}">${esc(sk.rarity)}</span>` : ''}
+            </span>
+        </div>`;
+    // 剥离：武器类型 + 技能等级 + 稀有度（已在 header pill 中）+ 描述（改走玻璃卡块）
+    const stripped = { ...sk, weapon_type: null, proficiency: null, rarity: null, description: null };
+    const rowsHtml = _renderSkillShared(stripped, null);
+    const rowsBlock = rowsHtml ? `<div class="sao-notify-rows">${rowsHtml}</div>` : '';
+    const descBlock = sk.description ? `<div class="sao-notify-desc">${esc(sk.description)}</div>` : '';
+    return `<div class="sao-notify-item">${head}${rowsBlock}${descBlock}</div>`;
+}
+
+/**
+ * NPC 状态卡 — header 显示 NPC 名字 + 关系 + 好感度 (Orbitron 数字) + 楼层 (Orbitron 数字)，
+ * 之后以 sao-detail-row 结构展示位置 / 独特技能 / 状态 (tags) / 最后目击日期，
+ * 观察以 ▎ 玻璃卡块呈现。
+ */
+function _buildNpcCard(npc) {
+    const name = npc.name || '无姓名';
+    const head = `<div class="sao-notify-head">
+            <span class="sao-notify-head-name">👤 ${esc(name)}</span>
+            <span class="sao-notify-head-badges">
+                ${npc.relationship ? `<span class="sao-pill sao-pill-relationship">${esc(npc.relationship)}</span>` : ''}
+                ${npc.affinity ? `<span class="sao-pill sao-pill-affinity">❤ ${esc(npc.affinity)}</span>` : ''}
+                ${npc.floor_id != null ? `<span class="sao-pill sao-pill-floor">F${esc(npc.floor_id)}</span>` : ''}
+            </span>
+        </div>`;
+    const rows = [];
+    if (npc.location) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">位置</span><span class="sao-detail-value">${esc(npc.location)}</span></div>`);
+    if (npc.uniqueSkill?.name) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">独特技能</span><span class="sao-detail-value">${esc(npc.uniqueSkill.name)}</span></div>`);
+    if (npc.status && npc.status.length) {
+        const tags = npc.status.map(s => `<span class="sao-tag">${esc(s)}</span>`).join(' ');
+        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">状态</span><span class="sao-detail-value" style="text-align:right;display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">${tags}</span></div>`);
+    }
+    if (npc.last_seen_date) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">最后目击</span><span class="sao-detail-value">${esc(npc.last_seen_date)}</span></div>`);
+    const rowsBlock = rows.length ? `<div class="sao-notify-rows">${rows.join('')}</div>` : '';
+    const obs = npc.observations && npc.observations.length
+        ? npc.observations.slice(-3).map(o => esc(o)).join(' · ')
+        : '';
+    const obsBlock = obs ? `<div class="sao-notify-desc"><strong>观察</strong>${obs}</div>` : '';
+    return `<div class="sao-notify-item">${head}${rowsBlock}${obsBlock}</div>`;
+}
+
 function renderEquipment(messageEl, rawText, messageId, refNode) {
     // P2: 优先从专家面板数据读取（非空）；回退到 <equip> 标签（兼容旧 AI）；
     // 仍无内容则从 equipmentStore.byId 投影渲染 row-based 视图。
@@ -2063,9 +2287,7 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
         if (!itemsHtml) {
             const newEntries = _collectNewEquipmentEntries();
             if (newEntries.length === 0) return;
-            itemsHtml = newEntries
-                .map(eq => `<div class="sao-notify-item"><div class="sao-notify-item-name">⚔️ ${esc(eq.name || eq.equipment_id)}</div>${_renderEquipShared(eq)}</div>`)
-                .join('');
+            itemsHtml = newEntries.map(eq => _buildEquipmentCard(eq)).join('');
         }
     }
     const { shadow } = createSaoShadowHost(messageEl, 'equip', refNode)
@@ -2102,9 +2324,7 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
         if (!itemsHtml) {
             const newEntries = _collectNewSkillEntries();
             if (newEntries.length === 0) return;
-            itemsHtml = newEntries
-                .map(sk => `<div class="sao-notify-item"><div class="sao-notify-item-name">✨ ${esc(sk.name || '(未命名剑技)')}</div>${_renderSkillShared(sk, null)}</div>`)
-                .join('');
+            itemsHtml = newEntries.map(sk => _buildSkillCard(sk)).join('');
         }
     }
     const { shadow } = createSaoShadowHost(messageEl, 'swordskill', refNode)
