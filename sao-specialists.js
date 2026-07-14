@@ -367,8 +367,9 @@ export async function callStatusSpecialist(messageId, narrativeText) {
     "str": 0, "agi": 0, "int": 0, "vit": 0,
     "location": "string", "floor": 0,
     "equipment": { "weapon": {"name":"...","item_level":0,"stats":{"max_hp":0,"str":0,"agi":0,"int":0,"vit":0}} },
-    "inventory": [ {"name":"...","qty":1} ],
+    "inventory": [ {"name":"...","qty":1,"type":"equipment|consumable|material|quest_item"} ],
     "skills": [ {"name":"...","proficiency":0,"base_damage":0,"hit_rate":0,"crit_rate":0,"mp_cost":0,"cooldown":0,"hits":0,"targets":0,"core_code":"","affix_codes":[]} ],
+    "sellActions": [ {"name":"物品名","qty":1,"cor_gained":50} ],
     "cursor_type": "green|orange|red"
   },
   "zdText": "[PR:玩家名][GR:等级][HP:当前/最大][MP:当前/最大][STR:值][AGI:值][INT:值][VIT:值][WE:技能名][ATK:值][Hit%:值][Crit%:值][APT:值][TPA:值][MPCost:值][CD:值][WN:代码][EN:代码参数][FRN:队友名][FRHP:当前/最大][FRMP:当前/最大][ENN:敌人名][ENHP:当前/最大][ENS:敌人技能名]",
@@ -384,7 +385,10 @@ export async function callStatusSpecialist(messageId, narrativeText) {
 - 不确定时保持当前值不变（保守更新）
 - 装备槽位：weapon/off_hand/head/chest/hands/legs/accessory
 - 技能字段：base_damage=ATK, hit_rate=Hit%, crit_rate=Crit%, mp_cost=MPCost, cooldown=CD, hits=APT, targets=TPA, core_code=WN, affix_codes=EN（数组）
+- 新增剑技时，base_damage/hit_rate/crit_rate 等数值必须根据技能等级、武器类型和玩家等级设定合理值，不得全为 0。参考当前已有技能的数值作为基准
+- inventory 中每个物品必须标注 type 字段：equipment（武器/防具/装备）、consumable（药水/消耗品）、material（材料）、quest_item（任务物品）。武器/防具类物品（如匕首/剑/刀/弓/盾/盔甲）必须设 type: "equipment"
 - cursor_type：光标类型，根据玩家行为状态判断。green=普通玩家/友方，orange=可攻击/敌对，red=红名PK者。若无法确定则不输出（保持当前值）
+- 玩家出售/卖出物品时，在 state.sellActions 中输出售出信息。格式: [{"name":"物品名","qty":1,"cor_gained":50}]。售出后该物品应从 inventory 中移除，获得的珂尔加到 cor 中
 
 4. 输出月蚀独特技能相关字段（仅在叙事涉及这些内容时输出）：
 - 如果叙事中提到冥想修炼，输出 meditationProficiency (number, 在当前值基础上+50~100，当前值见状态摘要)
@@ -417,8 +421,8 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
         ? `\n\n## 玩家本地操作（UI 按钮触发，非叙事）\n${actionLogHint}\n这些操作已直接修改了玩家状态，请勿覆盖这些变更。\n`
         : '';
 
-    // 规则按需注入：等级、技能
-    const ruleHints = RULE_LEVEL + '\n\n' + RULE_SKILL + '\n\n' + RULE_MEDITATION;
+    // 规则按需注入：等级、技能、剑技获取、冥想
+    const ruleHints = RULE_LEVEL + '\n\n' + RULE_SKILL + '\n\n' + RULE_SWORDSKILL + '\n\n' + RULE_MEDITATION;
 
     const npcHint = projectNpcHint();
     const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +

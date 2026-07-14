@@ -21,6 +21,9 @@ import { setPlayerHousing, updatePlayerHousing, addDecoration, addFurniture, rem
 /** 中文装备槽位名 → 英文 slot 键映射（避免循环内重复构造） */
 const SLOT_CN_TO_EN = { '武器':'weapon', '副手':'off_hand', '防具':'armor', '头部':'head', '头盔':'helmet', '胸部':'chest', '手部':'hands', '手套':'gloves', '腿部':'legs', '靴子':'boots', '盾牌':'shield', '饰品':'accessory', '戒指':'ring', '项链':'necklace', '披风':'cape', '腰带':'belt' };
 
+/** 武器/防具关键词正则：物品名匹配到这些关键词时，即使 LLM 未标注 type 也按装备处理。 */
+const EQUIP_NAME_RE = /匕首|短刀|长刀|太刀|刀|剑|枪|矛|斧|弓|弩|锤|杖|棍|镰|盾|盔|甲|护手|护腿|护肩|披风|斗篷|戒指|项链|腰带|靴|鞋|头盔|胸甲|护腕/;
+
 // === 纯解析函数 ===
 
 function parseSkillField(tok, skill) {
@@ -601,8 +604,10 @@ export async function applyExtractedData(extracted, customSkillDefs) {
         if (Array.isArray(s.inventory) && s.inventory.length > 0) {
             for (const item of s.inventory) {
                 if (!item || !item.name) continue;
-                // Determine type: if item has stats/equipment-like fields, route to equipment+inventory (backpack)
-                if (item.stats || item.slot || item._equip_backpack || item.durability) {
+                // Determine type: if item has stats/equipment-like fields OR matches weapon/armor name keywords,
+                // route to equipment+inventory (backpack)
+                const looksLikeEquipment = !item.type && EQUIP_NAME_RE.test(item.name);
+                if (item.stats || item.slot || item._equip_backpack || item.durability || item.type === 'equipment' || looksLikeEquipment) {
                     // 装备背包项：从中文槽位名映射为英文 slot（SLOT_CN_TO_EN 已提到模块级）
                     const mappedSlot = item.slot || SLOT_CN_TO_EN[item.type];
                     if (item.type && !item.slot && !SLOT_CN_TO_EN[item.type] && item._equip_backpack) {
@@ -656,6 +661,79 @@ export async function applyExtractedData(extracted, customSkillDefs) {
                         source: 'llm'
                     });
                     if (consumableId) await setConsumableQty(consumableId, qty, true);
+                }
+            }
+        }
+
+        // 3b. sellActions → 从背包移除物品 + 增加货币
+        if (Array.isArray(s.sellActions) && s.sellActions.length > 0) {
+            const invStore = getInventoryStore();
+            for (const action of s.sellActions) {
+                if (!action || !action.name) continue;
+                const sellQty = Math.max(1, Math.floor(Number(action.qty) || 1));
+                const corGained = Math.max(0, Math.floor(Number(action.cor_gained) || 0));
+                log(`sellActions: 尝试售出 ${action.name} x${sellQty} → +${corGained} Cor`);
+
+                // 按名称在背包中查找物品
+                // 先找装备类
+                let sold = false;
+                for (let i = invStore.items.length - 1; i >= 0; i--) {
+                    const invItem = invStore.items[i];
+                    if (invItem.type === 'equipment' && invItem.equipment_id) {
+                        const eqDef = getEquipmentById(invItem.equipment_id);
+                        if (eqDef && eqDef.name === action.name) {
+                            await removeEquipmentItem(invItem.equipment_id, true);
+                            sold = true;
+                            log(`sellActions: 装备售出 ${action.name} (equipment_id=${invItem.equipment_id})`);
+                            break;
+                        }
+                    }
+                }
+                // 找消耗品类
+                if (!sold) {
+                    for (let i = invStore.items.length - 1; i >= 0; i--) {
+                        const invItem = invStore.items[i];
+                        if (invItem.type === 'consumable' && invItem.consumable_id) {
+                            const { getConsumableById } = await import('./sao-store-consumable.js');
+                            const conDef = getConsumableById(invItem.consumable_id);
+                            if (conDef && conDef.name === action.name) {
+                                const newQty = (invItem.qty || 1) - sellQty;
+                                if (newQty <= 0) {
+                                    invStore.items.splice(i, 1);
+                                } else {
+                                    invItem.qty = newQty;
+                                }
+                                sold = true;
+                                log(`sellActions: 消耗品售出 ${action.name} x${sellQty} (剩余 ${Math.max(0, newQty)})`);
+                                break;
+                            }
+                        }
+                    }
+                }
+                // 找材料类
+                if (!sold) {
+                    for (let i = invStore.items.length - 1; i >= 0; i--) {
+                        const invItem = invStore.items[i];
+                        if (invItem.type === 'material' && invItem.name === action.name) {
+                            const newQty = (invItem.qty || 1) - sellQty;
+                            if (newQty <= 0) {
+                                invStore.items.splice(i, 1);
+                            } else {
+                                invItem.qty = newQty;
+                            }
+                            sold = true;
+                            log(`sellActions: 材料售出 ${action.name} x${sellQty}`);
+                            break;
+                        }
+                    }
+                }
+
+                if (sold && corGained > 0) {
+                    const currentCor = (invStore.currency?.cor) || 0;
+                    await updateCurrency(currentCor + corGained, true);
+                    log(`sellActions: 货币 +${corGained} → ${currentCor + corGained} Cor`);
+                } else if (!sold) {
+                    log(`sellActions: 未找到物品 "${action.name}"，跳过售出`, 'warn');
                 }
             }
         }

@@ -442,6 +442,15 @@ export function projectSkillSummary() {
         const detail = safe(() => getSkillById(s.skill_id), `getSkillById(${s.skill_id})`);
         const skName = detail?.name || s.name || '?';
         const prof = s.proficiency ?? '?';
+        // 包含战斗属性作为参考值，帮助 specialist 设定新技能的合理数值
+        const c = detail?.combat;
+        if (c) {
+            const atk = c.atk != null ? `ATK${c.atk}` : '';
+            const hit = c.hit != null ? `Hit${c.hit}%` : '';
+            const crit = c.crit != null ? `Crit${c.crit}%` : '';
+            const stats = [atk, hit, crit].filter(Boolean).join(' ');
+            return `${skName}(熟练${prof}${stats ? ', ' + stats : ''})`;
+        }
         return `${skName}(熟练${prof})`;
     });
 
