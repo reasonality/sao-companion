@@ -495,15 +495,15 @@ export function projectStateHint() {
         if (attr.vit != null) parts.push(`VIT:${attr.vit}`);
     }
 
-    // 珂尔（货币）— 必须提供当前值，否则 LLM 无法"保持当前值不变"
-    const cor = safe(() => getCurrency(), 'getCurrency');
-    if (cor != null) parts.push(`Cor:${cor}`);
-
     // 位置
     if (player.position?.floor_id != null) parts.push(`位置:${player.position.floor_id}F`);
     if (player.position?.location) parts.push(player.position.location);
 
     const mainParts = [parts.join(' ')];
+
+    // 货币/背包摘要（独立模块，与装备/技能平行）
+    const cor = safe(() => getCurrency(), 'getCurrency');
+    if (cor != null) mainParts.push(`货币:Cor ${cor}`);
 
     // 装备摘要（简短：仅主手）
     const equip = player.equipment;
