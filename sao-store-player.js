@@ -165,6 +165,14 @@ export function recalcStatsFromEquipment(skipSave, oldBonuses) {
     playerStore.vitals.maxHp = (bv.maxHp ?? 100) + newBonuses.maxHp;
     playerStore.vitals.maxMp = (bv.maxMp ?? 20) + newBonuses.maxMp;
 
+    // 卸下装备后 maxHp/maxMp 可能下降，当前 hp/mp 不能超过上限
+    if (playerStore.vitals.hp != null) {
+        playerStore.vitals.hp = Math.max(0, Math.min(playerStore.vitals.hp, playerStore.vitals.maxHp));
+    }
+    if (playerStore.vitals.mp != null) {
+        playerStore.vitals.mp = Math.max(0, Math.min(playerStore.vitals.mp, playerStore.vitals.maxMp));
+    }
+
     if (skipSave !== true) saveStore();
 }
 

@@ -924,7 +924,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
                 backdrop-filter: blur(4px);
             }
             .sao-status-content { display: block; overflow-y: auto; overflow-x: hidden; max-height: calc(60vh - 40px); padding-right: 4px; }
-            .sao-status-content > .sao-hud-card { white-space: normal; }
+            .sao-status-content .sao-hud-card { white-space: normal; }
 
             /* === 双行 × 双列布局 (左 55% / 右 45%) === */
             .sao-status-row {
