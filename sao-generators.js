@@ -232,8 +232,8 @@ export function resolveAffixArgs(affixCode, skill) {
  * @param {Function} callModelFn - 模型调用函数
  * @returns {Promise<object|null>} 装备对象
  */
-export async function generateEquipment(context, callModelFn) {
-    if (!callModelFn) throw new Error('callModelFn is required');
+export async function generateEquipment(context, callModelFn, prefilledName, prefilledDesc) {
+    if (!callModelFn && !prefilledName) throw new Error('callModelFn is required (or provide prefilledName)');
     const settings = getSettings();
     if (!settings.enabled) return null;
 
@@ -321,38 +321,50 @@ ${fullEquipJson}
 
 要求: 只输出完整的JSON对象，不要包含markdown代码块标记或说明文字。`;
 
-    try {
-        const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO装备命名器。根据输入的装备JSON，填充name和description字段后返回完整JSON。不要改变其他字段的值，不要输出任何非JSON内容。' },
-            { role: 'user', content: namePrompt },
-        ], 384, { jsonSchema: true });
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    const equip = {
+        name: prefilledName || null,
+        slot: slotEntry.slot,
+        statType: typeEntry.mainStat,
+        rarity: rarityEn,
+        item_level: itemLevel,
+        stats,
+        affixes: affixNames,
+        description: prefilledDesc || '',
+    };
 
-        const equip = {
-            name: modelResult.name || `${slotEntry.label}装备`,
-            slot: slotEntry.slot,
-            statType: typeEntry.mainStat,
-            rarity: rarityEn,
-            item_level: itemLevel,
-            stats,
-            affixes: affixNames,
-            description: modelResult.description || '',
-        };
-        // B2: 直写 equipmentStore + 默认入背包（不自动穿戴）
+    if (prefilledName) {
+        // 主LLM已提供名称和描述，跳过子LLM调用
+        log('装备生成(主LLM提供名称): ' + prefilledName);
+    } else {
+        // 子LLM生成名称和描述
         try {
-            const equipId = findOrCreateEquipment({ ...equip, source: 'specialist' });
-            if (equipId) {
-                await addEquipmentItem(equipId, true);  // skipSave，调用方负责 save
-                equip.equipment_id = equipId;
-                log('装备入Store: ' + equip.name + ' → ' + equipId);
-            }
+            const result = await callModelFn('equipment', [
+                { role: 'system', content: '你是SAO装备命名器。根据输入的装备JSON，填充name和description字段后返回完整JSON。不要改变其他字段的值，不要输出任何非JSON内容。' },
+                { role: 'user', content: namePrompt },
+            ], 384, { jsonSchema: true });
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
+            const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+            equip.name = modelResult.name || `${slotEntry.label}装备`;
+            equip.description = modelResult.description || '';
         } catch (e) {
-            log('装备直写Store失败(非致命): ' + e.message, 'warn');
+            log('装备命名生成失败: ' + e.message, 'warn');
+            equip.name = `${slotEntry.label}装备`;
         }
-        log('装备生成完成: ' + equip.name);
-        return equip;
-    } catch (e) { log('装备生成失败: ' + e.message, 'error'); return null; }
+    }
+
+    // B2: 直写 equipmentStore + 默认入背包
+    try {
+        const equipId = findOrCreateEquipment({ ...equip, source: 'specialist' });
+        if (equipId) {
+            await addEquipmentItem(equipId, true);
+            equip.equipment_id = equipId;
+            log('装备入Store: ' + equip.name + ' → ' + equipId);
+        }
+    } catch (e) {
+        log('装备直写Store失败(非致命): ' + e.message, 'warn');
+    }
+    log('装备生成完成: ' + equip.name);
+    return equip;
 }
 
 /**
@@ -361,8 +373,8 @@ ${fullEquipJson}
  * @param {Function} callModelFn - 模型调用函数
  * @returns {Promise<object|null>} 剑技对象
  */
-export async function generateSkill(context, callModelFn) {
-    if (!callModelFn) throw new Error('callModelFn is required');
+export async function generateSkill(context, callModelFn, prefilledName, prefilledDesc) {
+    if (!callModelFn && !prefilledName) throw new Error('callModelFn is required (or provide prefilledName)');
     const settings = getSettings();
     if (!settings.enabled) return null;
 
@@ -459,68 +471,80 @@ ${fullSkillJson}
 
 要求: 只输出完整的JSON对象，不要包含markdown代码块标记或说明文字。`;
 
-    try {
-        const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO剑技命名器。根据输入的剑技JSON，填充name、description和effects_description字段后返回完整JSON。不要改变其他字段的值，不要输出任何非JSON内容。' },
-            { role: 'user', content: namePrompt },
-        ], 384, { jsonSchema: true });
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    const skill = {
+        name: prefilledName || null,
+        weapon_type: weaponType,
+        skill_level: skillLevel,
+        rarity: rarityEn,
+        base_damage: baseATK,
+        hit_rate: hitRate,
+        crit_rate: critRate,
+        mp_cost: mpCost,
+        cooldown: cd,
+        hits: apt,
+        targets: tpa,
+        core_code: coreEntry.code,
+        affix_codes: affixCodes,
+        affix_names: affixNames,
+        effects_description: '',
+        description: prefilledDesc || '',
+    };
 
-        const skill = {
-            name: modelResult.name || '剑技',
-            weapon_type: weaponType,
-            skill_level: skillLevel,
-            rarity: rarityEn,
-            base_damage: baseATK,
-            hit_rate: hitRate,
-            crit_rate: critRate,
-            mp_cost: mpCost,
-            cooldown: cd,
-            hits: apt,
-            targets: tpa,
-            core_code: coreEntry.code,
-            affix_codes: affixCodes,
-            affix_names: affixNames,
-            effects_description: modelResult.effects_description || '',
-            description: modelResult.description || '',
-        };
-        // B2: \u5B57\u6BB5\u6620\u5C04 + \u76F4\u5199 skillStore
+    if (prefilledName) {
+        // \u4E3BLLM\u5DF2\u63D0\u4F9B\u540D\u79F0\u548C\u63CF\u8FF0
+        log('\u5251\u6280\u751F\u6210(\u4E3BLLM\u63D0\u4F9B\u540D\u79F0): ' + prefilledName);
+    } else {
+        // \u5B50LLM\u751F\u6210\u540D\u79F0\u548C\u63CF\u8FF0
         try {
-            const skillId = findOrCreateSkill({
-                name: skill.name,
-                rarity: skill.rarity,
-                category: 'sword_skill',
-                weapon_type: skill.weapon_type,
-                combat: {
-                    atk: skill.base_damage,
-                    hit: skill.hit_rate,
-                    crit: skill.crit_rate,
-                    apt: skill.hits,
-                    tpa: skill.targets,
-                    mpCost: skill.mp_cost,
-                    cd: skill.cooldown,
-                },
-                effects: {
-                    wn: skill.core_code || '',
-                    en: Array.isArray(skill.affix_codes) ? skill.affix_codes : [],
-                    mn: [],
-                },
-                description: skill.description,
-                source: 'specialist',
-            });
-            if (skillId) {
-                skill.skill_id = skillId;
-                // 将技能加入玩家技能列表（否则状态栏看不到新技能）
-                await addPlayerSkill(skillId, skill.name, skillLevel, true);
-                log('\u6280\u80FD\u5165Store: ' + skill.name + ' \u2192 ' + skillId);
-            }
+            const result = await callModelFn('equipment', [
+                { role: 'system', content: '\u4F60\u662FSAO\u5251\u6280\u547D\u540D\u5668\u3002\u6839\u636E\u8F93\u5165\u7684\u5251\u6280JSON\uFF0C\u586B\u5145name\u3001description\u548Ceffects_description\u5B57\u6BB5\u540E\u8FD4\u56DE\u5B8C\u6574JSON\u3002\u4E0D\u8981\u6539\u53D8\u5176\u4ED6\u5B57\u6BB5\u7684\u503C\uFF0C\u4E0D\u8981\u8F93\u51FA\u4EFB\u4F55\u975EJSON\u5185\u5BB9\u3002' },
+                { role: 'user', content: namePrompt },
+            ], 384, { jsonSchema: true });
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
+            const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+            skill.name = modelResult.name || '\u5251\u6280';
+            skill.description = modelResult.description || '';
+            skill.effects_description = modelResult.effects_description || '';
         } catch (e) {
-            log('\u6280\u80FD\u76F4\u5199Store\u5931\u8D25(\u975E\u81F4\u547D): ' + e.message, 'warn');
+            log('\u5251\u6280\u547D\u540D\u751F\u6210\u5931\u8D25: ' + e.message, 'warn');
+            skill.name = '\u5251\u6280';
         }
-        log('\u5251\u6280\u751F\u6210\u5B8C\u6210: ' + skill.name);
-        return skill;
-    } catch (e) { log('\u5251\u6280\u751F\u6210\u5931\u8D25: ' + e.message, 'error'); return null; }
+    }
+
+    // B2: \u5B57\u6BB5\u6620\u5C04 + \u76F4\u5199 skillStore
+    try {
+        const skillId = findOrCreateSkill({
+            name: skill.name,
+            rarity: skill.rarity,
+            category: 'sword_skill',
+            weapon_type: skill.weapon_type,
+            combat: {
+                atk: skill.base_damage,
+                hit: skill.hit_rate,
+                crit: skill.crit_rate,
+                apt: skill.hits,
+                tpa: skill.targets,
+                mpCost: skill.mp_cost,
+                cd: skill.cooldown,
+            },
+            effects: {
+                wn: skill.core_code || '',
+                en: Array.isArray(skill.affix_codes) ? skill.affix_codes : [],
+                mn: [],
+            },
+            description: skill.description,
+            source: 'specialist',
+        });
+        if (skillId) {
+            skill.skill_id = skillId;
+            await addPlayerSkill(skillId, skill.name, skillLevel, true);
+            log('\u6280\u80FD\u5165Store: ' + skill.name + ' \u2192 ' + skillId);
+        }
+    } catch (e) {
+        log('\u6280\u80FD\u76F4\u5199Store\u5931\u8D25(\u975E\u81F4\u547D): ' + e.message, 'warn');
+    }
+    log('\u5251\u6280\u751F\u6210\u5B8C\u6210: ' + skill.name);
+    return skill;
 }
 
 /**
