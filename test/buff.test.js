@@ -18,6 +18,7 @@ import {
     expireBuffs,
     formatBuffsForDisplay,
     formatBuffsForInjection,
+    formatBuffSpecialEffects,
 } from '../sao-buff.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,8 +55,8 @@ describe('calculateBuffTotals', () => {
     it('sums temporary buffs only', () => {
         const buffs = {
             temporary: [
-                { id: 't1', name: '力量料理', effects: { str: 5 } },
-                { id: 't2', name: '速度料理', effects: { agi: 3 } },
+                { id: 't1', source: 'food', name: '力量料理', effects: { str: 5 }, duration: '3回合' },
+                { id: 't2', source: 'food', name: '速度料理', effects: { agi: 3 }, duration: '3回合' },
             ],
             permanent: [],
         };
@@ -69,7 +70,7 @@ describe('calculateBuffTotals', () => {
         const buffs = {
             temporary: [],
             permanent: [
-                { id: 'p1', name: '封弊者', effects: { str: 3, agi: 3 } },
+                { id: 'p1', source: 'title', name: '封弊者', effects: { str: 3, agi: 3 }, description: '独自战斗的称号' },
             ],
         };
         const totals = calculateBuffTotals(buffs);
@@ -80,10 +81,10 @@ describe('calculateBuffTotals', () => {
     it('sums both temporary and permanent buffs', () => {
         const buffs = {
             temporary: [
-                { id: 't1', name: '力量料理', effects: { str: 5 } },
+                { id: 't1', source: 'food', name: '力量料理', effects: { str: 5 }, duration: '3回合' },
             ],
             permanent: [
-                { id: 'p1', name: '封弊者', effects: { str: 3, agi: 3 } },
+                { id: 'p1', source: 'title', name: '封弊者', effects: { str: 3, agi: 3 }, description: '独自战斗的称号' },
             ],
         };
         const totals = calculateBuffTotals(buffs);
@@ -94,11 +95,11 @@ describe('calculateBuffTotals', () => {
     it('handles overlapping effects correctly', () => {
         const buffs = {
             temporary: [
-                { id: 't1', name: '料理A', effects: { str: 5, vit: 2 } },
-                { id: 't2', name: '料理B', effects: { str: 3, vit: 1 } },
+                { id: 't1', source: 'food', name: '料理A', effects: { str: 5, vit: 2 }, duration: '3回合' },
+                { id: 't2', source: 'food', name: '料理B', effects: { str: 3, vit: 1 }, duration: '3回合' },
             ],
             permanent: [
-                { id: 'p1', name: '称号', effects: { str: 2 } },
+                { id: 'p1', source: 'title', name: '称号', effects: { str: 2 }, description: '称号' },
             ],
         };
         const totals = calculateBuffTotals(buffs);
@@ -109,7 +110,7 @@ describe('calculateBuffTotals', () => {
     it('ignores effects with unknown stat keys', () => {
         const buffs = {
             temporary: [
-                { id: 't1', name: '奇怪buff', effects: { str: 5, unknownStat: 10 } },
+                { id: 't1', source: 'food', name: '奇怪buff', effects: { str: 5, unknownStat: 10 }, duration: '3回合' },
             ],
             permanent: [],
         };
@@ -131,6 +132,8 @@ describe('addTemporaryBuff', () => {
             source: 'food',
             name: '力量料理',
             effects: { str: 5 },
+            special_effects: [],
+            description: '增加5点力量的料理',
             duration: '3回合',
             expires: 'turn_103',
         });
@@ -148,6 +151,8 @@ describe('addTemporaryBuff', () => {
             source: 'food',
             name: '力量料理',
             effects: { str: 5 },
+            special_effects: [],
+            description: '增加5点力量',
             duration: '3回合',
             expires: 'turn_103',
         });
@@ -156,6 +161,8 @@ describe('addTemporaryBuff', () => {
             source: 'food',
             name: '超级力量料理',
             effects: { str: 10 },
+            special_effects: [],
+            description: '增加10点力量',
             duration: '5回合',
             expires: 'turn_105',
         });
@@ -168,9 +175,12 @@ describe('addTemporaryBuff', () => {
         const entity = makeEntityNoBuffs();
         addTemporaryBuff(entity, {
             id: 't1',
+            source: 'food',
             name: '测试',
             effects: { str: 1 },
-            duration: '',
+            special_effects: [],
+            description: '测试buff',
+            duration: '1回合',
             expires: 'manual',
         });
         expect(entity.buffs).toBeTruthy();
@@ -180,6 +190,72 @@ describe('addTemporaryBuff', () => {
     it('skips buff with missing required fields', () => {
         const entity = makeEntity();
         addTemporaryBuff(entity, { id: 't1' }); // missing name and effects
+        expect(entity.buffs.temporary).toHaveLength(0);
+    });
+
+    it('rejects missing source', () => {
+        const entity = makeEntity();
+        addTemporaryBuff(entity, {
+            id: 't1',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+            description: '描述',
+            duration: '1回合',
+        });
+        expect(entity.buffs.temporary).toHaveLength(0);
+    });
+
+    it('rejects missing description', () => {
+        const entity = makeEntity();
+        addTemporaryBuff(entity, {
+            id: 't1',
+            source: 'food',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+            duration: '1回合',
+        });
+        expect(entity.buffs.temporary).toHaveLength(0);
+    });
+
+    it('rejects missing duration', () => {
+        const entity = makeEntity();
+        addTemporaryBuff(entity, {
+            id: 't1',
+            source: 'food',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+            description: '描述',
+        });
+        expect(entity.buffs.temporary).toHaveLength(0);
+    });
+
+    it('rejects invalid source', () => {
+        const entity = makeEntity();
+        addTemporaryBuff(entity, {
+            id: 't1',
+            source: 'invalid_source',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+            description: '描述',
+            duration: '1回合',
+        });
+        expect(entity.buffs.temporary).toHaveLength(0);
+    });
+
+    it('rejects missing special_effects', () => {
+        const entity = makeEntity();
+        addTemporaryBuff(entity, {
+            id: 't1',
+            source: 'food',
+            name: '测试',
+            effects: { str: 1 },
+            description: '描述',
+            duration: '1回合',
+        });
         expect(entity.buffs.temporary).toHaveLength(0);
     });
 });
@@ -196,6 +272,7 @@ describe('addPermanentBuff', () => {
             source: 'title',
             name: '封弊者',
             effects: { str: 3, agi: 3 },
+            special_effects: [],
             description: '独自战斗的称号',
         });
         expect(entity.buffs.permanent).toHaveLength(1);
@@ -211,12 +288,16 @@ describe('addPermanentBuff', () => {
             source: 'title',
             name: '封弊者',
             effects: { str: 3 },
+            special_effects: [],
+            description: '独自战斗的称号',
         });
         addPermanentBuff(entity, {
             id: 'title_001',
             source: 'title',
             name: '封弊者+',
             effects: { str: 5, agi: 5 },
+            special_effects: [],
+            description: '强化称号',
         });
         expect(entity.buffs.permanent).toHaveLength(1);
         expect(entity.buffs.permanent[0].name).toBe('封弊者+');
@@ -227,8 +308,11 @@ describe('addPermanentBuff', () => {
         const entity = makeEntityNoBuffs();
         addPermanentBuff(entity, {
             id: 'p1',
+            source: 'title',
             name: '测试永久',
             effects: { str: 1 },
+            special_effects: [],
+            description: '测试永久buff',
         });
         expect(entity.buffs).toBeTruthy();
         expect(entity.buffs.permanent).toHaveLength(1);
@@ -237,6 +321,55 @@ describe('addPermanentBuff', () => {
     it('skips buff with missing required fields', () => {
         const entity = makeEntity();
         addPermanentBuff(entity, { effects: { str: 1 } }); // missing id and name
+        expect(entity.buffs.permanent).toHaveLength(0);
+    });
+
+    it('rejects missing source', () => {
+        const entity = makeEntity();
+        addPermanentBuff(entity, {
+            id: 'p1',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+            description: '描述',
+        });
+        expect(entity.buffs.permanent).toHaveLength(0);
+    });
+
+    it('rejects missing description', () => {
+        const entity = makeEntity();
+        addPermanentBuff(entity, {
+            id: 'p1',
+            source: 'title',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+        });
+        expect(entity.buffs.permanent).toHaveLength(0);
+    });
+
+    it('rejects invalid source', () => {
+        const entity = makeEntity();
+        addPermanentBuff(entity, {
+            id: 'p1',
+            source: 'bad_source',
+            name: '测试',
+            effects: { str: 1 },
+            special_effects: [],
+            description: '描述',
+        });
+        expect(entity.buffs.permanent).toHaveLength(0);
+    });
+
+    it('rejects missing special_effects', () => {
+        const entity = makeEntity();
+        addPermanentBuff(entity, {
+            id: 'p1',
+            source: 'title',
+            name: '测试',
+            effects: { str: 1 },
+            description: '描述',
+        });
         expect(entity.buffs.permanent).toHaveLength(0);
     });
 });
@@ -248,8 +381,8 @@ describe('addPermanentBuff', () => {
 describe('removeBuff', () => {
     it('removes a temporary buff by ID', () => {
         const entity = makeEntity();
-        addTemporaryBuff(entity, { id: 't1', name: '临时', effects: { str: 1 }, duration: '', expires: 'manual' });
-        addTemporaryBuff(entity, { id: 't2', name: '临时2', effects: { agi: 1 }, duration: '', expires: 'manual' });
+        addTemporaryBuff(entity, { id: 't1', source: 'food', name: '临时', effects: { str: 1 }, special_effects: [], description: '测试', duration: '1回合', expires: 'manual' });
+        addTemporaryBuff(entity, { id: 't2', source: 'food', name: '临时2', effects: { agi: 1 }, special_effects: [], description: '测试', duration: '1回合', expires: 'manual' });
         const result = removeBuff(entity, 't1');
         expect(result).toBe(true);
         expect(entity.buffs.temporary).toHaveLength(1);
@@ -258,7 +391,7 @@ describe('removeBuff', () => {
 
     it('removes a permanent buff by ID', () => {
         const entity = makeEntity();
-        addPermanentBuff(entity, { id: 'p1', name: '永久', effects: { str: 3 } });
+        addPermanentBuff(entity, { id: 'p1', source: 'title', name: '永久', effects: { str: 3 }, special_effects: [], description: '测试' });
         const result = removeBuff(entity, 'p1');
         expect(result).toBe(true);
         expect(entity.buffs.permanent).toHaveLength(0);
@@ -282,8 +415,8 @@ describe('removeBuff', () => {
 describe('expireBuffs', () => {
     it('expires turn-based buffs when currentTurn >= expireTurn', () => {
         const entity = makeEntity();
-        addTemporaryBuff(entity, { id: 't1', name: '限时buff', effects: { str: 5 }, duration: '', expires: 'turn_150' });
-        addTemporaryBuff(entity, { id: 't2', name: '未到期', effects: { agi: 1 }, duration: '', expires: 'turn_200' });
+        addTemporaryBuff(entity, { id: 't1', source: 'food', name: '限时buff', effects: { str: 5 }, special_effects: [], description: '测试', duration: '1回合', expires: 'turn_150' });
+        addTemporaryBuff(entity, { id: 't2', source: 'food', name: '未到期', effects: { agi: 1 }, special_effects: [], description: '测试', duration: '1回合', expires: 'turn_200' });
         const removed = expireBuffs(entity, 150, 'turn');
         expect(removed).toEqual(['限时buff']);
         expect(entity.buffs.temporary).toHaveLength(1);
@@ -292,7 +425,7 @@ describe('expireBuffs', () => {
 
     it('does not expire turn-based buffs when currentTurn < expireTurn', () => {
         const entity = makeEntity();
-        addTemporaryBuff(entity, { id: 't1', name: '未到期', effects: { str: 5 }, duration: '', expires: 'turn_150' });
+        addTemporaryBuff(entity, { id: 't1', source: 'food', name: '未到期', effects: { str: 5 }, special_effects: [], description: '测试', duration: '1回合', expires: 'turn_150' });
         const removed = expireBuffs(entity, 100, 'turn');
         expect(removed).toEqual([]);
         expect(entity.buffs.temporary).toHaveLength(1);
@@ -300,7 +433,7 @@ describe('expireBuffs', () => {
 
     it('manual buffs never expire', () => {
         const entity = makeEntity();
-        addTemporaryBuff(entity, { id: 't1', name: '手动控制', effects: { str: 5 }, duration: '', expires: 'manual' });
+        addTemporaryBuff(entity, { id: 't1', source: 'food', name: '手动控制', effects: { str: 5 }, special_effects: [], description: '测试', duration: '1回合', expires: 'manual' });
         const removed = expireBuffs(entity, 9999, 'turn');
         expect(removed).toEqual([]);
         expect(entity.buffs.temporary).toHaveLength(1);
@@ -414,5 +547,53 @@ describe('formatBuffsForInjection', () => {
         expect(result).toContain('[food]力量料理(STR+5,1场战斗)');
         // 永久在前
         expect(result.indexOf('封弊者')).toBeLessThan(result.indexOf('力量料理'));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// special_effects
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('special_effects', () => {
+    it('formatBuffSpecialEffects returns empty for no special_effects', () => {
+        expect(formatBuffSpecialEffects(null)).toBe('');
+        expect(formatBuffSpecialEffects({})).toBe('');
+        expect(formatBuffSpecialEffects({ special_effects: [] })).toBe('');
+    });
+
+    it('formatBuffSpecialEffects formats special effects', () => {
+        const buff = { special_effects: ['免疫即死', '复活时满血'] };
+        expect(formatBuffSpecialEffects(buff)).toBe('免疫即死; 复活时满血');
+    });
+
+    it('buff with special_effects displays them in formatBuffsForDisplay', () => {
+        const entity = makeEntity();
+        addPermanentBuff(entity, {
+            id: 'p1',
+            source: 'title',
+            name: '不死之躯',
+            effects: { str: 3, vit: 5 },
+            special_effects: ['免疫即死', '复活时满血'],
+            description: '死亡游戏中的不死称号',
+        });
+        const result = formatBuffsForDisplay(entity.buffs);
+        expect(result).toContain('免疫即死');
+        expect(result).toContain('复活时满血');
+        expect(result).toContain('STR+3');
+        expect(result).toContain('VIT+5');
+    });
+
+    it('buff with empty special_effects omits them from display', () => {
+        const entity = makeEntity();
+        addPermanentBuff(entity, {
+            id: 'p1',
+            source: 'title',
+            name: '普通称号',
+            effects: { str: 3 },
+            special_effects: [],
+            description: '普通称号',
+        });
+        const result = formatBuffsForDisplay(entity.buffs);
+        expect(result).toBe('普通称号(STR+3)');
     });
 });
