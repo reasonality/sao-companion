@@ -433,6 +433,8 @@ async function processGainTags(rawText) {
         if (enMatch) skillPrefilled.en = enMatch[1].split(',').map(s => s.trim()).filter(Boolean);
         const categoryMatch = attrs.match(/category\s*=\s*["']([^"']*)["']/i);
         if (categoryMatch) skillPrefilled.category = categoryMatch[1].trim();
+        const rarityMatch = attrs.match(/rarity\s*=\s*["']([^"']*)["']/i);
+        if (rarityMatch) skillPrefilled.rarity = rarityMatch[1].trim();
         const skillContext = { weaponType, skillLevel, playerLevel: skillLevel };
         if (Object.keys(skillPrefilled).length > 0) skillContext.prefilled = skillPrefilled;
 

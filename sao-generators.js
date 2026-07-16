@@ -482,6 +482,12 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
         if (pf.wn) _coreCode = pf.wn;
         if (Array.isArray(pf.en) && pf.en.length > 0) _affixCodes = pf.en.slice();
         if (pf.skill_level != null) _skillLevel = clamp(pf.skill_level, 1, 100, 'skill_level');
+        if (pf.rarity) {
+            const r = String(pf.rarity);
+            rarityEntry = SKILL_RARITY_TABLE.find(e => r.includes(e.name[0]))
+                || SKILL_RARITY_TABLE.find(e => r.toLowerCase().includes((RARITY_TO_EN[e.name] || '').toLowerCase()))
+                || rarityEntry;
+        }
         log('generateSkill: 使用预填数值 (prefilled)');
     }
 
