@@ -414,7 +414,7 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
     const pf = context.prefilled;
 
     // 1) 掷稀有度 (1D20)
-    const rarityEntry = lookupRoll(SKILL_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
+    let rarityEntry = lookupRoll(SKILL_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 2) 掷核心功能 (1D20)
     const coreEntry = lookupRoll(SKILL_CORE_TABLE, (Math.floor(Math.random() * 20) + 1));
