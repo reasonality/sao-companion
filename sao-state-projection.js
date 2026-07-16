@@ -448,7 +448,10 @@ export function projectSkillSummary() {
             const atk = c.atk != null ? `ATK${c.atk}` : '';
             const hit = c.hit != null ? `Hit${c.hit}%` : '';
             const crit = c.crit != null ? `Crit${c.crit}%` : '';
-            const stats = [atk, hit, crit].filter(Boolean).join(' ');
+            const apt = c.apt != null ? `APT${c.apt}` : '';
+            const tpa = c.tpa != null ? `TPA${c.tpa}` : '';
+            const mpCost = c.mpCost != null ? `MP${c.mpCost}` : '';
+            const stats = [atk, hit, crit, apt, tpa, mpCost].filter(Boolean).join(' ');
             return `${skName}(熟练${prof}${stats ? ', ' + stats : ''})`;
         }
         return `${skName}(熟练${prof})`;

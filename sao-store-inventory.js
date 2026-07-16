@@ -110,7 +110,11 @@ export async function addConsumable(name, qty, description, skipSave) {
     // 用 name+description 创建/查找空壳定义（source:'manual'）
     const consumableId = findOrCreateConsumable({
         name,
-        description: description || '',
+        category: 'hp_restore',
+        rarity: 'common',
+        item_level: 1,
+        effects: [],
+        description: description || name,
         source: 'manual'
     });
     if (!consumableId) {

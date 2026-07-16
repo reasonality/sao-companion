@@ -16,7 +16,7 @@ import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot 
 import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, forgetPlayerSkill, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
-import { getInventoryStore, removeEquipmentItem } from './sao-store-inventory.js';
+import { getInventoryStore, removeEquipmentItem, addMaterial, addQuestItem } from './sao-store-inventory.js';
 import { useConsumable as useConsumableStore, getConsumableById, getConsumableStore } from './sao-store-consumable.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
@@ -38,8 +38,8 @@ import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-det
 
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks, checkUniqueSkillUnlocks } from './sao-skills.js';
-import { expireBuffs } from './sao-buff.js';
-import { initPresetGuilds, checkGuildDiscovery } from './sao-store-guild.js';
+import { expireBuffs, addTemporaryBuff, addPermanentBuff } from './sao-buff.js';
+import { initPresetGuilds, checkGuildDiscovery, createGuild, joinGuild, leaveGuild, getGuildByName } from './sao-store-guild.js';
 import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
@@ -410,9 +410,33 @@ async function processGainTags(rawText) {
 
         const player = getPlayerStore();
         const skillLevel = player?.progression?.level || 1;
-        log(`[gain_skill] name=${prefilledName || '(子LLM生成)'} weapon=${weaponType}`);
+
+        // Parse prefilled numeric attributes for skill
+        const slMatch = attrs.match(/skill_level\s*=\s*["']?(\d+)["']?/i);
+        const atkMatch = attrs.match(/(?<![a-z_])atk\s*=\s*["']?(\d+)["']?/i);
+        const hitMatch = attrs.match(/(?<![a-z_])hit\s*=\s*["']?(\d+)["']?/i);
+        const critMatch = attrs.match(/(?<![a-z_])crit\s*=\s*["']?(\d+)["']?/i);
+        const aptMatch = attrs.match(/(?<![a-z_])apt\s*=\s*["']?(\d+)["']?/i);
+        const tpaMatch = attrs.match(/(?<![a-z_])tpa\s*=\s*["']?(\d+)["']?/i);
+        const mpCostMatch = attrs.match(/mp_cost\s*=\s*["']?(\d+)["']?/i);
+        const wnMatch = attrs.match(/wn\s*=\s*["']([^"']*)["']/i);
+        const enMatch = attrs.match(/en\s*=\s*["']([^"']*)["']/i);
+        const skillPrefilled = {};
+        if (slMatch) skillPrefilled.skill_level = parseInt(slMatch[1]);
+        if (atkMatch) skillPrefilled.atk = parseInt(atkMatch[1]);
+        if (hitMatch) skillPrefilled.hit = parseInt(hitMatch[1]);
+        if (critMatch) skillPrefilled.crit = parseInt(critMatch[1]);
+        if (aptMatch) skillPrefilled.apt = parseInt(aptMatch[1]);
+        if (tpaMatch) skillPrefilled.tpa = parseInt(tpaMatch[1]);
+        if (mpCostMatch) skillPrefilled.mp_cost = parseInt(mpCostMatch[1]);
+        if (wnMatch) skillPrefilled.wn = wnMatch[1];
+        if (enMatch) skillPrefilled.en = enMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+        const skillContext = { weaponType, skillLevel, playerLevel: skillLevel };
+        if (Object.keys(skillPrefilled).length > 0) skillContext.prefilled = skillPrefilled;
+
+        log(`[gain_skill] name=${prefilledName || '(子LLM生成)'} weapon=${weaponType}${skillContext.prefilled ? ' (prefilled)' : ''}`);
         try {
-            const skill = await generateSkill({ weaponType, skillLevel, playerLevel: skillLevel }, callModel, prefilledName, prefilledDesc);
+            const skill = await generateSkill(skillContext, callModel, prefilledName, prefilledDesc);
             if (skill) {
                 log(`[gain_skill] 完成: ${skill.name} (ATK ${skill.base_damage})`);
                 await saveStore();
@@ -430,7 +454,6 @@ async function processGainTags(rawText) {
         const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
         const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
         const rarityMatch = attrs.match(/rarity\s*=\s*["']([^"']*)["']/i);
-        const statTypeMatch = attrs.match(/(?:stat_type|type)\s*=\s*["']([^"']*)["']/i);
         const slotMatch = attrs.match(/slot\s*=\s*["']([^"']*)["']/i);
         const prefilledName = nameMatch ? nameMatch[1].trim() : null;
         const prefilledDesc = descMatch ? descMatch[1].trim() : null;
@@ -442,10 +465,32 @@ async function processGainTags(rawText) {
         if (parts[0]) context.type = parts[0];
         if (parts[1]) context.rarity = parts[1];
         if (rarityMatch) context.rarity = rarityMatch[1];
-        if (statTypeMatch) context.type = statTypeMatch[1];
         if (slotMatch) context.slot = slotMatch[1];
 
-        log(`[gain_equipment] name=${prefilledName || '(子LLM生成)'} type=${context.type} rarity=${context.rarity || '随机'}`);
+        // Parse prefilled numeric attributes for equipment
+        const ilMatch = attrs.match(/item_level\s*=\s*["']?(\d+)["']?/i);
+        const maxHpMatch = attrs.match(/max_hp\s*=\s*["']?(\d+)["']?/i);
+        const strMatch = attrs.match(/(?<![a-z_])str\s*=\s*["']?(\d+)["']?/i);
+        const agiMatch = attrs.match(/(?<![a-z_])agi\s*=\s*["']?(\d+)["']?/i);
+        const intMatch = attrs.match(/(?<![a-z_])int\s*=\s*["']?(\d+)["']?/i);
+        const vitMatch = attrs.match(/(?<![a-z_])vit\s*=\s*["']?(\d+)["']?/i);
+        const affixesMatch = attrs.match(/affixes\s*=\s*["']([^"']*)["']/i);
+        const prefilled = {};
+        if (ilMatch) prefilled.item_level = parseInt(ilMatch[1]);
+        if (slotMatch) prefilled.slot = slotMatch[1];
+        if (rarityMatch) prefilled.rarity = rarityMatch[1];
+        const pfStats = {};
+        if (maxHpMatch) pfStats.maxHp = parseInt(maxHpMatch[1]);
+        if (strMatch) pfStats.str = parseInt(strMatch[1]);
+        if (agiMatch) pfStats.agi = parseInt(agiMatch[1]);
+        if (intMatch) pfStats.int = parseInt(intMatch[1]);
+        if (vitMatch) pfStats.vit = parseInt(vitMatch[1]);
+        if (Object.keys(pfStats).length > 0) prefilled.stats = pfStats;
+        // affixes 必填:LLM 漏写视为空数组 []（白色装备无词缀），而非走掷骰路径自动生成
+        prefilled.affixes = (affixesMatch ? affixesMatch[1].split(',').map(s => s.trim()).filter(Boolean) : []);
+        context.prefilled = prefilled;
+
+        log(`[gain_equipment] name=${prefilledName || '(子LLM生成)'} type=${context.type} rarity=${context.rarity || '随机'}${context.prefilled ? ' (prefilled)' : ''}`);
         try {
             const equip = await generateEquipment(context, callModel, prefilledName, prefilledDesc);
             if (equip) {
@@ -455,6 +500,346 @@ async function processGainTags(rawText) {
         } catch (e) {
             log(`[gain_equipment] 失败: ${e.message}`, 'warn');
         }
+    }
+
+    // === <gain_consumable> ===
+    const consumableMatches = [...rawText.matchAll(/<gain_consumable([^>]*)>([\s\S]*?)<\/gain_consumable>/gi)];
+    for (const m of consumableMatches) {
+        const attrs = m[1] || '';
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
+        const rarityMatch = attrs.match(/rarity\s*=\s*["']([^"']*)["']/i);
+        const categoryMatch = attrs.match(/category\s*=\s*["']([^"']*)["']/i);
+        const itemLevelMatch = attrs.match(/item_level\s*=\s*["']?(\d+)["']?/i);
+        const maxStackMatch = attrs.match(/max_stack\s*=\s*["']?(\d+)["']?/i);
+        const effectsJsonMatch = attrs.match(/effects\s*=\s*["']([^"']*)["']/i);
+        const specialEffectsMatch = attrs.match(/special_effects\s*=\s*["']([^"']*)["']/i);
+        const prefilledName = nameMatch ? nameMatch[1].trim() : null;
+        const prefilledDesc = descMatch ? descMatch[1].trim() : null;
+
+        const context = {};
+        if (itemLevelMatch) context.playerLevel = parseInt(itemLevelMatch[1]);
+        context.prefilled = {};
+        if (categoryMatch) context.prefilled.category = categoryMatch[1].trim();
+        if (rarityMatch) context.prefilled.rarity = rarityMatch[1].trim();
+        if (itemLevelMatch) context.prefilled.item_level = parseInt(itemLevelMatch[1]);
+        if (maxStackMatch) context.prefilled.maxStack = parseInt(maxStackMatch[1]);
+        if (effectsJsonMatch) {
+            try { context.prefilled.effects = JSON.parse(effectsJsonMatch[1]); } catch (e) { log('[gain_consumable] effects JSON parse failed: ' + e.message, 'warn'); }
+        }
+
+        log(`[gain_consumable] name=${prefilledName || '(子LLM生成)'} category=${context.prefilled.category || '随机'}`);
+        try {
+            const consumable = await generateConsumable(context, callModel, prefilledName, prefilledDesc);
+            if (consumable) {
+                log(`[gain_consumable] 完成: ${consumable.name} (${consumable.rarity})`);
+                await saveStore();
+            }
+        } catch (e) {
+            log(`[gain_consumable] 失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // === <gain_buff> ===
+    const buffMatches = [...rawText.matchAll(/<gain_buff([^>]*)>([\s\S]*?)<\/gain_buff>/gi)];
+    for (const m of buffMatches) {
+        const attrs = m[1] || '';
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const idMatch = attrs.match(/id\s*=\s*["']([^"']*)["']/i);
+        const sourceMatch = attrs.match(/source\s*=\s*["']([^"']*)["']/i);
+        const durationMatch = attrs.match(/duration\s*=\s*["']([^"']*)["']/i);
+        const expiresMatch = attrs.match(/expires\s*=\s*["']([^"']*)["']/i);
+        const acquiredTurnMatch = attrs.match(/acquired_turn\s*=\s*["']?(\d+)["']?/i);
+        const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
+        const permanentMatch = attrs.match(/permanent\s*=\s*["']?(true|false)["']?/i);
+        const effectsJsonMatch = attrs.match(/effects\s*=\s*["']([^"']*)["']/i);
+
+        if (!nameMatch) { log('[gain_buff] 缺少 name，跳过', 'warn'); continue; }
+        const name = nameMatch[1].trim();
+        const buffId = idMatch ? idMatch[1].trim() : ('buff_' + name);
+
+        // source 必填
+        if (!sourceMatch || !sourceMatch[1].trim()) {
+            log('[gain_buff] 缺少必填 source，跳过 (name=' + name + ')', 'warn'); continue;
+        }
+        // description 必填
+        if (!descMatch || !descMatch[1].trim()) {
+            log('[gain_buff] 缺少必填 description，跳过 (name=' + name + ')', 'warn'); continue;
+        }
+
+        // Build effects: prefer effects JSON attr, else parse individual stat attrs
+        let effects = {};
+        if (effectsJsonMatch) {
+            try { effects = JSON.parse(effectsJsonMatch[1]); } catch (e) { log('[gain_buff] effects JSON parse failed: ' + e.message, 'warn'); }
+        }
+        // Individual stat attrs as fallback/override
+        const STAT_ATTRS = ['str', 'agi', 'int', 'vit'];
+        for (const s of STAT_ATTRS) {
+            const re = new RegExp(s + '\\s*=\\s*["\']?(-?\\d+)["\']?', 'i');
+            const sm = attrs.match(re);
+            if (sm) effects[s] = parseInt(sm[1]);
+        }
+
+        if (Object.keys(effects).length === 0) {
+            log('[gain_buff] 缺少 effects，跳过 (name=' + name + ')', 'warn');
+            continue;
+        }
+
+        const buff = {
+            id: buffId,
+            source: sourceMatch[1].trim(),
+            name: name,
+            effects: effects,
+            special_effects: specialEffectsMatch ? specialEffectsMatch[1].split(';').map(s => s.trim()).filter(Boolean) : [],
+            description: descMatch[1].trim(),
+        };
+        const isPermanent = permanentMatch && permanentMatch[1] === 'true';
+        if (!isPermanent) {
+            // 临时buff duration 必填
+            if (!durationMatch || !durationMatch[1].trim()) {
+                log('[gain_buff] 临时buff缺少必填 duration，跳过 (name=' + name + ')', 'warn'); continue;
+            }
+            buff.duration = durationMatch[1].trim();
+            buff.expires = expiresMatch ? expiresMatch[1].trim() : 'manual';
+            if (acquiredTurnMatch) buff.acquired_turn = parseInt(acquiredTurnMatch[1]);
+        }
+
+        const player = getPlayerStore();
+        try {
+            if (isPermanent) {
+                addPermanentBuff(player, buff);
+                log(`[gain_buff] 永久 buff 添加: ${name} (${buffId})`);
+            } else {
+                addTemporaryBuff(player, buff);
+                log(`[gain_buff] 临时 buff 添加: ${name} (${buffId}) duration=${buff.duration}`);
+            }
+            await saveStore();
+        } catch (e) {
+            log(`[gain_buff] 失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // === <gain_guild> ===
+    // 公会创建/加入/离开。与装备/技能/消耗品/buff 不同：无 generate 函数，
+    // buff 数值由标签属性直接提供（卡片或主LLM 预填），插件照单全收。
+    // 公会 buff 的 source 固定为 'guild'，id 固定为 'guild_' + guild_id（与 joinGuild 内部一致）。
+    const guildMatches = [...rawText.matchAll(/<gain_guild([^>]*)>([\s\S]*?)<\/gain_guild>/gi)];
+    for (const m of guildMatches) {
+        const attrs = m[1] || '';
+        const actionMatch = attrs.match(/action\s*=\s*["']([^"']*)["']/i);
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const leaderMatch = attrs.match(/leader\s*=\s*["']([^"']*)["']/i);
+        const hqMatch = attrs.match(/headquarters\s*=\s*["']([^"']*)["']/i);
+        const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
+        const buffNameMatch = attrs.match(/buff_name\s*=\s*["']([^"']*)["']/i);
+        const buffDescMatch = attrs.match(/buff_description\s*=\s*["']([^"']*)["']/i);
+        const buffSpecialMatch = attrs.match(/buff_special_effects\s*=\s*["']([^"']*)["']/i);
+        const autoJoinMatch = attrs.match(/auto_join\s*=\s*["']?(true|false)["']?/i);
+        const action = (actionMatch ? actionMatch[1].trim().toLowerCase() : 'create');
+
+        if (!nameMatch && action !== 'leave') {
+            log('[gain_guild] 缺少 name，跳过', 'warn');
+            continue;
+        }
+        const guildName = nameMatch ? nameMatch[1].trim() : null;
+
+        try {
+            if (action === 'leave') {
+                const ok = leaveGuild();
+                log(`[gain_guild] 玩家离开公会: ${ok ? '成功' : '未加入公会'}`);
+                await saveStore();
+                continue;
+            }
+
+            if (action === 'join') {
+                // 加入已有公会（应用其 buff）
+                const ok = joinGuild(guildName);
+                log(`[gain_guild] 玩家加入公会 ${guildName}: ${ok ? '成功（buff 已应用）' : '失败（公会不存在）'}`);
+                await saveStore();
+                continue;
+            }
+
+            // action === 'create' (default)
+            // Required field validation for create
+            if (!leaderMatch || !leaderMatch[1].trim()) {
+                log('[gain_guild] create 缺少必填 leader，跳过', 'warn');
+                continue;
+            }
+            if (!descMatch || !descMatch[1].trim()) {
+                log('[gain_guild] create 缺少必填 description，跳过', 'warn');
+                continue;
+            }
+
+            // 构建 buff effects：解析单独的 stat 属性 (str/agi/int/vit)
+            const effects = {};
+            const STAT_ATTRS = ['str', 'agi', 'int', 'vit'];
+            for (const s of STAT_ATTRS) {
+                const re = new RegExp(s + '\\s*=\\s*["\']?(-?\\d+)["\']?', 'i');
+                const sm = attrs.match(re);
+                if (sm) effects[s] = parseInt(sm[1]);
+            }
+            const buff = (buffNameMatch && Object.keys(effects).length > 0)
+                ? {
+                    name: buffNameMatch[1].trim(),
+                    effects: effects,
+                    special_effects: buffSpecialMatch ? buffSpecialMatch[1].split(';').map(s=>s.trim()).filter(Boolean) : [],
+                    description: buffDescMatch ? buffDescMatch[1].trim() : (buffNameMatch[1].trim() + '（公会buff）'),
+                }
+                : null;
+
+            const guildId = createGuild(guildName, leaderMatch[1].trim(), {
+                headquarters: hqMatch ? hqMatch[1].trim() : null,
+                buff: buff,
+                description: descMatch[1].trim(),
+            });
+            log(`[gain_guild] 公会创建: ${guildName} → ${guildId}${buff ? ' (buff: ' + buff.name + ' ' + JSON.stringify(effects) + ')' : ' (无 buff)'}`);
+
+            // auto_join 默认 true：创建后玩家自动加入（应用 buff）
+            const autoJoin = !autoJoinMatch || autoJoinMatch[1] === 'true';
+            if (autoJoin) {
+                const ok = joinGuild(guildName);
+                log(`[gain_guild] 玩家加入新建公会: ${ok ? '成功（buff 已应用）' : '失败'}`);
+            }
+            await saveStore();
+        } catch (e) {
+        log(`[gain_guild] 失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // === <gain_material> ===
+    const materialMatches = [...rawText.matchAll(/<gain_material([^>]*)>([\s\S]*?)<\/gain_material>/gi)];
+    for (const m of materialMatches) {
+        const attrs = m[1] || '';
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const qtyMatch = attrs.match(/qty\s*=\s*["']?(\d+)["']?/i);
+        if (!nameMatch) { log('[gain_material] 缺少 name，跳过', 'warn'); continue; }
+        const name = nameMatch[1].trim();
+        const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1])) : 1;
+        try {
+            await addMaterial(name, qty, true);
+            log(`[gain_material] 材料 ${name} x${qty} 添加到背包`);
+            await saveStore();
+        } catch (e) {
+            log(`[gain_material] 失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // === <gain_quest_item> ===
+    const questItemMatches = [...rawText.matchAll(/<gain_quest_item([^>]*)>([\s\S]*?)<\/gain_quest_item>/gi)];
+    for (const m of questItemMatches) {
+        const attrs = m[1] || '';
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const descMatch = attrs.match(/(?:desc|description)\s*=\s*["']([^"']*)["']/i);
+        if (!nameMatch) { log('[gain_quest_item] 缺少 name，跳过', 'warn'); continue; }
+        const name = nameMatch[1].trim();
+        const description = descMatch ? descMatch[1].trim() : '';
+        try {
+            await addQuestItem(name, description, true);
+            log(`[gain_quest_item] 任务物品 ${name} 添加到背包`);
+            await saveStore();
+        } catch (e) {
+            log(`[gain_quest_item] 失败: ${e.message}`, 'warn');
+        }
+    }
+
+    // === <use_item> === LLM在叙事中使用物品（消耗+应用效果）
+    const useItemMatches = [...rawText.matchAll(/<use_item([^>]*)>([\s\S]*?)<\/use_item>/gi)];
+    for (const m of useItemMatches) {
+        const attrs = m[1] || '';
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const qtyMatch = attrs.match(/qty\s*=\s*["']?(\d+)["']?/i);
+        const targetMatch = attrs.match(/target\s*=\s*["']([^"']*)["']/i);
+        if (!nameMatch) { log('[use_item] 缺少 name，跳过', 'warn'); continue; }
+        const itemName = nameMatch[1].trim();
+        const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1])) : 1;
+        const target = targetMatch ? targetMatch[1].trim() : null;
+
+        const invStore = getInventoryStore();
+        let foundItem = null;
+        let foundType = null;
+        for (const it of (invStore.items || [])) {
+            if (it.qty <= 0) continue;
+            let displayName = it.name;
+            if (it.type === 'consumable' && it.consumable_id) {
+                const def = getConsumableById(it.consumable_id);
+                if (def) displayName = def.name;
+            } else if (it.type === 'equipment' && it.equipment_id) {
+                const def = getEquipmentById(it.equipment_id);
+                if (def) displayName = def.name;
+            }
+            if (displayName === itemName) { foundItem = it; foundType = it.type; break; }
+        }
+        if (!foundItem) {
+            log(`[use_item] 物品 "${itemName}" 不在背包中，跳过`, 'warn');
+            continue;
+        }
+        if (foundType === 'equipment') {
+            log(`[use_item] "${itemName}" 是装备，请使用装备/卸下功能，跳过`, 'warn');
+            continue;
+        }
+        if (foundType === 'consumable' && foundItem.consumable_id) {
+            const def = getConsumableById(foundItem.consumable_id);
+            const hasNumericalEffects = (def?.effects || []).some(e => e.type !== 'narrative');
+            if (hasNumericalEffects) {
+                try {
+                    const results = await useConsumableStore(foundItem.item_id);
+                    log(`[use_item] 消耗品 "${itemName}" 使用: ${results.join('; ')}`);
+                } catch (e) {
+                    log(`[use_item] 消耗品使用失败: ${e.message}`, 'warn');
+                }
+                await saveStore();
+                continue;
+            }
+        }
+        // Material/quest_item/consumable-narrative: just reduce qty
+        const reduceQty = Math.min(qty, foundItem.qty || 1);
+        foundItem.qty = (foundItem.qty || 1) - reduceQty;
+        if (foundItem.qty <= 0) {
+            const idx = invStore.items.indexOf(foundItem);
+            if (idx >= 0) invStore.items.splice(idx, 1);
+        }
+        log(`[use_item] 使用 ${itemName} x${reduceQty}${target ? ' (目标: ' + target + ')' : ''}`);
+        appendActionLog({ action: 'use_item', itemType: foundType, itemName, qty: reduceQty, target, result: 'success' });
+        await saveStore();
+    }
+
+    // === <remove_item> === LLM移除物品（丢失/被夺/赠予/销毁，无效果）
+    const removeItemMatches = [...rawText.matchAll(/<remove_item([^>]*)>([\s\S]*?)<\/remove_item>/gi)];
+    for (const m of removeItemMatches) {
+        const attrs = m[1] || '';
+        const nameMatch = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        const qtyMatch = attrs.match(/qty\s*=\s*["']?(\d+)["']?/i);
+        if (!nameMatch) { log('[remove_item] 缺少 name，跳过', 'warn'); continue; }
+        const itemName = nameMatch[1].trim();
+        const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1])) : 1;
+
+        const invStore = getInventoryStore();
+        let foundItem = null;
+        for (const it of (invStore.items || [])) {
+            if (it.qty <= 0) continue;
+            let displayName = it.name;
+            if (it.type === 'consumable' && it.consumable_id) {
+                const def = getConsumableById(it.consumable_id);
+                if (def) displayName = def.name;
+            } else if (it.type === 'equipment' && it.equipment_id) {
+                const def = getEquipmentById(it.equipment_id);
+                if (def) displayName = def.name;
+            }
+            if (displayName === itemName) { foundItem = it; break; }
+        }
+        if (!foundItem) {
+            log(`[remove_item] 物品 "${itemName}" 不在背包中，跳过`, 'warn');
+            continue;
+        }
+        const reduceQty = Math.min(qty, foundItem.qty || 1);
+        foundItem.qty = (foundItem.qty || 1) - reduceQty;
+        if (foundItem.qty <= 0) {
+            const idx = invStore.items.indexOf(foundItem);
+            if (idx >= 0) invStore.items.splice(idx, 1);
+        }
+        log(`[remove_item] 移除 ${itemName} x${reduceQty}`);
+        appendActionLog({ action: 'remove_item', itemType: foundItem.type, itemName, qty: reduceQty, result: 'success' });
+        await saveStore();
     }
 }
 
@@ -559,6 +944,8 @@ function bindEvents() {
                             log('检测到新游戏，从 first_mes 初始化 store');
                             (async () => {
                                 try {
+                                    await processGainTags(firstAiMsg.mes);
+                                    await saveStore();
                                     const extracted = await extractAll(firstAiMsg.mes, callModel, null);
                                     if (extracted) {
                                         await applyExtractedData(extracted, CUSTOM_SKILL_DEFS, true);

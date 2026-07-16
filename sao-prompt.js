@@ -36,6 +36,13 @@ const SAO_PROMPT_STRIP_TAGS = [
     'system_state_ref',
     'gain_skill',
     'gain_equipment',
+    'gain_consumable',
+    'gain_buff',
+    'gain_guild',
+    'gain_material',
+    'gain_quest_item',
+    'use_item',
+    'remove_item',
 ];
 
 /**
@@ -96,14 +103,59 @@ export function injectMemoryAndState() {
         parts.push('以下为系统自动注入的当前游戏状态参考，仅供你了解当前数值。');
         parts.push('严禁在你的回复中复制、原样输出、或以任何形式复述此状态块。');
         parts.push('状态显示由系统自动管理，你只需输出叙事正文。装备和技能数值由系统自动计算，你只需在获取时输出获取标签。');
-        parts.push('## 获取标签（重要）');
-        parts.push('当叙事中玩家学会新剑技时，在叙事末尾输出:');
-        parts.push('<gain_skill name="剑技名" weapon_type="武器类型" description="1-2句描述">武器类型</gain_skill>');
-        parts.push('  例: <gain_skill name="风之轨迹" weapon_type="单手直剑" description="以风之势连续斩击目标三次">单手直剑</gain_skill>');
-        parts.push('当叙事中玩家获得新装备时，在叙事末尾输出:');
-        parts.push('<gain_equipment name="装备名" slot="槽位" stat_type="类型" rarity="稀有度" description="1-2句描述">类型:稀有度</gain_equipment>');
-        parts.push('  例: <gain_equipment name="暗影短刀" slot="weapon" stat_type="敏捷型" rarity="蓝色" description="轻巧的短刀，刀身泛着寒光">敏捷型:蓝色</gain_equipment>');
-        parts.push('数值由插件自动计算，你只需提供名称和描述。name和description必须填写。仅在叙事确实描写了获取事件时才输出这些标签。');
+        parts.push('## 获取标签（5类实体创建契约，重要）');
+        parts.push('当叙事中发生获取事件时，在叙事末尾输出对应标签。数值由插件自动计算，你决定名称、描述、稀有度。');
+        parts.push('');
+        parts.push('### 1. 剑技领悟 <gain_skill>');
+        parts.push('格式: <gain_skill name="剑技名" weapon_type="武器类型" rarity="稀有度" atk="攻击力" hit="命中率" crit="暴击率" apt="攻击次数" tpa="目标数" mp_cost="MP消耗" description="1-2句描述">武器类型</gain_skill>');
+        parts.push('例: <gain_skill name="风之轨迹" weapon_type="单手直剑" rarity="绿色" atk="120" hit="85" crit="15" apt="3" tpa="1" mp_cost="8" description="以风之势连续斩击目标三次">单手直剑</gain_skill>');
+        parts.push('');
+        parts.push('### 2. 装备获取 <gain_equipment>');
+        parts.push('格式: <gain_equipment name="装备名" slot="槽位" rarity="稀有度" description="1-2句描述">装备</gain_equipment>');
+        parts.push('例: <gain_equipment name="暗影短刀" slot="weapon" rarity="蓝色" description="轻巧的短刀，刀身泛着寒光">装备</gain_equipment>');
+        parts.push('slot枚举: weapon(主手)/off_hand(副手)/head/chest/hands/legs/accessory');
+        parts.push('');
+        parts.push('### 3. 消耗品获得 <gain_consumable>');
+        parts.push('格式: <gain_consumable name="物品名" category="类别" rarity="稀有度" description="1-2句描述">类别:稀有度</gain_consumable>');
+        parts.push('例: <gain_consumable name="高级治疗药水" category="hp_restore" rarity="绿色" description="恢复大量生命值的红色药水">hp_restore:绿色</gain_consumable>');
+        parts.push('category枚举: hp_restore/mp_restore/full_restore/buff/cure');
+        parts.push('效果类型: restore(恢复)/buff(增益)/cure(治疗)/narrative(叙事效果，如复活/传送/解锁，填description)');
+        parts.push('');
+        parts.push('### 4. Buff获得 <gain_buff>');
+        parts.push('格式: <gain_buff name="buff名" source="来源" permanent="false" duration="持续" str="加成值" vit="加成值" special_effects="特殊效果1;特殊效果2">描述</gain_buff>');
+        parts.push('例: <gain_buff name="不死之躯" source="title" permanent="true" str="3" vit="5" special_effects="免疫即死;复活时满血">死亡游戏中的不死称号</gain_buff>');
+        parts.push('source枚举: food/furniture/title/guild/equipment_set/skill/special_event/enemy_trait');
+        parts.push('属性字段: str/agi/int/vit，按需填写。special_effects: 特殊效果（分号分隔，可留空）');
+        parts.push('');
+        parts.push('### 5. 公会事件 <gain_guild>');
+        parts.push('格式: <gain_guild action="create" name="公会名" leader="会长" description="描述" buff_name="buff名" str="加成" vit="加成" buff_special_effects="特殊效果" auto_join="true">公会</gain_guild>');
+        parts.push('action: create(创建,默认)/join(加入)/leave(离开)');
+        parts.push('action=create 时 name/leader/description 必填；buff 可选（有则 buff_name/effects/buff_description/buff_special_effects 必填）');
+        parts.push('例: <gain_guild action="create" name="龙啸团" leader="陈锋" description="新公会，由陈锋组建的攻略组外围佣兵组织" buff_name="龙啸之魂" str="5" vit="10">佣兵团</gain_guild>');
+        parts.push('');
+        parts.push('### 6. 材料获得 <gain_material>');
+        parts.push('格式: <gain_material name="材料名" qty="数量" rarity="稀有度" description="描述">材料</gain_material>');
+        parts.push('例: <gain_material name="龙鳞" qty="3" rarity="绿色" description="坚硬的龙鳞，可用于锻造">材料</gain_material>');
+        parts.push('');
+        parts.push('### 7. 任务物品获得 <gain_quest_item>');
+        parts.push('格式: <gain_quest_item name="物品名" description="描述">任务物品</gain_quest_item>');
+        parts.push('例: <gain_quest_item name="古代钥匙" description="开启某扇封印之门的钥匙">任务物品</gain_quest_item>');
+        parts.push('');
+        parts.push('### 8. 使用物品 <use_item>');
+        parts.push('当叙事中玩家使用物品时（喝药水/用钥匙/激活道具），输出:');
+        parts.push('格式: <use_item name="物品名" qty="1" target="目标(可选)">使用描述</use_item>');
+        parts.push('例: <use_item name="复活水晶" target="克莱因">桐人将水晶按在克莱因胸口，水晶绽放白光</use_item>');
+        parts.push('装备不通过此标签使用（用装备/卸下功能）。数值效果自动应用，叙事效果由你描写。');
+        parts.push('');
+        parts.push('### 9. 移除物品 <remove_item>');
+        parts.push('当叙事中物品消失时（丢失/被夺/赠予/销毁/用作材料），输出:');
+        parts.push('格式: <remove_item name="物品名" qty="数量">消失描述</remove_item>');
+        parts.push('例: <remove_item name="龙鳞" qty="1">锻造消耗了一片龙鳞</remove_item>');
+        parts.push('');
+        parts.push('### 稀有度使用指南');
+        parts.push('稀有度由你根据叙事语境决定（不是楼层）。白色=杂兵掉落/普通商店；绿色=精英怪/普通任务；蓝色=楼层Boss/重要任务/隐藏宝箱；紫色=关键剧情/稀有掉落/特殊事件。');
+        parts.push('稀有度枚举: 白色/绿色/蓝色/紫色（装备可额外用金色=legendary）。');
+        parts.push('仅在叙事确实描写了获取事件时才输出标签。name和description必须填写。不要滥用高稀有度——保持稀缺感。');
         parts.push(stateText);
         parts.push('</system_state_ref>');
     }

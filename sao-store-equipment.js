@@ -1,7 +1,7 @@
 // sao-store-equipment.js — 装备定义/实例权威库
 // 同名装备可有多件实例（每件独立 ID）。
 // slot 使用新命名：weapon | off_hand | head | chest | hands | legs | accessory
-// statType：str | agi | int | vit | all
+// 所有字段必填（无默认值），缺失时 findOrCreateEquipment 返回 null。
 // combat 字段使用简写命名（已删除战斗系统，保留字段供投影/展示）。
 
 import { getStore, saveStore } from './sao-store-core.js';
@@ -12,7 +12,6 @@ import { log } from './sao-core.js';
 // ============================================================
 
 export const SLOT_ENUM = ['weapon', 'off_hand', 'head', 'chest', 'hands', 'legs', 'accessory'];
-const STAT_TYPE_ENUM = ['str', 'agi', 'int', 'vit', 'all'];
 const RARITY_ENUM = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 
 // ============================================================
@@ -80,6 +79,40 @@ export function findOrCreateEquipment(equipData) {
         return null;
     }
 
+    // 必填字段校验
+    if (!equipData.slot || !SLOT_ENUM.includes(equipData.slot)) {
+        log('findOrCreateEquipment: 必填字段 slot 缺失或非法: ' + equipData.slot, 'warn');
+        return null;
+    }
+    if (!equipData.weapon_type || typeof equipData.weapon_type !== 'string') {
+        log('findOrCreateEquipment: 必填字段 weapon_type 缺失', 'warn');
+        return null;
+    }
+    if (!equipData.rarity || !RARITY_ENUM.includes(equipData.rarity)) {
+        log('findOrCreateEquipment: 必填字段 rarity 缺失或非法: ' + equipData.rarity, 'warn');
+        return null;
+    }
+    if (equipData.item_level == null || typeof equipData.item_level !== 'number' || equipData.item_level < 1) {
+        log('findOrCreateEquipment: 必填字段 item_level 缺失或非法: ' + equipData.item_level, 'warn');
+        return null;
+    }
+    if (!equipData.stats || typeof equipData.stats !== 'object') {
+        log('findOrCreateEquipment: 必填字段 stats 缺失', 'warn');
+        return null;
+    }
+    if (!Array.isArray(equipData.affixes)) {
+        log('findOrCreateEquipment: 必填字段 affixes 缺失（需为数组）', 'warn');
+        return null;
+    }
+    if (!equipData.description || typeof equipData.description !== 'string') {
+        log('findOrCreateEquipment: 必填字段 description 缺失', 'warn');
+        return null;
+    }
+    if (!equipData.source || typeof equipData.source !== 'string') {
+        log('findOrCreateEquipment: 必填字段 source 缺失', 'warn');
+        return null;
+    }
+
     const existingIds = store.nameToId[name];
     if (existingIds && existingIds.length > 0) {
         // 过滤掉已不存在的 ID
@@ -96,16 +129,14 @@ export function findOrCreateEquipment(equipData) {
     const entry = {
         equipment_id: id,
         name: name,
-        slot: equipData.slot || 'weapon',
-        weapon_type: equipData.weapon_type || null,
-        statType: equipData.statType || 'all',
-        rarity: equipData.rarity || 'common',
-        item_level: equipData.item_level || 1,
-        durability: equipData.durability || { current: 100, max: 100 },
-        stats: equipData.stats || { atk: 0, str: 0, agi: 0, int: 0, vit: 0, maxHp: 0, maxMp: 0, hit: 0, crit: 0 },
-        affixes: equipData.affixes || [],
-        description: equipData.description || '',
-        source: equipData.source || 'specialist'
+        slot: equipData.slot,
+        weapon_type: equipData.weapon_type,
+        rarity: equipData.rarity,
+        item_level: equipData.item_level,
+        stats: equipData.stats,
+        affixes: equipData.affixes,
+        description: equipData.description,
+        source: equipData.source
     };
 
     store.byId[id] = entry;
@@ -241,29 +272,44 @@ export function validateEquipmentEntry(data) {
         errors.push('name 必须是非空字符串');
     }
 
-    // slot 枚举
-    if (data.slot != null && !SLOT_ENUM.includes(data.slot)) {
-        errors.push(`slot 必须是 ${SLOT_ENUM.join('|')} 之一`);
+    // slot 必填且合法
+    if (!data.slot || !SLOT_ENUM.includes(data.slot)) {
+        errors.push(`slot 必填且必须是 ${SLOT_ENUM.join('|')} 之一`);
     }
 
-    // statType 枚举
-    if (data.statType != null && !STAT_TYPE_ENUM.includes(data.statType)) {
-        errors.push(`statType 必须是 ${STAT_TYPE_ENUM.join('|')} 之一`);
+    // weapon_type 必填
+    if (!data.weapon_type || typeof data.weapon_type !== 'string') {
+        errors.push('weapon_type 必须是非空字符串');
     }
 
-    // rarity 枚举
-    if (data.rarity != null && !RARITY_ENUM.includes(data.rarity)) {
-        errors.push(`rarity 必须是 ${RARITY_ENUM.join('|')} 之一`);
+    // rarity 必填且合法
+    if (!data.rarity || !RARITY_ENUM.includes(data.rarity)) {
+        errors.push(`rarity 必填且必须是 ${RARITY_ENUM.join('|')} 之一`);
     }
 
-    // item_level
-    if (data.item_level != null && (typeof data.item_level !== 'number' || data.item_level < 1)) {
+    // item_level 必填
+    if (data.item_level == null || typeof data.item_level !== 'number' || data.item_level < 1) {
         errors.push('item_level 必须是 >= 1 的数字');
     }
 
-    // stats
-    if (data.stats != null && typeof data.stats !== 'object') {
+    // stats 必填
+    if (!data.stats || typeof data.stats !== 'object') {
         errors.push('stats 必须是对象');
+    }
+
+    // affixes 必填（可为空数组）
+    if (!Array.isArray(data.affixes)) {
+        errors.push('affixes 必须是数组（可为空）');
+    }
+
+    // description 必填
+    if (!data.description || typeof data.description !== 'string') {
+        errors.push('description 必须是非空字符串');
+    }
+
+    // source 必填
+    if (!data.source || typeof data.source !== 'string') {
+        errors.push('source 必须是非空字符串');
     }
 
     return { valid: errors.length === 0, errors };

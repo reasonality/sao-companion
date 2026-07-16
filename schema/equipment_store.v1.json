@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "equipment_store.v1",
+  "title": "equipment_store.v2",
   "type": "object",
   "required": ["byId", "nameToId"],
   "properties": {
@@ -8,22 +8,14 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["equipment_id", "name", "slot", "statType", "rarity", "item_level", "stats", "affixes"],
+        "required": ["equipment_id", "name", "slot", "weapon_type", "rarity", "item_level", "stats", "affixes", "description", "source"],
         "properties": {
           "equipment_id": { "type": "string", "minLength": 1 },
           "name": { "type": "string", "minLength": 1 },
           "slot": { "type": "string", "enum": ["weapon", "off_hand", "head", "chest", "hands", "legs", "accessory"] },
-          "weapon_type": { "type": "string" },
-          "statType": { "type": "string", "enum": ["str", "agi", "int", "vit", "all"] },
+          "weapon_type": { "type": "string", "minLength": 1 },
           "rarity": { "type": "string", "enum": ["common", "uncommon", "rare", "epic", "legendary"] },
           "item_level": { "type": "integer", "minimum": 1 },
-          "durability": {
-            "type": "object",
-            "properties": {
-              "current": { "type": "integer", "minimum": 0 },
-              "max": { "type": "integer", "minimum": 1 }
-            }
-          },
           "stats": {
             "type": "object",
             "additionalProperties": false,
@@ -40,8 +32,8 @@
             }
           },
           "affixes": { "type": "array", "items": { "type": "string" } },
-          "description": { "type": "string" },
-          "source": { "type": "string", "enum": ["initial", "loot", "quest", "manual", "specialist"] }
+          "description": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
         }
       }
     },

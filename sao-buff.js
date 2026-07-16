@@ -9,7 +9,7 @@ import { log } from './sao-core.js';
 // ============================================================
 
 /** 所有支持的 buff 属性字段 */
-const BUFF_STAT_FIELDS = ['str', 'agi', 'int', 'vit', 'atk', 'maxHp', 'maxMp', 'hit', 'crit'];
+const BUFF_STAT_FIELDS = ['str', 'agi', 'int', 'vit'];
 
 /** buff 来源枚举（用于校验和展示） */
 const BUFF_SOURCES = [
@@ -46,6 +46,16 @@ function formatEffectsShort(effects) {
         }
     }
     return parts.join(',');
+}
+
+/**
+ * 格式化 buff 的 special_effects 为简洁字符串。
+ * @param {object} buff - buff 对象
+ * @returns {string} 如 "免疫即死;复活时满血"，无特殊效果返回 ''
+ */
+export function formatBuffSpecialEffects(buff) {
+    if (!buff?.special_effects || !Array.isArray(buff.special_effects) || buff.special_effects.length === 0) return '';
+    return buff.special_effects.join('; ');
 }
 
 // ============================================================
@@ -91,18 +101,35 @@ export function addTemporaryBuff(entity, buff) {
     ensureBuffStructure(entity);
 
     // 必填字段校验
-    if (!buff.id || !buff.name || !buff.effects) {
-        log('addTemporaryBuff: 缺少必填字段 (id/name/effects)', 'warn');
-        return;
+    if (!buff.id) { log('addTemporaryBuff: 必填字段 id 缺失', 'warn'); return; }
+    if (!buff.name) { log('addTemporaryBuff: 必填字段 name 缺失', 'warn'); return; }
+    if (!buff.effects || typeof buff.effects !== 'object' || Object.keys(buff.effects).length === 0) {
+        log('addTemporaryBuff: 必填字段 effects 缺失或为空', 'warn'); return;
+    }
+    if (!buff.source || typeof buff.source !== 'string' || buff.source.length === 0) {
+        log('addTemporaryBuff: 必填字段 source 缺失', 'warn'); return;
+    }
+    if (!BUFF_SOURCES.includes(buff.source)) {
+        log('addTemporaryBuff: source 非法 "' + buff.source + '"，应为 ' + BUFF_SOURCES.join('|'), 'warn'); return;
+    }
+    if (!buff.description || typeof buff.description !== 'string' || buff.description.length === 0) {
+        log('addTemporaryBuff: 必填字段 description 缺失', 'warn'); return;
+    }
+    if (!buff.duration || typeof buff.duration !== 'string' || buff.duration.length === 0) {
+        log('addTemporaryBuff: 必填字段 duration 缺失（临时buff必须指定持续时间）', 'warn'); return;
+    }
+    if (!Array.isArray(buff.special_effects)) {
+        log('addTemporaryBuff: 必填字段 special_effects 缺失（可为空数组[]）', 'warn'); return;
     }
 
     const entry = {
         id: buff.id,
-        source: buff.source || 'unknown',
+        source: buff.source,
         name: buff.name,
         effects: buff.effects,
-        description: buff.description || '',
-        duration: buff.duration || '',
+        special_effects: buff.special_effects,
+        description: buff.description,
+        duration: buff.duration,
         acquired_turn: buff.acquired_turn ?? null,
         expires: buff.expires || 'manual',
     };
@@ -126,17 +153,31 @@ export function addPermanentBuff(entity, buff) {
     ensureBuffStructure(entity);
 
     // 必填字段校验
-    if (!buff.id || !buff.name || !buff.effects) {
-        log('addPermanentBuff: 缺少必填字段 (id/name/effects)', 'warn');
-        return;
+    if (!buff.id) { log('addPermanentBuff: 必填字段 id 缺失', 'warn'); return; }
+    if (!buff.name) { log('addPermanentBuff: 必填字段 name 缺失', 'warn'); return; }
+    if (!buff.effects || typeof buff.effects !== 'object' || Object.keys(buff.effects).length === 0) {
+        log('addPermanentBuff: 必填字段 effects 缺失或为空', 'warn'); return;
+    }
+    if (!buff.source || typeof buff.source !== 'string' || buff.source.length === 0) {
+        log('addPermanentBuff: 必填字段 source 缺失', 'warn'); return;
+    }
+    if (!BUFF_SOURCES.includes(buff.source)) {
+        log('addPermanentBuff: source 非法 "' + buff.source + '"，应为 ' + BUFF_SOURCES.join('|'), 'warn'); return;
+    }
+    if (!buff.description || typeof buff.description !== 'string' || buff.description.length === 0) {
+        log('addPermanentBuff: 必填字段 description 缺失', 'warn'); return;
+    }
+    if (!Array.isArray(buff.special_effects)) {
+        log('addPermanentBuff: 必填字段 special_effects 缺失（可为空数组[]）', 'warn'); return;
     }
 
     const entry = {
         id: buff.id,
-        source: buff.source || 'unknown',
+        source: buff.source,
         name: buff.name,
         effects: buff.effects,
-        description: buff.description || '',
+        special_effects: buff.special_effects,
+        description: buff.description,
     };
 
     // 去重：同 ID 替换
@@ -222,7 +263,9 @@ export function formatBuffsForDisplay(buffs) {
     if (Array.isArray(buffs.permanent)) {
         for (const buff of buffs.permanent) {
             const eff = formatEffectsShort(buff.effects);
-            parts.push(eff ? `${buff.name}(${eff})` : buff.name);
+            const special = formatBuffSpecialEffects(buff);
+            const detail = [eff, special].filter(Boolean).join(',');
+            parts.push(detail ? `${buff.name}(${detail})` : buff.name);
         }
     }
 
@@ -230,8 +273,9 @@ export function formatBuffsForDisplay(buffs) {
     if (Array.isArray(buffs.temporary)) {
         for (const buff of buffs.temporary) {
             const eff = formatEffectsShort(buff.effects);
+            const special = formatBuffSpecialEffects(buff);
             const dur = buff.duration || '';
-            const detail = [eff, dur].filter(Boolean).join(',');
+            const detail = [eff, special, dur].filter(Boolean).join(',');
             parts.push(detail ? `${buff.name}(${detail})` : buff.name);
         }
     }
@@ -253,8 +297,10 @@ export function formatBuffsForInjection(buffs) {
     if (Array.isArray(buffs.permanent)) {
         for (const buff of buffs.permanent) {
             const eff = formatEffectsShort(buff.effects);
+            const special = formatBuffSpecialEffects(buff);
             const src = buff.source ? `[${buff.source}]` : '';
-            const detail = eff ? `(${eff} 永久)` : '(永久)';
+            const detailParts = [eff, special].filter(Boolean);
+            const detail = detailParts.length ? `(${detailParts.join(',')} 永久)` : '(永久)';
             parts.push(`${src}${buff.name}${detail}`);
         }
     }
@@ -263,9 +309,10 @@ export function formatBuffsForInjection(buffs) {
     if (Array.isArray(buffs.temporary)) {
         for (const buff of buffs.temporary) {
             const eff = formatEffectsShort(buff.effects);
+            const special = formatBuffSpecialEffects(buff);
             const dur = buff.duration || '';
             const src = buff.source ? `[${buff.source}]` : '';
-            const detailParts = [eff, dur].filter(Boolean);
+            const detailParts = [eff, special, dur].filter(Boolean);
             const detail = detailParts.length ? `(${detailParts.join(',')})` : '';
             parts.push(`${src}${buff.name}${detail}`);
         }

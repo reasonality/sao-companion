@@ -151,8 +151,8 @@ describe('projectStatusPanelHtml', () => {
             },
             skillStore: {
                 byId: {
-                    s1: { name: '水平方阵斩', combat: { atk: 45, hit: 80, crit: 10, mpCost: 15, cd: 2 } },
-                    s2: { name: '治疗', combat: { atk: 0, hit: 0, crit: 0, mpCost: 20, cd: 0 } },
+                    s1: { name: '水平方阵斩', combat: { atk: 45, hit: 80, crit: 10, mpCost: 15 } },
+                    s2: { name: '治疗', combat: { atk: 0, hit: 0, crit: 0, mpCost: 20 } },
                 },
                 nameToId: {},
             },
@@ -357,7 +357,7 @@ describe('projectStatusPanelHtml', () => {
             },
             skillStore: {
                 byId: {
-                    s1: { name: '水平方阵斩', combat: { atk: 45, hit: 80, crit: 10, mpCost: 15, cd: 2 } },
+                    s1: { name: '水平方阵斩', combat: { atk: 45, hit: 80, crit: 10, mpCost: 15 } },
                 },
                 nameToId: {},
             },

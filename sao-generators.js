@@ -238,6 +238,7 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
     if (!settings.enabled) return null;
 
     const itemLevel = context.playerLevel || context.floor || 1;
+    const pf = context.prefilled;
 
     // 1) 掷稀有度 (1D20)
     let rarityEntry;
@@ -250,7 +251,7 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
     }
 
     // 2) 掷插槽 (1D10)
-    const slotEntry = lookupRoll(EQUIP_SLOT_TABLE, (Math.floor(Math.random() * 10) + 1));
+    let slotEntry = lookupRoll(EQUIP_SLOT_TABLE, (Math.floor(Math.random() * 10) + 1));
 
     // 3) 掷类型 (1D5)
     let typeEntry;
@@ -278,7 +279,7 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
     }
 
     // 6) 掷词缀 (1D50) x affixCount
-    const affixNames = [];
+    let affixNames = [];
     for (let ai = 0; ai < rarityEntry.affixes; ai++) {
         const affixRoll = (Math.floor(Math.random() * 50) + 1);
         const affixEntry = EQUIP_AFFIX_TABLE[affixRoll];
@@ -288,6 +289,36 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
         stats.int += bonus.int;
         stats.vit += bonus.vit;
         if (affixEntry) affixNames.push(affixEntry.name);
+    }
+
+    // === Prefilled override (from card opening message / gain_equipment attrs) ===
+    if (pf && typeof pf === 'object') {
+        if (pf.slot) slotEntry = { slot: pf.slot, label: pf.slot };
+        if (pf.rarity) {
+            const r = String(pf.rarity);
+            rarityEntry = EQUIP_RARITY_TABLE.find(e => r.includes(e.name[0]))
+                || EQUIP_RARITY_TABLE.find(e => r.toLowerCase().includes((RARITY_TO_EN[e.name] || '').toLowerCase()))
+                || rarityEntry;
+        }
+        if (pf.stats && typeof pf.stats === 'object') {
+            const clamp = (v, lo, hi, name) => {
+                if (v == null) return v;
+                if (v < lo) { log('generateEquipment: ' + name + ' ' + v + ' 过低，钳制到 ' + lo, 'warn'); return lo; }
+                if (v > hi) { log('generateEquipment: ' + name + ' ' + v + ' 过高，钳制到 ' + hi, 'warn'); return hi; }
+                return v;
+            };
+            stats.maxHp = clamp(pf.stats.maxHp ?? stats.maxHp, 0, 9999, 'maxHp');
+            stats.str = clamp(pf.stats.str ?? stats.str, 0, 9999, 'str');
+            stats.agi = clamp(pf.stats.agi ?? stats.agi, 0, 9999, 'agi');
+            stats.int = clamp(pf.stats.int ?? stats.int, 0, 9999, 'int');
+            stats.vit = clamp(pf.stats.vit ?? stats.vit, 0, 9999, 'vit');
+        }
+        if (Array.isArray(pf.affixes) && pf.affixes.length > 0) affixNames = pf.affixes.slice();
+        if (pf.item_level != null) {
+            if (pf.item_level < 1) { log('generateEquipment: item_level ' + pf.item_level + ' 过低，钳制到 1', 'warn'); pf.item_level = 1; }
+            if (pf.item_level > 100) { log('generateEquipment: item_level ' + pf.item_level + ' 过高，钳制到 100', 'warn'); pf.item_level = 100; }
+        }
+        log('generateEquipment: 使用预填数值 (prefilled)');
     }
 
     // 7) 构造完整装备记录，请求模型填充 name 和 description
@@ -301,10 +332,8 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
         name: '',
         slot: slotEntry.slot,
         weapon_type: null,
-        statType: typeEntry.mainStat,
         rarity: rarityEn,
-        item_level: itemLevel,
-        durability: { current: 100, max: 100 },
+        item_level: (pf && pf.item_level != null) ? pf.item_level : itemLevel,
         stats: { maxHp: stats.maxHp, str: stats.str, agi: stats.agi, int: stats.int, vit: stats.vit },
         affixes: affixNames,
         description: '',
@@ -324,12 +353,12 @@ ${fullEquipJson}
     const equip = {
         name: prefilledName || null,
         slot: slotEntry.slot,
-        statType: typeEntry.mainStat,
         rarity: rarityEn,
-        item_level: itemLevel,
+        item_level: (pf && pf.item_level != null) ? pf.item_level : itemLevel,
         stats,
         affixes: affixNames,
         description: prefilledDesc || '',
+        source: 'specialist',
     };
 
     if (prefilledName) {
@@ -346,9 +375,11 @@ ${fullEquipJson}
             const modelResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
             equip.name = modelResult.name || `${slotEntry.label}装备`;
             equip.description = modelResult.description || '';
+            if (!equip.description) equip.description = (slotEntry.label || '装备') + '（未命名描述）';
         } catch (e) {
             log('装备命名生成失败: ' + e.message, 'warn');
             equip.name = `${slotEntry.label}装备`;
+            if (!equip.description) equip.description = (slotEntry.label || '装备') + '（未命名描述）';
         }
     }
 
@@ -379,6 +410,7 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
     if (!settings.enabled) return null;
 
     const skillLevel = context.skillLevel || 1;
+    const pf = context.prefilled;
 
     // 1) 掷稀有度 (1D20)
     const rarityEntry = lookupRoll(SKILL_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
@@ -406,10 +438,7 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
     // 8) MP消耗 = 1D20
     const mpCost = (Math.floor(Math.random() * 20) + 1);
 
-    // 9) CD = 1D4 - 1 (0-3)
-    const cd = (Math.floor(Math.random() * 4) + 1) - 1;
-
-    // 10) 3条词缀: 1D30 决定类型, PL = skillLevel*2 + rarityBonus + 1D10
+    // 9) 3条词缀: 1D30 决定类型, PL = skillLevel*2 + rarityBonus + 1D10
     const rarityBonuses = { '\u767D\u8272': 10, '\u7EFF\u8272': 20, '\u84DD\u8272': 35, '\u7D2B\u8272': 55 };
     const rBonus = rarityBonuses[rarityEntry.name] || 10;
     const affixCodes = [];
@@ -432,6 +461,29 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
         }
     }
 
+    // === Prefilled override (from card opening message / gain_skill attrs) ===
+    let _baseATK = baseATK, _hitRate = hitRate, _critRate = critRate;
+    let _apt = apt, _tpa = tpa, _mpCost = mpCost;
+    let _coreCode = coreEntry.code, _affixCodes = affixCodes, _skillLevel = skillLevel;
+    if (pf && typeof pf === 'object') {
+        const clamp = (v, lo, hi, name) => {
+            if (v == null) return v;
+            if (v < lo) { log('generateSkill: ' + name + ' ' + v + ' 过低，钳制到 ' + lo, 'warn'); return lo; }
+            if (v > hi) { log('generateSkill: ' + name + ' ' + v + ' 过高，钳制到 ' + hi, 'warn'); return hi; }
+            return v;
+        };
+        if (pf.atk != null) _baseATK = clamp(pf.atk, 0, 9999, 'atk');
+        if (pf.hit != null) _hitRate = clamp(pf.hit, 0, 100, 'hit');
+        if (pf.crit != null) _critRate = clamp(pf.crit, 0, 100, 'crit');
+        if (pf.apt != null) _apt = clamp(pf.apt, 1, 10, 'apt');
+        if (pf.tpa != null) _tpa = clamp(pf.tpa, 1, 10, 'tpa');
+        if (pf.mp_cost != null) _mpCost = clamp(pf.mp_cost, 0, 999, 'mp_cost');
+        if (pf.wn) _coreCode = pf.wn;
+        if (Array.isArray(pf.en) && pf.en.length > 0) _affixCodes = pf.en.slice();
+        if (pf.skill_level != null) _skillLevel = clamp(pf.skill_level, 1, 100, 'skill_level');
+        log('generateSkill: 使用预填数值 (prefilled)');
+    }
+
     // 构造完整剑技记录，请求模型填充 name / description / effects_description
     const weaponType = context.weaponType || '单手直剑';
     const rarityEn = RARITY_TO_EN[rarityEntry.name] || 'common';
@@ -441,18 +493,16 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
         rarity: rarityEn,
         category: 'sword_skill',
         combat: {
-            atk: baseATK,
-            hit: hitRate,
-            crit: critRate,
-            apt: apt,
-            tpa: tpa,
-            mpCost: mpCost,
-            cd: cd,
+            atk: _baseATK,
+            hit: _hitRate,
+            crit: _critRate,
+            apt: _apt,
+            tpa: _tpa,
+            mpCost: _mpCost,
         },
         effects: {
-            wn: coreEntry.code,
-            en: affixCodes,
-            mn: [],
+            wn: _coreCode,
+            en: _affixCodes,
         },
         affix_names: affixNames,
         description: '',
@@ -474,17 +524,16 @@ ${fullSkillJson}
     const skill = {
         name: prefilledName || null,
         weapon_type: weaponType,
-        skill_level: skillLevel,
+        skill_level: _skillLevel,
         rarity: rarityEn,
-        base_damage: baseATK,
-        hit_rate: hitRate,
-        crit_rate: critRate,
-        mp_cost: mpCost,
-        cooldown: cd,
-        hits: apt,
-        targets: tpa,
-        core_code: coreEntry.code,
-        affix_codes: affixCodes,
+        base_damage: _baseATK,
+        hit_rate: _hitRate,
+        crit_rate: _critRate,
+        mp_cost: _mpCost,
+        hits: _apt,
+        targets: _tpa,
+        core_code: _coreCode || 'A1',
+        affix_codes: _affixCodes,
         affix_names: affixNames,
         effects_description: '',
         description: prefilledDesc || '',
@@ -505,9 +554,11 @@ ${fullSkillJson}
             skill.name = modelResult.name || '\u5251\u6280';
             skill.description = modelResult.description || '';
             skill.effects_description = modelResult.effects_description || '';
+            if (!skill.description) skill.description = (weaponType || '\u5251\u6280') + '\uFF08\u672A\u547D\u540D\u63CF\u8FF0\uFF09';
         } catch (e) {
             log('\u5251\u6280\u547D\u540D\u751F\u6210\u5931\u8D25: ' + e.message, 'warn');
             skill.name = '\u5251\u6280';
+            if (!skill.description) skill.description = (weaponType || '\u5251\u6280') + '\uFF08\u672A\u547D\u540D\u63CF\u8FF0\uFF09';
         }
     }
 
@@ -525,12 +576,10 @@ ${fullSkillJson}
                 apt: skill.hits,
                 tpa: skill.targets,
                 mpCost: skill.mp_cost,
-                cd: skill.cooldown,
             },
             effects: {
-                wn: skill.core_code || '',
+                wn: skill.core_code,
                 en: Array.isArray(skill.affix_codes) ? skill.affix_codes : [],
-                mn: [],
             },
             description: skill.description,
             source: 'specialist',
@@ -578,39 +627,79 @@ function buildEffects(category, value) {
 
 /**
  * 生成消耗品（骰子表 + LLM 命名模式）
- * @param {object} context - { playerLevel, floor, qty }
- * @param {Function} callModelFn - 模型调用函数
+ * @param {object} context - { playerLevel, floor, qty, prefilled }
+ * @param {Function} callModelFn - 模型调用函数（prefilledName 存在时可选）
+ * @param {string} [prefilledName] - 主LLM提供的名称（跳过子LLM命名）
+ * @param {string} [prefilledDesc] - 主LLM提供的描述
  * @returns {Promise<object|null>} 消耗品对象
  */
-export async function generateConsumable(context, callModelFn) {
-    if (!callModelFn) throw new Error('callModelFn is required');
+export async function generateConsumable(context, callModelFn, prefilledName, prefilledDesc) {
+    if (!callModelFn && !prefilledName) throw new Error('callModelFn is required (or provide prefilledName)');
     const settings = getSettings();
     if (!settings.enabled) return null;
 
     const itemLevel = context.playerLevel || context.floor || 1;
+    const pf = context.prefilled;
 
     // 1) 掷类型 (1D20)
-    const typeEntry = lookupRoll(CONSUMABLE_TYPE_TABLE, (Math.floor(Math.random() * 20) + 1));
+    let typeEntry = lookupRoll(CONSUMABLE_TYPE_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 2) 掷稀有度 (1D20)
-    const rarityEntry = lookupRoll(CONSUMABLE_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
+    let rarityEntry = lookupRoll(CONSUMABLE_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
 
     // 3) 计算效果数值（基础值 × 稀有度倍率）
     const baseVal = typeEntry.baseValue(itemLevel);
     const finalValue = Math.floor(baseVal * rarityEntry.mult);
 
     // 4) 构造 effects
-    const effects = buildEffects(typeEntry.category, finalValue);
+    let effects = buildEffects(typeEntry.category, finalValue);
 
-    // 5) LLM 生成名称+描述
-    const effectDesc = effects.map(e => {
-        if (e.type === 'restore') return `恢复${e.stat.toUpperCase()} ${e.value}`;
-        if (e.type === 'buff') return `${e.stat.toUpperCase()} +${e.value} 持续${e.duration}回合`;
-        if (e.type === 'cure') return '治愈状态异常';
-        return '';
-    }).join('，');
+    // === Prefilled override (from card opening message / gain_consumable attrs) ===
+    if (pf && typeof pf === 'object') {
+        if (pf.category) typeEntry = { category: pf.category, label: pf.category, baseValue: () => 0 };
+        if (pf.rarity) {
+            const r = String(pf.rarity);
+            // CONSUMABLE_RARITY_TABLE uses English names (common/uncommon/rare/epic)
+            rarityEntry = CONSUMABLE_RARITY_TABLE.find(e => r.toLowerCase() === e.name.toLowerCase())
+                || CONSUMABLE_RARITY_TABLE.find(e => r === e.name)
+                || rarityEntry;
+        }
+        if (Array.isArray(pf.effects) && pf.effects.length > 0) {
+            effects = pf.effects.slice();
+            // Clamp effect values
+            for (const e of effects) {
+                if (e.value != null) {
+                    if (e.value < 0) { log('generateConsumable: effect value ' + e.value + ' 过低，钳制到 0', 'warn'); e.value = 0; }
+                    if (e.value > 9999) { log('generateConsumable: effect value ' + e.value + ' 过高，钳制到 9999', 'warn'); e.value = 9999; }
+                }
+            }
+        }
+        log('generateConsumable: 使用预填数值 (prefilled)');
+    }
 
-    const namePrompt = `为SAO消耗品生成名称和描述。
+    const consumable = {
+        name: prefilledName || null,
+        category: typeEntry.category,
+        rarity: rarityEntry.name,
+        item_level: itemLevel,
+        effects,
+        description: prefilledDesc || '',
+        qty: context.qty || 1,
+    };
+
+    if (prefilledName) {
+        // 主LLM已提供名称和描述，跳过子LLM调用
+        log('消耗品生成(主LLM提供名称): ' + prefilledName);
+    } else {
+        // 5) LLM 生成名称+描述
+        const effectDesc = effects.map(e => {
+            if (e.type === 'restore') return `恢复${e.stat.toUpperCase()} ${e.value}`;
+            if (e.type === 'buff') return `${e.stat.toUpperCase()} +${e.value} 持续${e.duration}回合`;
+            if (e.type === 'cure') return '治愈状态异常';
+            return '';
+        }).join('，');
+
+        const namePrompt = `为SAO消耗品生成名称和描述。
 
 输出格式: 必须返回纯 JSON 对象，不要包含 markdown 代码块标记或任何说明文字。
 JSON 必须包含以下字段:
@@ -626,43 +715,38 @@ JSON 必须包含以下字段:
 物品等级: ${itemLevel}
 效果: ${effectDesc}`;
 
-    try {
-        const result = await callModelFn('equipment', [
-            { role: 'system', content: '你是SAO消耗品命名器。只输出JSON对象，格式为 {"name": "名称", "description": "描述"}，不要输出任何其他内容。' },
-            { role: 'user', content: namePrompt },
-        ], 256, { jsonSchema: true });
-        const jsonMatch = result.match(/\{[\s\S]*\}/);
-        const nameDesc = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-
-        const consumable = {
-            name: nameDesc.name || typeEntry.label,
-            category: typeEntry.category,
-            rarity: rarityEntry.name,
-            item_level: itemLevel,
-            effects,
-            description: nameDesc.description || '',
-            qty: context.qty || 1,
-        };
-
-        // 6) 写入 consumableStore 定义库
         try {
-            const consumableId = findOrCreateConsumable({ ...consumable, source: 'dice' });
-            if (consumableId) {
-                consumable.consumable_id = consumableId;
-                // 7) 入背包
-                await addConsumableItem(consumableId, context.qty || 1, true);
-                log('消耗品入Store: ' + consumable.name + ' → ' + consumableId);
-            }
+            const result = await callModelFn('equipment', [
+                { role: 'system', content: '你是SAO消耗品命名器。只输出JSON对象，格式为 {"name": "名称", "description": "描述"}，不要输出任何其他内容。' },
+                { role: 'user', content: namePrompt },
+            ], 256, { jsonSchema: true });
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
+            const nameDesc = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+            consumable.name = nameDesc.name || typeEntry.label;
+            consumable.description = nameDesc.description || '';
+            if (!consumable.description) consumable.description = (typeEntry?.label || '药水') + '（未命名描述）';
         } catch (e) {
-            log('消耗品直写Store失败(非致命): ' + e.message, 'warn');
+            log('消耗品命名生成失败: ' + e.message, 'warn');
+            consumable.name = typeEntry.label;
+            if (!consumable.description) consumable.description = (typeEntry?.label || '药水') + '（未命名描述）';
         }
-
-        log('消耗品生成完成: ' + consumable.name);
-        return consumable;
-    } catch (e) {
-        log('消耗品生成失败: ' + e.message, 'error');
-        return null;
     }
+
+    // 6) 写入 consumableStore 定义库
+    try {
+        const consumableId = findOrCreateConsumable({ ...consumable, source: prefilledName ? 'specialist' : 'dice' });
+        if (consumableId) {
+            consumable.consumable_id = consumableId;
+            // 7) 入背包
+            await addConsumableItem(consumableId, context.qty || 1, true);
+            log('消耗品入Store: ' + consumable.name + ' → ' + consumableId);
+        }
+    } catch (e) {
+        log('消耗品直写Store失败(非致命): ' + e.message, 'warn');
+    }
+
+    log('消耗品生成完成: ' + consumable.name);
+    return consumable;
 }
 
 /**

@@ -188,23 +188,42 @@ describe('createGuild', () => {
     });
 
     it('returns existing ID for duplicate name', () => {
-        const id1 = createGuild('测试公会', '会长A');
-        const id2 = createGuild('测试公会', '会长B');
+        const id1 = createGuild('测试公会', '会长A', { description: '测试' });
+        const id2 = createGuild('测试公会', '会长B', { description: '测试' });
         expect(id1).toBe(id2);
     });
 
-    it('creates guild with no leader', () => {
-        const id = createGuild('无会长公会');
-        const guild = getGuildById(id);
-        expect(guild.leader).toBeNull();
-        expect(guild.members).toEqual([]);
+    it('rejects missing leader', () => {
+        const id = createGuild('无会长公会', null, { description: '测试' });
+        expect(id).toBeNull();
+    });
+
+    it('rejects missing description', () => {
+        const id = createGuild('无描述公会', '会长');
+        expect(id).toBeNull();
     });
 
     it('creates guild with buff option', () => {
-        const buff = { name: '测试加成', effects: { str: 5 }, description: '攻击+5' };
-        const id = createGuild('有加成公会', '会长', { buff });
+        const buff = { name: '测试加成', effects: { str: 5 }, special_effects: [], description: '攻击+5' };
+        const id = createGuild('有加成公会', '会长', { description: '测试', buff });
         const guild = getGuildById(id);
         expect(guild.buff).toEqual(buff);
+    });
+
+    it('rejects buff without name', () => {
+        const id = createGuild('测试', '会长', {
+            description: '测试',
+            buff: { effects: { str: 5 }, special_effects: [], description: 'x' },
+        });
+        expect(id).toBeNull();
+    });
+
+    it('rejects buff without special_effects', () => {
+        const id = createGuild('测试', '会长', {
+            description: '测试',
+            buff: { name: 'x', effects: { str: 5 }, description: 'x' },
+        });
+        expect(id).toBeNull();
     });
 });
 
@@ -367,12 +386,16 @@ describe('joinGuild', () => {
     });
 
     it('applies guild buff when guild has one', () => {
-        joinGuild('风林火山');
+        const guildId = createGuild('测试buff公会', '会长', {
+            description: '测试',
+            buff: { name: '测试之魂', effects: { str: 7 }, special_effects: [], description: '测试+7' },
+        });
+        joinGuild('测试buff公会');
         const player = mockStore.playerStore;
-        const guildBuff = player.buffs.permanent.find(b => b.id === 'guild_flh');
+        const guildBuff = player.buffs.permanent.find(b => b.id === 'guild_' + guildId);
         expect(guildBuff).toBeTruthy();
-        expect(guildBuff.name).toBe('风林火山之魂');
-        expect(guildBuff.effects.vit).toBe(10);
+        expect(guildBuff.name).toBe('测试之魂');
+        expect(guildBuff.effects.str).toBe(7);
     });
 
     it('returns false for non-existent guild', () => {
@@ -398,10 +421,16 @@ describe('leaveGuild', () => {
     });
 
     it('removes guild buff on leave', () => {
-        joinGuild('风林火山');
-        leaveGuild();
+        const guildId = createGuild('测试离开公会', '会长', {
+            description: '测试',
+            buff: { name: '离开之魂', effects: { vit: 3 }, special_effects: [], description: '测试buff' },
+        });
+        joinGuild('测试离开公会');
         const player = mockStore.playerStore;
-        const guildBuff = player.buffs.permanent.find(b => b.id === 'guild_flh');
+        // sanity check: buff exists after join
+        expect(player.buffs.permanent.find(b => b.id === 'guild_' + guildId)).toBeTruthy();
+        leaveGuild();
+        const guildBuff = player.buffs.permanent.find(b => b.id === 'guild_' + guildId);
         expect(guildBuff).toBeUndefined();
     });
 

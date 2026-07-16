@@ -74,7 +74,6 @@ export function renderDetailSkill(sk, describeEnFn) {
         if (c.apt != null) rows.push(detailRow('🌀 攻击次数 (APT)', esc(c.apt) + ' 次/轮'));
         if (c.tpa != null) rows.push(detailRow('👥 目标数量 (TPA)', esc(c.tpa) + ' 个'));
         if (c.mpCost != null) rows.push(detailRow('💧 法力消耗 (MPCost)', esc(c.mpCost) + ' MP'));
-        if (c.cd != null) rows.push(detailRow('⏳ 冷却时间 (CD)', esc(c.cd) + ' 回合'));
     }
     if (sk.effects && sk.effects.wn) rows.push(detailRow('核心功能', esc(coreCodeLabel(sk.effects.wn))));
     if (sk.effects && sk.effects.en && sk.effects.en.length > 0) {

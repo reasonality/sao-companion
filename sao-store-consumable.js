@@ -13,7 +13,7 @@ import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes } from './sa
 
 const CATEGORY_ENUM = ['hp_restore', 'mp_restore', 'full_restore', 'buff', 'cure'];
 const RARITY_ENUM = ['common', 'uncommon', 'rare', 'epic'];
-const EFFECT_TYPE_ENUM = ['restore', 'buff', 'cure'];
+const EFFECT_TYPE_ENUM = ['restore', 'buff', 'cure', 'narrative'];
 const STAT_ENUM = ['hp', 'mp', 'str', 'agi', 'int', 'vit'];
 
 // ============================================================
@@ -87,19 +87,45 @@ export function findOrCreateConsumable(data) {
         return existingId;
     }
 
+    // === 必填字段校验（仅新建时，更新路径跳过） ===
+    if (!data.category || !CATEGORY_ENUM.includes(data.category)) {
+        log('findOrCreateConsumable: 必填字段 category 缺失或非法: ' + data.category, 'warn');
+        return null;
+    }
+    if (!data.rarity || !RARITY_ENUM.includes(data.rarity)) {
+        log('findOrCreateConsumable: 必填字段 rarity 缺失或非法: ' + data.rarity, 'warn');
+        return null;
+    }
+    if (data.item_level == null || typeof data.item_level !== 'number' || data.item_level < 1) {
+        log('findOrCreateConsumable: 必填字段 item_level 缺失或非法: ' + data.item_level, 'warn');
+        return null;
+    }
+    if (!Array.isArray(data.effects)) {
+        log('findOrCreateConsumable: 必填字段 effects 缺失或非法', 'warn');
+        return null;
+    }
+    if (!data.description || typeof data.description !== 'string' || data.description.length === 0) {
+        log('findOrCreateConsumable: 必填字段 description 缺失或为空', 'warn');
+        return null;
+    }
+    if (!data.source || typeof data.source !== 'string' || data.source.length === 0) {
+        log('findOrCreateConsumable: 必填字段 source 缺失或为空', 'warn');
+        return null;
+    }
+
     // 创建新条目
     const id = generateConsumableId();
     const entry = {
         consumable_id: id,
         name: name,
-        category: data.category || 'hp_restore',
-        rarity: data.rarity || 'common',
-        item_level: data.item_level || 1,
-        effects: data.effects || [],
+        category: data.category,
+        rarity: data.rarity,
+        item_level: data.item_level,
+        effects: data.effects,
         stackable: data.stackable !== undefined ? data.stackable : true,
         maxStack: data.maxStack || 99,
-        description: data.description || '',
-        source: data.source || 'specialist'
+        description: data.description,
+        source: data.source
     };
 
     store.byId[id] = entry;
@@ -131,43 +157,51 @@ export function validateConsumableEntry(data) {
         errors.push('name 必须是非空字符串');
     }
 
-    // category 枚举
-    if (data.category != null && !CATEGORY_ENUM.includes(data.category)) {
-        errors.push(`category 必须是 ${CATEGORY_ENUM.join('|')} 之一`);
+    // category: 必填，枚举校验
+    if (!data.category || !CATEGORY_ENUM.includes(data.category)) {
+        errors.push(`category 必填且为 ${CATEGORY_ENUM.join('|')} 之一`);
     }
 
-    // rarity 枚举
-    if (data.rarity != null && !RARITY_ENUM.includes(data.rarity)) {
-        errors.push(`rarity 必须是 ${RARITY_ENUM.join('|')} 之一`);
+    // rarity: 必填，枚举校验
+    if (!data.rarity || !RARITY_ENUM.includes(data.rarity)) {
+        errors.push(`rarity 必填且为 ${RARITY_ENUM.join('|')} 之一`);
     }
 
-    // item_level
-    if (data.item_level != null && (typeof data.item_level !== 'number' || data.item_level < 1)) {
-        errors.push('item_level 必须是 >= 1 的数字');
+    // item_level: 必填，>=1 的数字
+    if (data.item_level == null || typeof data.item_level !== 'number' || data.item_level < 1) {
+        errors.push('item_level 必填且为 >= 1 的数字');
     }
 
-    // effects
-    if (data.effects != null) {
-        if (!Array.isArray(data.effects)) {
-            errors.push('effects 必须是数组');
-        } else {
-            for (let i = 0; i < data.effects.length; i++) {
-                const eff = data.effects[i];
-                if (!eff || typeof eff !== 'object') {
-                    errors.push(`effects[${i}] 必须是对象`);
-                    continue;
-                }
-                if (eff.type != null && !EFFECT_TYPE_ENUM.includes(eff.type)) {
-                    errors.push(`effects[${i}].type 必须是 ${EFFECT_TYPE_ENUM.join('|')} 之一`);
-                }
-                if (eff.stat != null && !STAT_ENUM.includes(eff.stat)) {
-                    errors.push(`effects[${i}].stat 必须是 ${STAT_ENUM.join('|')} 之一`);
-                }
-                if (eff.value != null && typeof eff.value !== 'number') {
-                    errors.push(`effects[${i}].value 必须是数字`);
-                }
+    // effects: 必填，必须是数组
+    if (!Array.isArray(data.effects)) {
+        errors.push('effects 必填且为数组');
+    } else {
+        for (let i = 0; i < data.effects.length; i++) {
+            const eff = data.effects[i];
+            if (!eff || typeof eff !== 'object') {
+                errors.push(`effects[${i}] 必须是对象`);
+                continue;
+            }
+            if (eff.type != null && !EFFECT_TYPE_ENUM.includes(eff.type)) {
+                errors.push(`effects[${i}].type 必须是 ${EFFECT_TYPE_ENUM.join('|')} 之一`);
+            }
+            if (eff.stat != null && !STAT_ENUM.includes(eff.stat)) {
+                errors.push(`effects[${i}].stat 必须是 ${STAT_ENUM.join('|')} 之一`);
+            }
+            if (eff.value != null && typeof eff.value !== 'number') {
+                errors.push(`effects[${i}].value 必须是数字`);
             }
         }
+    }
+
+    // description: 必填，非空字符串
+    if (typeof data.description !== 'string' || data.description.length === 0) {
+        errors.push('description 必填且为非空字符串');
+    }
+
+    // source: 必填，非空字符串
+    if (typeof data.source !== 'string' || data.source.length === 0) {
+        errors.push('source 必填且为非空字符串');
     }
 
     return { valid: errors.length === 0, errors };
@@ -257,6 +291,9 @@ export async function useConsumable(itemId) {
         } else if (eff.type === 'cure') {
             // M2: cure effect — 待状态异常系统(playerStore.statusEffects)上线后实现实际清除
             results.push(`治愈: ${eff.stat || '状态异常'}`);
+        } else if (eff.type === 'narrative') {
+            // 叙事效果：不应用数值，仅记录结果（复活/传送/解锁等）
+            results.push(`叙事效果: ${eff.description || '已使用'}`);
         } else {
             // M1: 未知效果类型，给用户反馈而非静默忽略
             results.push(`未知效果类型: ${eff.type}`);

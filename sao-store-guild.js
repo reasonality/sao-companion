@@ -19,7 +19,7 @@ const PRESET_GUILDS = [
         leader: '克莱因',
         members: ['克莱因'],
         headquarters: null,
-        buff: { name: '风林火山之魂', effects: { vit: 10 }, description: '公会成员体力+10' },
+        buff: null,
         description: '克莱因组建的公会，以日本武士道精神为信条',
         discovered: false,
         discovered_date: null,
@@ -32,7 +32,7 @@ const PRESET_GUILDS = [
         leader: '启',
         members: ['启', '桐人'],
         headquarters: null,
-        buff: { name: '月夜的庇护', effects: { str: 5 }, description: '公会成员攻击+5' },
+        buff: null,
         description: '桐人曾加入的小型公会，后全员阵亡',
         discovered: false,
         discovered_date: null,
@@ -45,7 +45,7 @@ const PRESET_GUILDS = [
         leader: '辛卡',
         members: ['辛卡', '由莉耶儿'],
         headquarters: null,
-        buff: { name: '解放军的秩序', effects: { vit: 5 }, description: '公会成员体力+5' },
+        buff: null,
         description: 'SAO最大规模公会，由辛卡领导',
         discovered: false,
         discovered_date: null,
@@ -58,7 +58,7 @@ const PRESET_GUILDS = [
         leader: '希兹克利夫',
         members: ['希兹克利夫', '亚丝娜'],
         headquarters: { floor_id: 55, location: '格兰萨姆' },
-        buff: { name: '血盟的纪律', effects: { vit: 10 }, description: '公会成员防御+10' },
+        buff: null,
         description: 'SAO最强攻略公会，由希兹克利夫创立',
         discovered: false,
         discovered_date: null,
@@ -82,7 +82,7 @@ const PRESET_GUILDS = [
     {
         guild_id: 'dda',
         name: '圣龙联合',
-        leader: null,
+        leader: '（不明）',
         members: [],
         headquarters: { floor_id: 56, location: '帕尼' },
         buff: null,
@@ -188,19 +188,56 @@ export function createGuild(name, leader, options = {}) {
     if (store.nameToId[name]) {
         return store.nameToId[name];
     }
+
+    // Required field validation
+    if (!name || typeof name !== 'string' || name.length === 0) {
+        log('createGuild: 必填字段 name 缺失', 'warn');
+        return null;
+    }
+    if (!leader || typeof leader !== 'string' || leader.length === 0) {
+        log('createGuild: 必填字段 leader 缺失（创建公会必须指定会长）', 'warn');
+        return null;
+    }
+    if (!options.description || typeof options.description !== 'string' || options.description.length === 0) {
+        log('createGuild: 必填字段 description 缺失', 'warn');
+        return null;
+    }
+
+    // Conditional buff validation (if buff exists, all buff sub-fields required)
+    if (options.buff) {
+        const b = options.buff;
+        if (!b.name || typeof b.name !== 'string' || b.name.length === 0) {
+            log('createGuild: buff.name 缺失（buff 存在时必填）', 'warn');
+            return null;
+        }
+        if (!b.effects || typeof b.effects !== 'object' || Object.keys(b.effects).length === 0) {
+            log('createGuild: buff.effects 缺失或为空（buff 存在时必填）', 'warn');
+            return null;
+        }
+        if (!Array.isArray(b.special_effects)) {
+            log('createGuild: buff.special_effects 缺失（buff 存在时必填，可为空数组）', 'warn');
+            return null;
+        }
+        if (!b.description || typeof b.description !== 'string' || b.description.length === 0) {
+            log('createGuild: buff.description 缺失（buff 存在时必填）', 'warn');
+            return null;
+        }
+    }
+
     const id = 'guild_' + Date.now();
     const guild = {
         guild_id: id,
         name,
-        leader: leader || null,
-        members: leader ? [leader] : [],
-        headquarters: options.headquarters || null,
-        buff: options.buff || null,
-        description: options.description || '',
-        discovered: true,
-        discovered_date: null,
-        discover_condition: null,
-        disbanded: false,
+        leader,
+        members: [leader],
+        headquarters: options.headquarters ?? null,
+        buff: options.buff ?? null,
+        description: options.description,
+        discovered: options.discovered ?? true,
+        discovered_date: options.discovered_date ?? null,
+        discover_condition: options.discover_condition ?? null,
+        disbanded: options.disbanded ?? false,
+        hostile: options.hostile ?? false,
     };
     store.byId[id] = guild;
     store.nameToId[name] = id;
@@ -291,10 +328,11 @@ export function joinGuild(guildName) {
     if (guild.buff) {
         addPermanentBuff(player, {
             id: 'guild_' + guild.guild_id,
-            source: '公会：' + guild.name,
+            source: 'guild',
             name: guild.buff.name,
             effects: guild.buff.effects,
-            description: guild.buff.description,
+            special_effects: guild.buff.special_effects || [],
+            description: guild.buff.description || (guild.buff.name + '（公会buff）'),
         });
     }
     return true;

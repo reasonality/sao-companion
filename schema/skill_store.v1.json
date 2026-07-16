@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "skill_store.v1",
+  "title": "skill_store.v2",
   "type": "object",
   "required": ["byId", "nameToId"],
   "properties": {
@@ -23,16 +23,14 @@
               "crit": { "type": "number", "minimum": 0 },
               "apt": { "type": "integer", "minimum": 1 },
               "tpa": { "type": "integer", "minimum": 1 },
-              "mpCost": { "type": "integer", "minimum": 0 },
-              "cd": { "type": "integer", "minimum": 0 }
+              "mpCost": { "type": "integer", "minimum": 0 }
             }
           },
           "effects": {
             "type": "object",
             "properties": {
               "wn": { "type": "string" },
-              "en": { "type": "array", "items": { "type": "string" } },
-              "mn": { "type": "array", "items": { "type": "string" } }
+              "en": { "type": "array", "items": { "type": "string" } }
             }
           },
           "description": { "type": "string" },

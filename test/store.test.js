@@ -126,8 +126,13 @@ describe('Skill Store', () => {
     it('findOrCreateSkill creates new skill and returns ID', () => {
         const id = findOrCreateSkill({
             name: '水平方阵斩',
+            weapon_type: '单手直剑',
             rarity: 'rare',
-            combat: { atk: 45, hit: 80, crit: 10, apt: 1, tpa: 1, mpCost: 15, cd: 2 },
+            category: '武器技能',
+            combat: { atk: 45, hit: 80, crit: 10, apt: 1, tpa: 1, mpCost: 15 },
+            effects: { wn: 'A1', en: [] },
+            description: '水平方向的广范围斩击',
+            source: 'test',
         });
         expect(id).toBeTruthy();
         expect(typeof id).toBe('string');
@@ -140,8 +145,8 @@ describe('Skill Store', () => {
     });
 
     it('findOrCreateSkill is idempotent — same name returns same ID and merges combat', () => {
-        const id1 = findOrCreateSkill({ name: '治疗', combat: { atk: 10 } });
-        const id2 = findOrCreateSkill({ name: '治疗', combat: { atk: 20, hit: 50 } });
+        const id1 = findOrCreateSkill({ name: '治疗', weapon_type: '杖', rarity: 'common', category: '辅助技能', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A2', en: [] }, description: '恢复HP', source: 'test' });
+        const id2 = findOrCreateSkill({ name: '治疗', weapon_type: '杖', rarity: 'common', category: '辅助技能', combat: { atk: 20, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A2', en: [] }, description: '恢复HP', source: 'test' });
         expect(id1).toBe(id2);
 
         const skill = getSkillById(id1);
@@ -150,7 +155,7 @@ describe('Skill Store', () => {
     });
 
     it('getSkillByName returns the same object as getSkillById', () => {
-        const id = findOrCreateSkill({ name: '旋风斩', combat: { atk: 30 } });
+        const id = findOrCreateSkill({ name: '旋风斩', weapon_type: '双手剑', rarity: 'uncommon', category: '武器技能', combat: { atk: 30, hit: 70, crit: 8, apt: 2, tpa: 1, mpCost: 10 }, effects: { wn: 'A1', en: [] }, description: '旋转斩击', source: 'test' });
         const byName = getSkillByName('旋风斩');
         const byId = getSkillById(id);
         expect(byName).toBe(byId);
@@ -175,7 +180,7 @@ describe('Skill Store', () => {
     });
 
     it('generateSkillId is idempotent for existing slugs', () => {
-        findOrCreateSkill({ name: 'Test Skill' });
+        findOrCreateSkill({ name: 'Test Skill', weapon_type: 'sword', rarity: 'common', category: '武器技能', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
         const id1 = generateSkillId('Test Skill');
         const id2 = generateSkillId('Test Skill');
         expect(id1).toBe(id2);
@@ -187,13 +192,13 @@ describe('Skill Store', () => {
     });
 
     it('validateSkillEntry rejects empty name', () => {
-        const result = validateSkillEntry({ skill_id: 'x', name: '', rarity: 'common' });
+        const result = validateSkillEntry({ skill_id: 'x', name: '', rarity: 'common', category: '武器技能', weapon_type: 'sword', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('name'))).toBe(true);
     });
 
     it('validateSkillEntry rejects missing skill_id', () => {
-        const result = validateSkillEntry({ name: 'test' });
+        const result = validateSkillEntry({ name: 'test', weapon_type: 'sword', rarity: 'common', category: '武器技能', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('skill_id'))).toBe(true);
     });
@@ -202,8 +207,13 @@ describe('Skill Store', () => {
         const result = validateSkillEntry({
             skill_id: 'skill_test',
             name: '测试',
+            weapon_type: '单手直剑',
             rarity: 'common',
-            combat: { atk: 10, hit: 50 },
+            category: '武器技能',
+            combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 },
+            effects: { wn: 'A1', en: [] },
+            description: '测试技能',
+            source: 'test',
         });
         expect(result.valid).toBe(true);
         expect(result.errors).toHaveLength(0);
@@ -213,10 +223,38 @@ describe('Skill Store', () => {
         const result = validateSkillEntry({
             skill_id: 'x',
             name: 'test',
+            weapon_type: 'sword',
             rarity: 'legendary',  // not in skill rarity enum
+            category: '武器技能',
+            combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 },
+            effects: { wn: 'A1', en: [] },
+            description: 'test',
+            source: 'test',
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('rarity'))).toBe(true);
+    });
+
+    it('findOrCreateSkill rejects missing required field', () => {
+        // Missing weapon_type
+        const id1 = findOrCreateSkill({ name: '无武器技能', rarity: 'common', category: '武器技能', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
+        expect(id1).toBeNull();
+
+        // Missing rarity
+        const id2 = findOrCreateSkill({ name: '无稀有度技能', weapon_type: 'sword', category: '武器技能', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
+        expect(id2).toBeNull();
+
+        // Missing category
+        const id2b = findOrCreateSkill({ name: '无类别技能', weapon_type: 'sword', rarity: 'common', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
+        expect(id2b).toBeNull();
+
+        // Missing combat
+        const id3 = findOrCreateSkill({ name: '无战斗技能', weapon_type: 'sword', rarity: 'common', category: '武器技能', effects: { wn: 'A1', en: [] }, description: 'test', source: 'test' });
+        expect(id3).toBeNull();
+
+        // Missing effects.wn
+        const id4 = findOrCreateSkill({ name: '无WN技能', weapon_type: 'sword', rarity: 'common', category: '武器技能', combat: { atk: 10, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { en: [] }, description: 'test', source: 'test' });
+        expect(id4).toBeNull();
     });
 });
 
@@ -229,10 +267,13 @@ describe('Equipment Store', () => {
         const id = findOrCreateEquipment({
             name: '阐释者',
             slot: 'weapon',
-            statType: 'str',
+            weapon_type: '单手剑',
             rarity: 'rare',
             item_level: 30,
             stats: { atk: 40, str: 10 },
+            affixes: [],
+            description: '测试装备',
+            source: 'test',
         });
         expect(id).toMatch(/^equip_\d{3}$/);
 
@@ -244,26 +285,26 @@ describe('Equipment Store', () => {
     });
 
     it('findOrCreateEquipment returns same ID for same name (single instance)', () => {
-        const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', stats: { atk: 20 } });
-        const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', stats: { atk: 20 } });
+        const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
+        const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
         expect(id1).toBe(id2);
     });
 
     it('findOrCreateEquipment returns same ID for same name when only one instance exists (single-instance shortcut)', () => {
-        const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', item_level: 5, stats: { atk: 20 } });
+        const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 5, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
         // Second call with different stats but same name — returns existing ID
         // because nameToId has only 1 entry, so no findBestMatch is needed
-        const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', item_level: 10, stats: { atk: 35 } });
+        const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 35 }, affixes: [], description: '测试', source: 'test' });
         expect(id1).toBe(id2);
     });
 
     it('findOrCreateEquipment uses findBestMatch for multi-instance with closest stats', () => {
         // Create two instances with different stats
-        const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', item_level: 5, stats: { atk: 20 } });
-        const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', item_level: 10, stats: { atk: 35 } });
+        const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 5, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
+        const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 35 }, affixes: [], description: '测试', source: 'test' });
 
         // Query with stats close to id2
-        const matched = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', item_level: 10, stats: { atk: 34 } });
+        const matched = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 34 }, affixes: [], description: '测试', source: 'test' });
         expect(matched).toBe(id2);
     });
 
@@ -272,7 +313,7 @@ describe('Equipment Store', () => {
         expect(id1).toBe('equip_001');
 
         // Create one to advance counter
-        findOrCreateEquipment({ name: '测试剑', stats: { atk: 1 } });
+        findOrCreateEquipment({ name: '测试剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 1 }, affixes: [], description: '测试', source: 'test' });
         const id2 = generateEquipmentId();
         expect(id2).toBe('equip_002');
     });
@@ -287,8 +328,8 @@ describe('Equipment Store', () => {
     });
 
     it('findBestMatch selects closest by item_level + stats', () => {
-        const id1 = findOrCreateEquipment({ name: '测试A', item_level: 5, stats: { atk: 10 } });
-        const id2 = findOrCreateEquipment({ name: '测试B', item_level: 15, stats: { atk: 50 } });
+        const id1 = findOrCreateEquipment({ name: '测试A', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 5, stats: { atk: 10 }, affixes: [], description: '测试', source: 'test' });
+        const id2 = findOrCreateEquipment({ name: '测试B', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 15, stats: { atk: 50 }, affixes: [], description: '测试', source: 'test' });
 
         // Target closer to id2
         const best = findBestMatch(
@@ -303,24 +344,16 @@ describe('Equipment Store', () => {
             equipment_id: 'e1',
             name: 'x',
             slot: 'invalid_slot',
-            statType: 'str',
+            weapon_type: '单手剑',
             rarity: 'common',
             item_level: 1,
             stats: {},
+            affixes: [],
+            description: '测试',
+            source: 'test',
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('slot'))).toBe(true);
-    });
-
-    it('validateEquipmentEntry rejects invalid statType', () => {
-        const result = validateEquipmentEntry({
-            equipment_id: 'e1',
-            name: 'x',
-            slot: 'weapon',
-            statType: 'luck',
-        });
-        expect(result.valid).toBe(false);
-        expect(result.errors.some(e => e.includes('statType'))).toBe(true);
     });
 
     it('validateEquipmentEntry accepts valid data', () => {
@@ -328,13 +361,21 @@ describe('Equipment Store', () => {
             equipment_id: 'equip_001',
             name: '阐释者',
             slot: 'weapon',
-            statType: 'str',
+            weapon_type: '单手剑',
             rarity: 'rare',
             item_level: 30,
             stats: { atk: 40 },
+            affixes: [],
+            description: '测试装备',
+            source: 'test',
         });
         expect(result.valid).toBe(true);
         expect(result.errors).toHaveLength(0);
+    });
+
+    it('findOrCreateEquipment rejects missing required field', () => {
+        const id = findOrCreateEquipment({ name: '测试', stats: { atk: 1 } });
+        expect(id).toBeNull();
     });
 });
 
@@ -463,11 +504,11 @@ describe('Inventory Store', () => {
         expect(inv.items[0].qty).toBe(5);
     });
 
-    it('addConsumable without description creates definition with empty description', async () => {
+    it('addConsumable without description uses name as fallback description', async () => {
         await addConsumable('解毒草', 1);
         const inv = getInventoryStore();
         const def = getConsumableById(inv.items[0].consumable_id);
-        expect(def.description).toBe('');
+        expect(def.description).toBe('解毒草');
     });
 
     it('addMaterial adds new material item', async () => {
@@ -668,8 +709,8 @@ describe('Quest Store', () => {
 
 describe('Equipment Behavioral Invariants', () => {
     it('equipItem invariant: equipping B in same slot moves A to inventory, no duplicate equipment_id', async () => {
-        const idA = findOrCreateEquipment({ name: '阐释者', slot: 'weapon', stats: { atk: 40 } });
-        const idB = findOrCreateEquipment({ name: '逐暗者', slot: 'weapon', stats: { atk: 35 } });
+        const idA = findOrCreateEquipment({ name: '阐释者', slot: 'weapon', weapon_type: '单手剑', rarity: 'rare', item_level: 30, stats: { atk: 40 }, affixes: [], description: '测试', source: 'test' });
+        const idB = findOrCreateEquipment({ name: '逐暗者', slot: 'weapon', weapon_type: '单手剑', rarity: 'rare', item_level: 25, stats: { atk: 35 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(idA);
         await addEquipmentItem(idB);
 
@@ -694,8 +735,8 @@ describe('Equipment Behavioral Invariants', () => {
     });
 
     it('findOrCreateEquipment idempotency: same {name, slot, stats} returns same ID, single store entry', () => {
-        const id1 = findOrCreateEquipment({ name: '月光剑', slot: 'weapon', stats: { atk: 25 } });
-        const id2 = findOrCreateEquipment({ name: '月光剑', slot: 'weapon', stats: { atk: 25 } });
+        const id1 = findOrCreateEquipment({ name: '月光剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 25 }, affixes: [], description: '测试', source: 'test' });
+        const id2 = findOrCreateEquipment({ name: '月光剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 25 }, affixes: [], description: '测试', source: 'test' });
         expect(id1).toBe(id2);
 
         // equipmentStore.nameToId for this name should have exactly one entry
@@ -710,7 +751,7 @@ describe('Equipment Behavioral Invariants', () => {
     });
 
     it('no-duplicate equipment_id: after equipItem, ID appears in slot but NOT in inventory', async () => {
-        const idA = findOrCreateEquipment({ name: '暗夜之铠', slot: 'chest', stats: { vit: 20 } });
+        const idA = findOrCreateEquipment({ name: '暗夜之铠', slot: 'chest', weapon_type: '铠甲', rarity: 'common', item_level: 1, stats: { vit: 20 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(idA);
 
         // Before equip: in inventory
@@ -736,7 +777,7 @@ describe('Equipment Behavioral Invariants', () => {
 
 describe('removeEquipmentById', () => {
     it('removes equipment from byId and nameToId', async () => {
-        const id = findOrCreateEquipment({ name: '测试销毁剑', slot: 'weapon', stats: { atk: 10 } });
+        const id = findOrCreateEquipment({ name: '测试销毁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 10 }, affixes: [], description: '测试', source: 'test' });
         expect(mockStore.equipmentStore.byId[id]).toBeTruthy();
         expect(mockStore.equipmentStore.nameToId['测试销毁剑']).toContain(id);
 
@@ -752,7 +793,7 @@ describe('removeEquipmentById', () => {
     });
 
     it('refuses to destroy equipped item (cross-reference check)', async () => {
-        const id = findOrCreateEquipment({ name: '已穿戴铠甲', slot: 'chest', stats: { vit: 20 } });
+        const id = findOrCreateEquipment({ name: '已穿戴铠甲', slot: 'chest', weapon_type: '铠甲', rarity: 'common', item_level: 1, stats: { vit: 20 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(id);
         await equipItem('chest', id);
 
@@ -764,7 +805,7 @@ describe('removeEquipmentById', () => {
 
     it('removes one instance from nameToId array without affecting others', async () => {
         // Manually create two equipment entries with the same name to simulate multi-instance
-        const id1 = findOrCreateEquipment({ name: '同名剑', slot: 'weapon', item_level: 5, stats: { atk: 10 } });
+        const id1 = findOrCreateEquipment({ name: '同名剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 5, stats: { atk: 10 }, affixes: [], description: '测试', source: 'test' });
         // Force a second entry into byId + nameToId (simulating a second instance)
         const id2 = 'equip_999';
         mockStore.equipmentStore.byId[id2] = { equipment_id: id2, name: '同名剑', slot: 'weapon', item_level: 10, stats: { atk: 20 } };
@@ -779,7 +820,7 @@ describe('removeEquipmentById', () => {
     });
 
     it('removeEquipmentItem removes item from inventory by equipmentId', async () => {
-        const id = findOrCreateEquipment({ name: '背包测试剑', slot: 'weapon', stats: { atk: 5 } });
+        const id = findOrCreateEquipment({ name: '背包测试剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 5 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(id);
         const inv = getInventoryStore();
         expect(inv.items.some(i => i.equipment_id === id)).toBe(true);
@@ -804,7 +845,7 @@ describe('Projection Caps', () => {
         // Create 10 skills in skillStore and add to player (exceeds cap of 8)
         const skillIds = [];
         for (let i = 1; i <= 10; i++) {
-            const id = findOrCreateSkill({ name: `技能${i}`, combat: { atk: i * 5 } });
+            const id = findOrCreateSkill({ name: `技能${i}`, weapon_type: '单手直剑', rarity: 'common', category: '武器技能', combat: { atk: i * 5, hit: 50, crit: 5, apt: 1, tpa: 1, mpCost: 5 }, effects: { wn: 'A1', en: [] }, description: `测试技能${i}`, source: 'test' });
             skillIds.push(id);
         }
         for (let i = 0; i < skillIds.length; i++) {
@@ -836,8 +877,10 @@ describe('Consumable Store', () => {
             name: '治疗药水',
             category: 'hp_restore',
             rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'restore', stat: 'hp', value: 50, duration: 0 }],
             description: '恢复50点HP',
+            source: 'test',
         });
         expect(id).toMatch(/^consumable_\d{3}$/);
 
@@ -849,8 +892,8 @@ describe('Consumable Store', () => {
     });
 
     it('findOrCreateConsumable is idempotent — same name returns same ID', () => {
-        const id1 = findOrCreateConsumable({ name: '治疗药水' });
-        const id2 = findOrCreateConsumable({ name: '治疗药水' });
+        const id1 = findOrCreateConsumable({ name: '治疗药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '恢复HP', source: 'test' });
+        const id2 = findOrCreateConsumable({ name: '治疗药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '恢复HP', source: 'test' });
         expect(id1).toBe(id2);
     });
 
@@ -864,7 +907,7 @@ describe('Consumable Store', () => {
     });
 
     it('getConsumableStore returns byId and nameToId', () => {
-        findOrCreateConsumable({ name: '测试药水' });
+        findOrCreateConsumable({ name: '测试药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '测试', source: 'test' });
         const store = getConsumableStore();
         expect(store.byId).toBeTruthy();
         expect(store.nameToId).toBeTruthy();
@@ -872,8 +915,8 @@ describe('Consumable Store', () => {
     });
 
     it('generateConsumableId produces sequential IDs', () => {
-        const id1 = findOrCreateConsumable({ name: '药水A' });
-        const id2 = findOrCreateConsumable({ name: '药水B' });
+        const id1 = findOrCreateConsumable({ name: '药水A', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '测试A', source: 'test' });
+        const id2 = findOrCreateConsumable({ name: '药水B', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '测试B', source: 'test' });
         expect(id1).toBe('consumable_001');
         expect(id2).toBe('consumable_002');
     });
@@ -884,14 +927,17 @@ describe('Consumable Store', () => {
             name: '治疗药水',
             category: 'hp_restore',
             rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'restore', stat: 'hp', value: 50 }],
+            description: '恢复50点HP',
+            source: 'test',
         });
         expect(result.valid).toBe(true);
         expect(result.errors).toHaveLength(0);
     });
 
     it('validateConsumableEntry rejects missing consumable_id', () => {
-        const result = validateConsumableEntry({ name: 'test' });
+        const result = validateConsumableEntry({ name: 'test', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [], description: 'test', source: 'test' });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('consumable_id'))).toBe(true);
     });
@@ -901,6 +947,11 @@ describe('Consumable Store', () => {
             consumable_id: 'c1',
             name: 'test',
             category: 'invalid',
+            rarity: 'common',
+            item_level: 1,
+            effects: [],
+            description: 'test',
+            source: 'test',
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('category'))).toBe(true);
@@ -910,10 +961,33 @@ describe('Consumable Store', () => {
         const result = validateConsumableEntry({
             consumable_id: 'c1',
             name: 'test',
+            category: 'hp_restore',
+            rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'invalid', stat: 'hp', value: 50 }],
+            description: 'test',
+            source: 'test',
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('type'))).toBe(true);
+    });
+
+    it('findOrCreateConsumable rejects missing required field', () => {
+        // Missing category
+        const id1 = findOrCreateConsumable({ name: '无类别药水', rarity: 'common', item_level: 1, effects: [], description: 'test', source: 'test' });
+        expect(id1).toBeNull();
+
+        // Missing rarity
+        const id2 = findOrCreateConsumable({ name: '无稀有度药水', category: 'hp_restore', item_level: 1, effects: [], description: 'test', source: 'test' });
+        expect(id2).toBeNull();
+
+        // Missing item_level
+        const id3 = findOrCreateConsumable({ name: '无等级药水', category: 'hp_restore', rarity: 'common', effects: [], description: 'test', source: 'test' });
+        expect(id3).toBeNull();
+
+        // Missing effects
+        const id4 = findOrCreateConsumable({ name: '无效果药水', category: 'hp_restore', rarity: 'common', item_level: 1, description: 'test', source: 'test' });
+        expect(id4).toBeNull();
     });
 });
 
@@ -923,7 +997,7 @@ describe('Consumable Store', () => {
 
 describe('addConsumableItem', () => {
     it('adds consumable item with consumable_id', async () => {
-        const cid = findOrCreateConsumable({ name: '治疗药水', maxStack: 99 });
+        const cid = findOrCreateConsumable({ name: '治疗药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '恢复HP', source: 'test', maxStack: 99 });
         const itemId = await addConsumableItem(cid, 5);
         expect(itemId).toBeTruthy();
 
@@ -935,7 +1009,7 @@ describe('addConsumableItem', () => {
     });
 
     it('merges by consumable_id — increments qty', async () => {
-        const cid = findOrCreateConsumable({ name: '治疗药水', maxStack: 99 });
+        const cid = findOrCreateConsumable({ name: '治疗药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '恢复HP', source: 'test', maxStack: 99 });
         await addConsumableItem(cid, 3);
         await addConsumableItem(cid, 2);
         const inv = getInventoryStore();
@@ -944,7 +1018,7 @@ describe('addConsumableItem', () => {
     });
 
     it('respects maxStack', async () => {
-        const cid = findOrCreateConsumable({ name: '小药水', maxStack: 10 });
+        const cid = findOrCreateConsumable({ name: '小药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [{ type: 'restore', stat: 'hp', value: 50 }], description: '小药水', source: 'test', maxStack: 10 });
         await addConsumableItem(cid, 8);
         await addConsumableItem(cid, 5); // would be 13, capped to 10
         const inv = getInventoryStore();
@@ -952,7 +1026,7 @@ describe('addConsumableItem', () => {
     });
 
     it('returns null for qty < 1 when no existing item', async () => {
-        const cid = findOrCreateConsumable({ name: '空药水' });
+        const cid = findOrCreateConsumable({ name: '空药水', category: 'hp_restore', rarity: 'common', item_level: 1, effects: [], description: '空药水', source: 'test' });
         const result = await addConsumableItem(cid, 0);
         expect(result).toBeNull();
     });
@@ -1012,7 +1086,12 @@ describe('useConsumable', () => {
         // Create consumable definition
         const cid = findOrCreateConsumable({
             name: '治疗药水',
+            category: 'hp_restore',
+            rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'restore', stat: 'hp', value: 30 }],
+            description: '恢复30点HP',
+            source: 'test',
         });
 
         // Add to inventory
@@ -1034,7 +1113,12 @@ describe('useConsumable', () => {
         await updatePlayerVitals({ hp: 90, maxHp: 100 });
         const cid = findOrCreateConsumable({
             name: '大治疗药水',
+            category: 'hp_restore',
+            rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'restore', stat: 'hp', value: 50 }],
+            description: '恢复50点HP',
+            source: 'test',
         });
         const itemId = await addConsumableItem(cid, 1);
         const results = await useConsumable(itemId);
@@ -1046,7 +1130,12 @@ describe('useConsumable', () => {
         await updatePlayerVitals({ hp: 50, maxHp: 100 });
         const cid = findOrCreateConsumable({
             name: '唯一药水',
+            category: 'hp_restore',
+            rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'restore', stat: 'hp', value: 10 }],
+            description: '恢复10点HP',
+            source: 'test',
         });
         const itemId = await addConsumableItem(cid, 1);
         await useConsumable(itemId);
@@ -1064,7 +1153,12 @@ describe('useConsumable', () => {
         await updatePlayerVitals({ hp: 50, maxHp: 100 });
         const cid = findOrCreateConsumable({
             name: '日志药水',
+            category: 'hp_restore',
+            rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'restore', stat: 'hp', value: 10 }],
+            description: '恢复10点HP',
+            source: 'test',
         });
         const itemId = await addConsumableItem(cid, 1);
         const beforeLen = mockStore.actionLog.entries.length;
@@ -1078,7 +1172,12 @@ describe('useConsumable', () => {
         player.attributes.str = 10;
         const cid = findOrCreateConsumable({
             name: '力量药水',
+            category: 'buff',
+            rarity: 'common',
+            item_level: 1,
             effects: [{ type: 'buff', stat: 'str', value: 5, duration: 3 }],
+            description: '增加5点力量',
+            source: 'test',
         });
         const itemId = await addConsumableItem(cid, 1);
         const results = await useConsumable(itemId);
@@ -1087,6 +1186,28 @@ describe('useConsumable', () => {
         expect(player.buffs).toHaveLength(1);
         expect(player.buffs[0].stat).toBe('str');
         expect(player.buffs[0].remaining).toBe(3);
+    });
+
+    it('handles narrative effects (no numerical effect, just consumes)', async () => {
+        const player = getPlayerStore();
+        await updatePlayerVitals({ hp: 50, maxHp: 100 });
+        const cid = findOrCreateConsumable({
+            name: '复活水晶',
+            category: 'cure',
+            rarity: 'rare',
+            item_level: 1,
+            effects: [{ type: 'narrative', description: '复活一名死亡玩家' }],
+            description: '可以复活死亡玩家的水晶',
+            source: 'test',
+        });
+        const itemId = await addConsumableItem(cid, 2);
+        const results = await useConsumable(itemId);
+        expect(results).toHaveLength(1);
+        expect(results[0]).toContain('叙事效果');
+        expect(results[0]).toContain('复活一名死亡玩家');
+        // Verify qty decremented
+        const inv = getInventoryStore();
+        expect(inv.items[0].qty).toBe(1);
     });
 });
 
@@ -1097,8 +1218,8 @@ describe('useConsumable', () => {
 describe('BUG #5: recalcStatsFromEquipment re-derives base when oldBonuses provided', () => {
     it('extract writes attributes between two equip actions — base re-derived correctly', async () => {
         // Setup: player base str=50, equip gear with +5 str
-        const swordA = findOrCreateEquipment({ name: '旧剑', slot: 'weapon', stats: { atk: 10, str: 5 } });
-        const swordB = findOrCreateEquipment({ name: '新剑', slot: 'weapon', stats: { atk: 20, str: 10 } });
+        const swordA = findOrCreateEquipment({ name: '旧剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 10, str: 5 }, affixes: [], description: '测试', source: 'test' });
+        const swordB = findOrCreateEquipment({ name: '新剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 20, str: 10 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(swordA);
         await addEquipmentItem(swordB);
 
@@ -1129,7 +1250,7 @@ describe('BUG #5: recalcStatsFromEquipment re-derives base when oldBonuses provi
     });
 
     it('extract writes attributes then unequip — base re-derived correctly', async () => {
-        const armor = findOrCreateEquipment({ name: '铁甲', slot: 'chest', stats: { vit: 15 } });
+        const armor = findOrCreateEquipment({ name: '铁甲', slot: 'chest', weapon_type: '铠甲', rarity: 'common', item_level: 1, stats: { vit: 15 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(armor);
 
         const player = getPlayerStore();
@@ -1154,8 +1275,8 @@ describe('BUG #5: recalcStatsFromEquipment re-derives base when oldBonuses provi
     });
 
     it('consecutive equips without extract — base stays correct (idempotent)', async () => {
-        const swordA = findOrCreateEquipment({ name: '剑A', slot: 'weapon', stats: { str: 5 } });
-        const swordB = findOrCreateEquipment({ name: '剑B', slot: 'weapon', stats: { str: 10 } });
+        const swordA = findOrCreateEquipment({ name: '剑A', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { str: 5 }, affixes: [], description: '测试', source: 'test' });
+        const swordB = findOrCreateEquipment({ name: '剑B', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { str: 10 }, affixes: [], description: '测试', source: 'test' });
         await addEquipmentItem(swordA);
         await addEquipmentItem(swordB);
 

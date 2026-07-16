@@ -4,16 +4,14 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, setCustomSkills, equipItem, unequipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
-import { getEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
+import { getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
-import { getInventoryStore, addEquipmentItem, removeEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
+import { getInventoryStore, addEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById, getNpcByName } from './sao-store-npc.js';
 import { findOrCreateConsumable } from './sao-store-consumable.js';
 import { extractJsonObject } from './sao-specialists.js';
-import { addTemporaryBuff, addPermanentBuff, removeBuff } from './sao-buff.js';
-import { createGuild, discoverGuild, addGuildMember, removeGuildMember, getGuildByName } from './sao-store-guild.js';
 import { setPlayerHousing, updatePlayerHousing, addDecoration, addFurniture, removeFurniture, clearPlayerHousing } from './sao-store-housing.js';
 
 // === 模块级常量 ===
@@ -38,15 +36,10 @@ function parseSkillField(tok, skill) {
     else if (tok.startsWith('APT:'))    skill.apt   = parseInt(tok.substring(4)) || 0;
     else if (tok.startsWith('TPA:'))    skill.tpa   = parseInt(tok.substring(4)) || 0;
     else if (tok.startsWith('MPCost:')) skill.mpCost = parseInt(tok.substring(7)) || 0;
-    else if (tok.startsWith('CD:'))     skill.cd    = parseInt(tok.substring(3)) || 0;
     else if (tok.startsWith('WN:'))     skill.wn    = tok.substring(3);
     else if (tok.startsWith('EN:')) {
         if (!skill.en) skill.en = [];
         skill.en.push(tok.substring(3));
-    }
-    else if (tok.startsWith('MN:')) {
-        if (!skill.mn) skill.mn = [];
-        skill.mn.push(tok.substring(3));
     }
     else return false;
     return true;
@@ -201,7 +194,7 @@ function parseUserStatus(statusText) {
     // 装备解析: "主手: ⭐Lv.5 铁剑 (耐:100/100)" followed by stats line "❤️+50 💪+2 🏃+0 🧠+0 🔋+6"
     state.equipment = {};
     const equipSlotMap = { '主手': 'weapon', '副手': 'off_hand', '头部': 'head', '胸部': 'chest', '手部': 'hands', '腿部': 'legs', '饰品': 'accessory' };
-    // 匹配 "主手: ⭐Lv.5 铁剑 (耐:100/100)" 格式
+    // 匹配 "主手: ⭐Lv.5 铁剑" 格式
     const equipLines = statusText.match(/(?:主手|副手|头部|胸部|手部|腿部|饰品)\s*(?:1|2)?\s*[：:]\s*[^\n]+/g) || [];
     for (const line of equipLines) {
         const slotMatch = line.match(/(主手|副手|头部|胸部|手部|腿部|饰品)/);
@@ -210,9 +203,8 @@ function parseUserStatus(statusText) {
         // 提取等级
         const lvlMatch = line.match(/⭐Lv\.?(\d+)/i) || line.match(/Lv\.?(\d+)/i);
         // 提取名称：⭐Lv.5 后面的词，或 ：后面的词
-        // 提取名称：⭐Lv.X 后、(耐:...) 前的文本；无等级时取冒号后、(耐:...) 前的文本
-        let nameMatch = line.match(/⭐?Lv\.?\d*\s+(.+?)\s*\(耐/);
-        if (!nameMatch) nameMatch = line.match(/⭐?Lv\.?\d*\s+(.+?)\s*$/);  // 无耐久时取到行尾
+        // 提取名称：⭐Lv.X 后、文本前的文本
+        let nameMatch = line.match(/⭐?Lv\.?\d*\s+(.+?)\s*$/);
         if (!nameMatch) {
             // 无等级前缀：取冒号后、(耐:...) 前
             const colonMatch = line.match(/[：:]\s*(.+?)\s*\(耐/);
@@ -222,8 +214,6 @@ function parseUserStatus(statusText) {
                 if (colonOnly) nameMatch = [null, colonOnly[1]];
             }
         }
-        // 提取耐久
-        const durMatch = line.match(/\(耐[:：](\d+\/\d+)\)/) || line.match(/耐[:：](\d+\/\d+)/);
         // 提取该行后面的属性行 "❤️+50 💪+2 🏃+0 🧠+0 🔋+6"
         const lineIdx = statusText.indexOf(line);
         const afterLine = statusText.substring(lineIdx + line.length, lineIdx + line.length + 200);
@@ -234,7 +224,6 @@ function parseUserStatus(statusText) {
         const PLACEHOLDER_NAMES = ['无', '空', '[空]', 'なし', 'none', '空き', '未装备', '未知'];
         if (PLACEHOLDER_NAMES.includes(equip.name.trim())) continue;
         if (lvlMatch) equip.item_level = parseInt(lvlMatch[1]);
-        if (durMatch) equip.durability = durMatch[1];
         if (statsLine) {
             // Bug#store-1: schema + 所有读取者(STAT_PRIORITY/keyStat/findBestMatch)用 camelCase maxHp/maxMp，
             // 原 snake_case max_hp 致装备 HP 加成存错键、投影/匹配全部失效。
@@ -278,13 +267,13 @@ function parseUserStatus(statusText) {
         state.inventory.push(item);
     }
 
-    // Also handle equipment-style backpack entries: "• 铁剑 (耐:100/100) | 武器\n(⭐Lv.5|💎蓝色|❤️HP+75|💪STR+2|🔋VIT+6)"
-    const equipInvBlocks = statusText.match(/[•]\s*(\S+)\s*\(耐[:：](\d+\/\d+)\)\s*\|\s*(\S+)\s*\n?\s*\(([^)]+)\)/g) || [];
+    // Also handle equipment-style backpack entries: "• 铁剑 | 武器\n(⭐Lv.5|💎蓝色|❤️HP+75|💪STR+2|🔋VIT+6)"
+    const equipInvBlocks = statusText.match(/[•]\s*(\S+)\s*\|\s*(\S+)\s*\n?\s*\(([^)]+)\)/g) || [];
     for (const block of equipInvBlocks) {
-        const bm = block.match(/[•]\s*(\S+)\s*\(耐[:：](\d+\/\d+)\)\s*\|\s*(\S+)\s*\n?\s*\(([^)]+)\)/);
+        const bm = block.match(/[•]\s*(\S+)\s*\|\s*(\S+)\s*\n?\s*\(([^)]+)\)/);
         if (bm) {
-            const item = { name: bm[1].trim(), qty: 1, type: bm[3].trim(), durability: bm[2] };
-            const detail = bm[4];
+            const item = { name: bm[1].trim(), qty: 1, type: bm[2].trim() };
+            const detail = bm[3];
             const lvlMatch = detail.match(/⭐Lv\.?(\d+)/);
             if (lvlMatch) item.item_level = parseInt(lvlMatch[1]);
             const rarMatch = detail.match(/💎(\S+)/);
@@ -391,7 +380,6 @@ export async function extractAll(aiMessage, callModelFn, messageId) {
                 hit_rate: s.hit,
                 crit_rate: s.crit,
                 mp_cost: s.mpCost,
-                cooldown: s.cd,
                 hits: s.apt,
                 targets: s.tpa,
                 core_code: s.wn,
@@ -581,14 +569,6 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     log(`applyExtractedData: 装备 "${equipData.name}" 不在 equipmentStore 中（需通过 gain_equipment 标签生成），跳过`, 'info');
                     continue;
                 }
-                // 已存在：仅更新运行时状态（耐久度），不覆盖 stats/affixes/rarity
-                const entry = equipStore.byId[existingId];
-                if (equipData.durability) {
-                    const parts = String(equipData.durability).split('/');
-                    const cur = parseInt(parts[0]);
-                    const max = parts[1] != null ? parseInt(parts[1]) : NaN;
-                    if (!isNaN(cur)) entry.durability = { current: cur, max: isNaN(max) ? cur : max };
-                }
                 // 确保装备在对应槽位
                 const player = getPlayerStore();
                 if (player.equipment?.[newSlot] !== existingId) {
@@ -643,7 +623,7 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 // 消耗品名称优先：即使含武器关键词（如"剑技药水"含"剑"），含药水/食物等词则判为消耗品。
                 const isConsumableByName = CONSUMABLE_NAME_RE.test(item.name);
                 const looksLikeEquipment = !item.type && !isConsumableByName && EQUIP_NAME_RE.test(item.name);
-                if (!isConsumableByName && (item.stats || item.slot || item._equip_backpack || item.durability || item.type === 'equipment' || looksLikeEquipment)) {
+                if (!isConsumableByName && (item.stats || item.slot || item._equip_backpack || item.type === 'equipment' || looksLikeEquipment)) {
                     // 装备项：不通过专家创建，只在 equipmentStore 已存在时添加到背包
                     // 新装备只能通过 <gain_equipment> 标签 → generateEquipment 创建（逻辑管理数值）
                     const equipStore = getEquipmentStore();
@@ -652,15 +632,6 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     if (!existingId) {
                         log(`applyExtractedData: 装备 "${item.name}" 不在 equipmentStore 中（需通过 gain_equipment 标签生成），跳过`, 'info');
                         continue;
-                    }
-                    // 已存在：更新耐久度（如有），确保在背包中
-                    if (item.durability) {
-                        const parts = String(item.durability).split('/');
-                        const cur = parseInt(parts[0]);
-                        const max = parts[1] != null ? parseInt(parts[1]) : NaN;
-                        if (!isNaN(cur)) {
-                            equipStore.byId[existingId].durability = { current: cur, max: isNaN(max) ? cur : max };
-                        }
                     }
                     await addEquipmentItem(existingId, true);
                     continue;
@@ -680,104 +651,10 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                         rarity: item.rarity || 'common',
                         item_level: item.item_level || 1,
                         effects: item.effects || [],
-                        description: item.description || '',
+                        description: item.description || item.name,
                         source: 'llm'
                     });
                     if (consumableId) await setConsumableQty(consumableId, qty, true);
-                }
-            }
-        }
-
-        // 3b. sellActions → 从背包移除物品 + 增加货币
-        if (Array.isArray(s.sellActions) && s.sellActions.length > 0) {
-            const invStore = getInventoryStore();
-            for (const action of s.sellActions) {
-                if (!action || !action.name) continue;
-                const sellQty = Math.max(1, Math.floor(Number(action.qty) || 1));
-                const corGained = Math.max(0, Math.floor(Number(action.cor_gained) || 0));
-                log(`sellActions: 尝试售出 ${action.name} x${sellQty} → +${corGained} Cor`);
-
-                // 按名称在背包中查找物品
-                // 先找装备类
-                let sold = false;
-                for (let i = invStore.items.length - 1; i >= 0; i--) {
-                    const invItem = invStore.items[i];
-                    if (invItem.type === 'equipment' && invItem.equipment_id) {
-                        const eqDef = getEquipmentById(invItem.equipment_id);
-                        if (eqDef && eqDef.name === action.name) {
-                            await removeEquipmentItem(invItem.equipment_id, true);
-                            sold = true;
-                            log(`sellActions: 装备售出 ${action.name} (equipment_id=${invItem.equipment_id})`);
-                            break;
-                        }
-                    }
-                }
-                // Fallback: check if the item is currently equipped (not in inventory)
-                if (!sold) {
-                    const player = getPlayerStore();
-                    for (const [slot, equipId] of Object.entries(player.equipment || {})) {
-                        if (!equipId) continue;
-                        const eqDef = getEquipmentById(equipId);
-                        if (eqDef && eqDef.name === action.name) {
-                            try {
-                                await unequipItem(slot, true);
-                                await removeEquipmentItem(equipId, true);
-                                const { removeEquipmentById } = await import('./sao-store-equipment.js');
-                                await removeEquipmentById(equipId, true);
-                                sold = true;
-                                log(`sellActions: 装备售出(已装备) ${action.name} (slot=${slot})`);
-                            } catch (e) {
-                                log(`sellActions: 卸下并售出装备失败: ${e.message}`, 'warn');
-                            }
-                            break;
-                        }
-                    }
-                }
-                // 找消耗品类
-                if (!sold) {
-                    for (let i = invStore.items.length - 1; i >= 0; i--) {
-                        const invItem = invStore.items[i];
-                        if (invItem.type === 'consumable' && invItem.consumable_id) {
-                            const { getConsumableById } = await import('./sao-store-consumable.js');
-                            const conDef = getConsumableById(invItem.consumable_id);
-                            if (conDef && conDef.name === action.name) {
-                                const newQty = (invItem.qty || 1) - sellQty;
-                                if (newQty <= 0) {
-                                    invStore.items.splice(i, 1);
-                                } else {
-                                    invItem.qty = newQty;
-                                }
-                                sold = true;
-                                log(`sellActions: 消耗品售出 ${action.name} x${sellQty} (剩余 ${Math.max(0, newQty)})`);
-                                break;
-                            }
-                        }
-                    }
-                }
-                // 找材料类
-                if (!sold) {
-                    for (let i = invStore.items.length - 1; i >= 0; i--) {
-                        const invItem = invStore.items[i];
-                        if (invItem.type === 'material' && invItem.name === action.name) {
-                            const newQty = (invItem.qty || 1) - sellQty;
-                            if (newQty <= 0) {
-                                invStore.items.splice(i, 1);
-                            } else {
-                                invItem.qty = newQty;
-                            }
-                            sold = true;
-                            log(`sellActions: 材料售出 ${action.name} x${sellQty}`);
-                            break;
-                        }
-                    }
-                }
-
-                if (sold && corGained > 0) {
-                    const currentCor = (invStore.currency?.cor) || 0;
-                    await updateCurrency(currentCor + corGained, true);
-                    log(`sellActions: 货币 +${corGained} → ${currentCor + corGained} Cor`);
-                } else if (!sold) {
-                    log(`sellActions: 未找到物品 "${action.name}"，跳过售出`, 'warn');
                 }
             }
         }
@@ -939,69 +816,6 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 log(`NPC 更新失败 (${upd.name}): ${e.message}`, 'warn');
             }
         }
-    }
-
-    // 7. Buff Updates → playerStore.buffs
-    if (Array.isArray(extracted.buffUpdates) && extracted.buffUpdates.length > 0) {
-        for (const b of extracted.buffUpdates) {
-            if (!b || !b.id || !b.name) continue;
-            if (b.type === 'permanent') {
-                addPermanentBuff(getPlayerStore(), b);
-            } else {
-                addTemporaryBuff(getPlayerStore(), b);
-            }
-        }
-        log(`Buff 更新: ${extracted.buffUpdates.length} 个`);
-    }
-
-    // 8. Buff Removals
-    if (Array.isArray(extracted.buffRemovals) && extracted.buffRemovals.length > 0) {
-        for (const id of extracted.buffRemovals) {
-            removeBuff(getPlayerStore(), id);
-        }
-    }
-
-    // 9. Guild Updates
-    if (Array.isArray(extracted.guildUpdates) && extracted.guildUpdates.length > 0) {
-        for (const g of extracted.guildUpdates) {
-            if (!g || !g.name) continue;
-            if (g.action === 'create') {
-                createGuild(g.name, g.leader, { headquarters: g.headquarters, buff: g.buff, description: g.description });
-            } else if (g.action === 'discover') {
-                discoverGuild(g.name);
-            } else if (g.action === 'join') {
-                const player = getPlayerStore();
-                const guild = getGuildByName(g.name);
-                if (guild) {
-                    player.guild_id = guild.guild_id;
-                    addGuildMember(guild.guild_id, player.identity?.name || '{{user}}');
-                    if (guild.buff) {
-                        addPermanentBuff(player, {
-                            id: 'guild_' + guild.guild_id,
-                            source: '公会：' + guild.name,
-                            name: guild.buff.name,
-                            effects: guild.buff.effects,
-                            description: guild.buff.description,
-                        });
-                    }
-                }
-            } else if (g.action === 'leave') {
-                const player = getPlayerStore();
-                const oldGuildId = player.guild_id;
-                player.guild_id = null;
-                if (oldGuildId) removeBuff(player, 'guild_' + oldGuildId);
-            } else if (g.action === 'member_add' && g.guild_name && g.member_name) {
-                const guild = getGuildByName(g.guild_name);
-                if (guild) addGuildMember(guild.guild_id, g.member_name);
-            } else if (g.action === 'member_remove' && g.guild_name && g.member_name) {
-                const guild = getGuildByName(g.guild_name);
-                if (guild) removeGuildMember(guild.guild_id, g.member_name);
-            } else if (g.action === 'disband' && g.name) {
-                const guild = getGuildByName(g.name);
-                if (guild) guild.disbanded = true;
-            }
-        }
-        log(`公会更新: ${extracted.guildUpdates.length} 条`);
     }
 
     // 10. Housing Updates
