@@ -39,7 +39,7 @@ import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-det
 import { extractAll, applyExtractedData } from './sao-extract.js';
 import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks, checkUniqueSkillUnlocks } from './sao-skills.js';
 import { expireBuffs, addTemporaryBuff, addPermanentBuff } from './sao-buff.js';
-import { initPresetGuilds, checkGuildDiscovery, createGuild, joinGuild, leaveGuild, getGuildByName } from './sao-store-guild.js';
+import { initPresetGuilds, createGuild, joinGuild, leaveGuild, getGuildByName } from './sao-store-guild.js';
 import {
     getEffectCodeTable, resetEffectCodeTable,
     initToolSystem,
@@ -967,12 +967,8 @@ function bindEvents() {
             injectMemoryAndState();
             initCalendarIfNeeded();
 
-            // Phase 2: Initialize preset guilds and check discovery
+            // Phase 2: Initialize preset guilds
             initPresetGuilds();
-            const calStore = getStore()?.calendarStore;
-            if (calStore?.currentDate) {
-                checkGuildDiscovery(calStore.currentDate);
-            }
 
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
@@ -1096,14 +1092,6 @@ function bindEvents() {
             // 消除 fire-and-forget 双重保存与潜在未处理 rejection（见 oracle 审查）。
             // Phase 1: 传 messageId 以便写入 calendarPanels[messageId] 瞬时 grid
             await updateCalendarIncremental(rawText, messageId);
-
-            // Phase 2: Check guild discovery with new date
-            {
-                const _calStore = getStore()?.calendarStore;
-                if (_calStore?.currentDate) {
-                    checkGuildDiscovery(_calStore.currentDate);
-                }
-            }
 
             // P4c: Custom skill unlock check
             checkCustomSkillUnlocks(rawText);
@@ -3766,10 +3754,6 @@ export function init() {
                     injectMemoryAndState();
                     initCalendarIfNeeded();
                     initPresetGuilds();
-                    const calStore = getStore()?.calendarStore;
-                    if (calStore?.currentDate) {
-                        checkGuildDiscovery(calStore.currentDate);
-                    }
                 } catch (e) {
                     log('安全网: 初始化链失败: ' + (e.message || e), 'warn');
                 }

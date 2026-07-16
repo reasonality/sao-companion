@@ -7,7 +7,7 @@ import { getStore } from './sao-store-core.js';
 import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getCharacterInfoFromSources } from './sao-tools.js';
-import { getDiscoveredGuilds, getPlayerGuild } from './sao-store-guild.js';
+import { getAllGuilds, getPlayerGuild } from './sao-store-guild.js';
 import { getPlayerHousing, isPlayerAtHome } from './sao-store-housing.js';
 
 // ============================================================
@@ -275,14 +275,14 @@ function buildRuleBlocks(entries) {
  * @returns {string}
  */
 function buildGuildBlock() {
-    const discovered = getDiscoveredGuilds();
-    if (!discovered || discovered.length === 0) return '';
+    const allGuilds = getAllGuilds();
+    if (!allGuilds || allGuilds.length === 0) return '';
 
     const playerGuild = getPlayerGuild();
     const lines = ['[公会信息]'];
-    for (const g of discovered) {
+    for (const g of allGuilds) {
         const isPlayerGuild = playerGuild && playerGuild.guild_id === g.guild_id;
-        const marker = isPlayerGuild ? '★' : g.hostile ? '⚠' : '·';
+        const marker = isPlayerGuild ? '★' : '·';
         const buffInfo = g.buff ? ` [${g.buff.name}]` : '';
         const hqInfo = g.headquarters ? ` 据点:${g.headquarters.floor_id}F` : '';
         const memberCount = g.members.length;

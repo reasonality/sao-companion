@@ -1,6 +1,5 @@
 // sao-store-guild.js — 公会系统权威库
 // 记录所有在游戏中出现的公会（不仅是玩家的）。
-// 公会有发现机制——未发现的公会不会注入 LLM prompt 以避免剧透。
 // Phase 2 of 3：公会系统依赖 buff 系统（Phase 1）。
 
 import { getStore, saveStore } from './sao-store-core.js';
@@ -21,10 +20,6 @@ const PRESET_GUILDS = [
         headquarters: null,
         buff: null,
         description: '克莱因组建的公会，以日本武士道精神为信条',
-        discovered: false,
-        discovered_date: null,
-        discover_condition: '2022-11-07',
-        disbanded: false,
     },
     {
         guild_id: 'mbc',
@@ -34,10 +29,6 @@ const PRESET_GUILDS = [
         headquarters: null,
         buff: null,
         description: '桐人曾加入的小型公会，后全员阵亡',
-        discovered: false,
-        discovered_date: null,
-        discover_condition: '2022-11-15',
-        disbanded: false,
     },
     {
         guild_id: 'als',
@@ -47,10 +38,6 @@ const PRESET_GUILDS = [
         headquarters: null,
         buff: null,
         description: 'SAO最大规模公会，由辛卡领导',
-        discovered: false,
-        discovered_date: null,
-        discover_condition: '2022-12-01',
-        disbanded: false,
     },
     {
         guild_id: 'kob',
@@ -60,10 +47,6 @@ const PRESET_GUILDS = [
         headquarters: { floor_id: 55, location: '格兰萨姆' },
         buff: null,
         description: 'SAO最强攻略公会，由希兹克利夫创立',
-        discovered: false,
-        discovered_date: null,
-        discover_condition: '2023-03-01',
-        disbanded: false,
     },
     {
         guild_id: 'lc',
@@ -73,11 +56,6 @@ const PRESET_GUILDS = [
         headquarters: null,
         buff: null,
         description: 'SAO中的杀人公会，由PoH领导',
-        discovered: false,
-        discovered_date: null,
-        discover_condition: '2022-11-21',
-        disbanded: false,
-        hostile: true,
     },
     {
         guild_id: 'dda',
@@ -87,10 +65,6 @@ const PRESET_GUILDS = [
         headquarters: { floor_id: 56, location: '帕尼' },
         buff: null,
         description: '中型攻略公会',
-        discovered: false,
-        discovered_date: null,
-        discover_condition: '2023-01-01',
-        disbanded: false,
     },
 ];
 
@@ -156,27 +130,6 @@ export function initPresetGuilds() {
 }
 
 /**
- * 检查并发现公会（基于当前日期）。
- * @param {string} currentDate - YYYY-MM-DD 格式
- * @returns {number} 新发现的公会数量
- */
-export function checkGuildDiscovery(currentDate) {
-    const store = getGuildStore();
-    let discovered = 0;
-    for (const guild of Object.values(store.byId)) {
-        if (guild.discovered) continue;
-        if (!guild.discover_condition) continue;
-        if (currentDate >= guild.discover_condition) {
-            guild.discovered = true;
-            guild.discovered_date = currentDate;
-            discovered++;
-            log(`公会发现: ${guild.name} (${currentDate})`);
-        }
-    }
-    return discovered;
-}
-
-/**
  * 创建新公会（游戏过程中）。
  * @param {string} name - 公会名称
  * @param {string} [leader] - 会长名称
@@ -233,11 +186,6 @@ export function createGuild(name, leader, options = {}) {
         headquarters: options.headquarters ?? null,
         buff: options.buff ?? null,
         description: options.description,
-        discovered: options.discovered ?? true,
-        discovered_date: options.discovered_date ?? null,
-        discover_condition: options.discover_condition ?? null,
-        disbanded: options.disbanded ?? false,
-        hostile: options.hostile ?? false,
     };
     store.byId[id] = guild;
     store.nameToId[name] = id;
@@ -246,18 +194,11 @@ export function createGuild(name, leader, options = {}) {
 }
 
 /**
- * 发现一个公会（叙事提到时）。
- * @param {string} name - 公会名称
- * @returns {boolean} 是否成功（公会存在即成功）
+ * 获取所有公会（用于注入/显示）。
+ * @returns {object[]}
  */
-export function discoverGuild(name) {
-    const store = getGuildStore();
-    const id = store.nameToId[name];
-    if (!id || !store.byId[id]) return false;
-    if (store.byId[id].discovered) return true;
-    store.byId[id].discovered = true;
-    log(`公会发现: ${name}`);
-    return true;
+export function getAllGuilds() {
+    return Object.values(getGuildStore().byId || {});
 }
 
 /**
@@ -288,15 +229,6 @@ export function removeGuildMember(guildId, memberName) {
     if (!guild) return false;
     guild.members = guild.members.filter(m => m !== memberName);
     return true;
-}
-
-/**
- * 获取所有已发现且未解散的公会（用于注入/显示）。
- * @returns {object[]}
- */
-export function getDiscoveredGuilds() {
-    const store = getGuildStore();
-    return Object.values(store.byId).filter(g => g.discovered && !g.disbanded);
 }
 
 /**

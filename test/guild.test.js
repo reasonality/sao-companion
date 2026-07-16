@@ -23,12 +23,10 @@ import {
     getGuildById,
     getGuildByName,
     initPresetGuilds,
-    checkGuildDiscovery,
     createGuild,
-    discoverGuild,
+    getAllGuilds,
     addGuildMember,
     removeGuildMember,
-    getDiscoveredGuilds,
     getPlayerGuild,
     joinGuild,
     leaveGuild,
@@ -113,13 +111,6 @@ describe('initPresetGuilds', () => {
         expect(store.nameToId['微笑棺木']).toBe('lc');
     });
 
-    it('guilds are initially not discovered', () => {
-        initPresetGuilds();
-        const guild = getGuildById('flh');
-        expect(guild.discovered).toBe(false);
-        expect(guild.discovered_date).toBeNull();
-    });
-
     it('copies members array (no shared reference)', () => {
         initPresetGuilds();
         const g1 = getGuildById('flh');
@@ -128,46 +119,6 @@ describe('initPresetGuilds', () => {
         // Since we only shallow-copy, they share the same reference in store
         // But a second initPresetGuilds won't overwrite
         expect(g2.members).toContain('test');
-    });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// checkGuildDiscovery
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('checkGuildDiscovery', () => {
-    beforeEach(() => {
-        initPresetGuilds();
-    });
-
-    it('discovers guilds whose condition is met', () => {
-        const count = checkGuildDiscovery('2022-11-07');
-        expect(count).toBe(1);
-        const flh = getGuildById('flh');
-        expect(flh.discovered).toBe(true);
-        expect(flh.discovered_date).toBe('2022-11-07');
-    });
-
-    it('discovers multiple guilds when date matches', () => {
-        const count = checkGuildDiscovery('2022-12-15');
-        // flh (11-07), mbc (11-15), lc (11-21), als (12-01) should be discovered
-        expect(count).toBe(4);
-    });
-
-    it('discovers all guilds with far-future date', () => {
-        const count = checkGuildDiscovery('2025-01-01');
-        expect(count).toBe(6);
-    });
-
-    it('skips already discovered guilds', () => {
-        checkGuildDiscovery('2022-11-07');
-        const count = checkGuildDiscovery('2022-11-07');
-        expect(count).toBe(0);
-    });
-
-    it('discovers nothing with early date', () => {
-        const count = checkGuildDiscovery('2022-11-06');
-        expect(count).toBe(0);
     });
 });
 
@@ -183,8 +134,6 @@ describe('createGuild', () => {
         expect(guild.name).toBe('测试公会');
         expect(guild.leader).toBe('测试会长');
         expect(guild.members).toContain('测试会长');
-        expect(guild.discovered).toBe(true);
-        expect(guild.discover_condition).toBeNull();
     });
 
     it('returns existing ID for duplicate name', () => {
@@ -224,33 +173,6 @@ describe('createGuild', () => {
             buff: { name: 'x', effects: { str: 5 }, description: 'x' },
         });
         expect(id).toBeNull();
-    });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// discoverGuild
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('discoverGuild', () => {
-    beforeEach(() => {
-        initPresetGuilds();
-    });
-
-    it('discovers a guild by name', () => {
-        const result = discoverGuild('风林火山');
-        expect(result).toBe(true);
-        expect(getGuildById('flh').discovered).toBe(true);
-    });
-
-    it('returns true for already discovered guild', () => {
-        discoverGuild('风林火山');
-        const result = discoverGuild('风林火山');
-        expect(result).toBe(true);
-    });
-
-    it('returns false for non-existent guild', () => {
-        const result = discoverGuild('不存在的公会');
-        expect(result).toBe(false);
     });
 });
 
@@ -306,32 +228,23 @@ describe('removeGuildMember', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// getDiscoveredGuilds
+// getAllGuilds
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('getDiscoveredGuilds', () => {
+describe('getAllGuilds', () => {
     beforeEach(() => {
         initPresetGuilds();
     });
 
-    it('returns only discovered guilds', () => {
-        checkGuildDiscovery('2022-11-07');
-        const discovered = getDiscoveredGuilds();
-        expect(discovered.length).toBe(1);
-        expect(discovered[0].guild_id).toBe('flh');
+    it('returns all guilds', () => {
+        const all = getAllGuilds();
+        expect(all.length).toBe(6);
     });
 
-    it('excludes disbanded guilds', () => {
-        checkGuildDiscovery('2025-01-01');
-        const flh = getGuildById('flh');
-        flh.disbanded = true;
-        const discovered = getDiscoveredGuilds();
-        expect(discovered.find(g => g.guild_id === 'flh')).toBeUndefined();
-    });
-
-    it('returns empty array when no guilds discovered', () => {
-        const discovered = getDiscoveredGuilds();
-        expect(discovered).toEqual([]);
+    it('returns empty array when no guilds exist', () => {
+        const all = getAllGuilds();
+        // guilds were initialized in beforeEach, so should have 6
+        expect(all.length).toBe(6);
     });
 });
 

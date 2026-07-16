@@ -7,7 +7,7 @@ import { getNpcByName } from './sao-store-npc.js';
 import { getFloorByNumber } from './sao-store-floor.js';
 import { getStore } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getGuildByName, getDiscoveredGuilds } from './sao-store-guild.js';
+import { getGuildByName } from './sao-store-guild.js';
 import { event_types } from '../../../events.js';
 
 // ============================================================================
@@ -472,12 +472,11 @@ export function registerGetGuildInfo(ctx) {
                 const name = args && args.name;
                 if (!name) return '请提供公会名称';
                 const guild = getGuildByName(name);
-                if (!guild || !guild.discovered) return '未找到已发现的公会"' + name + '"';
+                if (!guild) return '未找到公会"' + name + '"';
                 let info = `公会: ${guild.name}\n会长: ${guild.leader || '?'}\n成员: ${guild.members.join(', ')}`;
                 if (guild.headquarters) info += `\n据点: ${guild.headquarters.floor_id}F ${guild.headquarters.location}`;
                 if (guild.buff) info += `\n公会加成: ${guild.buff.name} (${guild.buff.description})`;
                 if (guild.description) info += `\n简介: ${guild.description}`;
-                if (guild.disbanded) info += '\n状态: 已解散';
                 return info;
             } catch (e) {
                 log('get_guild_info 失败: ' + e.message, 'warn');
