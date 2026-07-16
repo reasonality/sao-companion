@@ -1977,6 +1977,12 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
 const _shownNotificationEquipmentIds = new Set();
 const _shownNotificationSkillIds = new Set();
 
+/** 清空已展示通知 ID 集合（CHAT_CHANGED 时调用，确保重新进入聊天时重新渲染通知面板） */
+export function clearShownNotificationIds() {
+    _shownNotificationEquipmentIds.clear();
+    _shownNotificationSkillIds.clear();
+}
+
 /** 通知面板共享 CSS — row 样式 + 每条目卡片 + 头/底布局（与 sao-detail-popup.js + panel.html 同一设计语言） */
 const SAO_NOTIFY_ROW_CSS = `
             /* === 共享 row 样式（与 sao-detail-popup.js 的 modal 行一致，供 _renderEquipShared/_renderSkillShared 输出使用） === */

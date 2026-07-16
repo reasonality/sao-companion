@@ -53,7 +53,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
+import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel, clearShownNotificationIds } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
@@ -908,6 +908,7 @@ function bindEvents() {
         document.body.classList.toggle('sao-card-active', isSaoCard());
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
+            clearShownNotificationIds();
             stabilizeSaoRegexScripts();
             enableCompatMode();
             // B3 + Pre-parser: Initialize stores from world book (Phase 1: NPCs, Phase 2: Floors, Phase 3: Timeline)
@@ -1140,11 +1141,11 @@ function bindEvents() {
                 }
             }
 
-            if (!saoData.runtime) saoData.runtime = {};
-            saoData.runtime.calendarTurnCounter = (saoData.runtime.calendarTurnCounter || 0) + 1;
+            if (saoData && !saoData.runtime) saoData.runtime = {};
+            if (saoData) saoData.runtime.calendarTurnCounter = (saoData.runtime.calendarTurnCounter || 0) + 1;
 
             // B6: Quest specialist — check every 5 turns
-            const _questTurnCounter = saoData.runtime.calendarTurnCounter;
+            const _questTurnCounter = saoData?.runtime?.calendarTurnCounter || 0;
             const _shouldCheckQuests = (_questTurnCounter % 5 === 0);
             if (_shouldCheckQuests) {
                 checkQuestsFromNarrative(rawText, messageId).catch(e =>
@@ -1201,7 +1202,7 @@ function bindEvents() {
                 .catch(e => log('worldStatus 专家失败: ' + e.message, 'warn'));
 
             // R4: NPC 后台专家（fire-and-forget，每 10 轮触发一次）
-            if (shouldTriggerNpcBackground(saoData.runtime?.calendarTurnCounter || 0)) {
+            if (shouldTriggerNpcBackground(saoData?.runtime?.calendarTurnCounter || 0)) {
                 callNpcBackgroundSpecialist(messageId, rawText)
                     .catch(e => log('npcBackground 专家失败: ' + e.message, 'warn'));
             }
