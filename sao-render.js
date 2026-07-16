@@ -615,8 +615,8 @@ export function renderCalendar(messageEl, rawText, messageId, refNode) {
 
 // 渲染器映射（模块级，函数声明提升使其可在此引用后续定义的函数；避免 renderAllTags 每次重建）
 const _RENDER_FN_MAP = {
-    equip: renderEquipment,
-    swordskill: renderSwordSkill,
+    gain_equipment: renderEquipment,
+    gain_skill: renderSwordSkill,
     user_status: renderUserStatus,
     npc_status: renderNpcStatus,
     map: renderMap,
@@ -2277,7 +2277,7 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
     if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
         itemsHtml = sanitizeInlineSaoHtml(panel.html);
     } else {
-        const matches = [...rawText.matchAll(/<equip>\s*([\s\S]*?)\s*<\/equip>/gi)];
+        const matches = [...rawText.matchAll(/<gain_equipment>\s*([\s\S]*?)\s*<\/gain_equipment>/gi)];
         if (matches.length > 0) {
             const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()));
             if (validMatches.length > 0) {
@@ -2290,7 +2290,7 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
             itemsHtml = newEntries.map(eq => _buildEquipmentCard(eq)).join('');
         }
     }
-    const { shadow } = createSaoShadowHost(messageEl, 'equip', refNode)
+    const { shadow } = createSaoShadowHost(messageEl, 'gain_equipment', refNode)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -2314,7 +2314,7 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
     if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
         itemsHtml = sanitizeInlineSaoHtml(panel.html);
     } else {
-        const matches = [...rawText.matchAll(/<swordskill>\s*([\s\S]*?)\s*<\/swordskill>/gi)]
+        const matches = [...rawText.matchAll(/<gain_skill>\s*([\s\S]*?)\s*<\/gain_skill>/gi)]
         if (matches.length > 0) {
             const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()));
             if (validMatches.length > 0) {
@@ -2327,7 +2327,7 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
             itemsHtml = newEntries.map(sk => _buildSkillCard(sk)).join('');
         }
     }
-    const { shadow } = createSaoShadowHost(messageEl, 'swordskill', refNode)
+    const { shadow } = createSaoShadowHost(messageEl, 'gain_skill', refNode)
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}

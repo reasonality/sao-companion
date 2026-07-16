@@ -926,7 +926,7 @@ function bindEvents() {
             }
 
             // 新游戏初始化：如果是新聊天（仅 first_mes，store 未从 AI 回复中初始化），
-            // 从 first_mes 的 <user_status>/<zd_status>/<equip>/<swordskill> 标签提取初始状态。
+            // 从 first_mes 的 <user_status>/<zd_status>/<gain_equipment>/<gain_skill> 标签提取初始状态。
             // first_mes 不触发 MESSAGE_RECEIVED，状态专家不会运行，store 停留在默认值。
             // 这里手动 extractAll + applyExtractedData 从 first_mes 初始化。
             {

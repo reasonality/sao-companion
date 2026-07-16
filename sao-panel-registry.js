@@ -8,8 +8,8 @@
  * - isSpecial: true 表示渲染器自行定位锚点（如 battle 面板查找 zd_status），不传 refNode
  */
 export const PANEL_REGISTRY = [
-    { tag: 'equip' },
-    { tag: 'swordskill' },
+    { tag: 'gain_equipment' },
+    { tag: 'gain_skill' },
     { tag: 'user_status' },
     { tag: 'npc_status' },
     // map 已移除：地图面板始终为空，无实际内容可渲染
