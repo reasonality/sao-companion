@@ -431,6 +431,8 @@ async function processGainTags(rawText) {
         if (mpCostMatch) skillPrefilled.mp_cost = parseInt(mpCostMatch[1]);
         if (wnMatch) skillPrefilled.wn = wnMatch[1];
         if (enMatch) skillPrefilled.en = enMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+        const categoryMatch = attrs.match(/category\s*=\s*["']([^"']*)["']/i);
+        if (categoryMatch) skillPrefilled.category = categoryMatch[1].trim();
         const skillContext = { weaponType, skillLevel, playerLevel: skillLevel };
         if (Object.keys(skillPrefilled).length > 0) skillContext.prefilled = skillPrefilled;
 
@@ -479,6 +481,8 @@ async function processGainTags(rawText) {
         if (ilMatch) prefilled.item_level = parseInt(ilMatch[1]);
         if (slotMatch) prefilled.slot = slotMatch[1];
         if (rarityMatch) prefilled.rarity = rarityMatch[1];
+        const weaponTypeMatch = attrs.match(/weapon_type\s*=\s*["']([^"']*)["']/i);
+        if (weaponTypeMatch) prefilled.weapon_type = weaponTypeMatch[1].trim();
         const pfStats = {};
         if (maxHpMatch) pfStats.maxHp = parseInt(maxHpMatch[1]);
         if (strMatch) pfStats.str = parseInt(strMatch[1]);

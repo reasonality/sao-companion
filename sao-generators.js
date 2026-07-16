@@ -331,7 +331,7 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
     const fullEquipJson = JSON.stringify({
         name: '',
         slot: slotEntry.slot,
-        weapon_type: null,
+        weapon_type: (pf && pf.weapon_type) ? pf.weapon_type : null,
         rarity: rarityEn,
         item_level: (pf && pf.item_level != null) ? pf.item_level : itemLevel,
         stats: { maxHp: stats.maxHp, str: stats.str, agi: stats.agi, int: stats.int, vit: stats.vit },
@@ -353,6 +353,7 @@ ${fullEquipJson}
     const equip = {
         name: prefilledName || null,
         slot: slotEntry.slot,
+        weapon_type: (pf && pf.weapon_type) ? pf.weapon_type : (slotEntry.slot === 'weapon' ? '单手剑' : slotEntry.slot === 'off_hand' ? '盾牌' : '防具'),
         rarity: rarityEn,
         item_level: (pf && pf.item_level != null) ? pf.item_level : itemLevel,
         stats,
@@ -491,7 +492,7 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
         name: '',
         weapon_type: weaponType,
         rarity: rarityEn,
-        category: 'sword_skill',
+        category: (pf && pf.category) ? pf.category : 'sword_skill',
         combat: {
             atk: _baseATK,
             hit: _hitRate,
@@ -567,7 +568,7 @@ ${fullSkillJson}
         const skillId = findOrCreateSkill({
             name: skill.name,
             rarity: skill.rarity,
-            category: 'sword_skill',
+            category: (pf && pf.category) ? pf.category : 'sword_skill',
             weapon_type: skill.weapon_type,
             combat: {
                 atk: skill.base_damage,
