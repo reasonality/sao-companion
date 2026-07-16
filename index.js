@@ -519,7 +519,6 @@ async function processGainTags(rawText) {
         const itemLevelMatch = attrs.match(/item_level\s*=\s*["']?(\d+)["']?/i);
         const maxStackMatch = attrs.match(/max_stack\s*=\s*["']?(\d+)["']?/i);
         const effectsJsonMatch = attrs.match(/effects\s*=\s*["']([^"']*)["']/i);
-        const specialEffectsMatch = attrs.match(/special_effects\s*=\s*["']([^"']*)["']/i);
         const prefilledName = nameMatch ? nameMatch[1].trim() : null;
         const prefilledDesc = descMatch ? descMatch[1].trim() : null;
 

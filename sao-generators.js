@@ -688,7 +688,7 @@ export async function generateConsumable(context, callModelFn, prefilledName, pr
         name: prefilledName || null,
         category: typeEntry.category,
         rarity: rarityEntry.name,
-        item_level: itemLevel,
+        item_level: (pf && pf.item_level != null) ? pf.item_level : itemLevel,
         effects,
         description: prefilledDesc || '',
         qty: context.qty || 1,
