@@ -56,7 +56,7 @@ export function registerSaoDompurifyHook() {
 const SHARED_SAO_CSS = `:host { display: block; margin: 0; padding: 0; }`;
 
 /**
- * renderEquipment + renderSwordSkill + renderMap 共用的 SAO 深色青色 HUD 面板样式。
+ * renderEquipment + renderSwordSkill 共用的 SAO 深色青色 HUD 面板样式。
  * 与 renderUserStatus (details-character-status) 完全同一套语言：
  *   - navy rgba(12,18,28,0.94) + cyan border + top 发光条
  *   - 闭合态暗色按钮条 + 左 cyan 竖线 + ▸ 箭头
@@ -619,7 +619,6 @@ const _RENDER_FN_MAP = {
     gain_skill: renderSwordSkill,
     user_status: renderUserStatus,
     npc_status: renderNpcStatus,
-    map: renderMap,
     calendar: renderCalendar,
 };
 
@@ -2270,26 +2269,10 @@ function _buildNpcCard(npc) {
 }
 
 function renderEquipment(messageEl, rawText, messageId, refNode) {
-    // P2: 优先从专家面板数据读取（非空）；回退到 <equip> 标签（兼容旧 AI）；
-    // 仍无内容则从 equipmentStore.byId 投影渲染 row-based 视图。
-    const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.equipment : null;
-    let itemsHtml = '';
-    if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
-        itemsHtml = sanitizeInlineSaoHtml(panel.html);
-    } else {
-        const matches = [...rawText.matchAll(/<gain_equipment>\s*([\s\S]*?)\s*<\/gain_equipment>/gi)];
-        if (matches.length > 0) {
-            const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()));
-            if (validMatches.length > 0) {
-                itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n');
-            }
-        }
-        if (!itemsHtml) {
-            const newEntries = _collectNewEquipmentEntries();
-            if (newEntries.length === 0) return;
-            itemsHtml = newEntries.map(eq => _buildEquipmentCard(eq)).join('');
-        }
-    }
+    // 从 equipmentStore 投影渲染（新架构：<gain_equipment> 是创建标签，非显示标签）
+    const newEntries = _collectNewEquipmentEntries();
+    if (newEntries.length === 0) return;
+    const itemsHtml = newEntries.map(eq => _buildEquipmentCard(eq)).join('');
     const { shadow } = createSaoShadowHost(messageEl, 'gain_equipment', refNode)
     shadow.innerHTML = `
         <style>
@@ -2307,26 +2290,10 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
 }
 
 function renderSwordSkill(messageEl, rawText, messageId, refNode) {
-    // P2: 优先从专家面板数据读取（非空）；回退到 <swordskill> 标签（兼容旧 AI）；
-    // 仍无内容则从 playerStore.skills 投影渲染 row-based 视图。
-    const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.swordskill : null;
-    let itemsHtml = '';
-    if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
-        itemsHtml = sanitizeInlineSaoHtml(panel.html);
-    } else {
-        const matches = [...rawText.matchAll(/<gain_skill>\s*([\s\S]*?)\s*<\/gain_skill>/gi)]
-        if (matches.length > 0) {
-            const validMatches = matches.filter(m => /<[a-z][^>]*>/i.test(m[1].trim()));
-            if (validMatches.length > 0) {
-                itemsHtml = validMatches.map(m => sanitizeInlineSaoHtml(m[1].trim())).join('\n')
-            }
-        }
-        if (!itemsHtml) {
-            const newEntries = _collectNewSkillEntries();
-            if (newEntries.length === 0) return;
-            itemsHtml = newEntries.map(sk => _buildSkillCard(sk)).join('');
-        }
-    }
+    // 从 skillStore 投影渲染（新架构：<gain_skill> 是创建标签，非显示标签）
+    const newEntries = _collectNewSkillEntries();
+    if (newEntries.length === 0) return;
+    const itemsHtml = newEntries.map(sk => _buildSkillCard(sk)).join('');
     const { shadow } = createSaoShadowHost(messageEl, 'gain_skill', refNode)
     shadow.innerHTML = `
         <style>
@@ -2343,28 +2310,3 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
     `
 }
 
-function renderMap(messageEl, rawText, messageId, refNode) {
-    // P2: 优先从专家面板数据读取（非空）；回退到 mes 标签（过渡兼容）；均无则跳过
-    const panel = (messageId != null) ? getSaoData()?.panels?.[messageId]?.map : null;
-    let content;
-    if (panel && typeof panel.html === 'string' && panel.html.length > 0) {
-        content = panel.html;
-    } else {
-        content = extractTag(rawText, 'map')
-        if (content === null) return
-    }
-    const { shadow } = createSaoShadowHost(messageEl, 'map', refNode)
-    const safeContent = sanitizeInlineSaoHtml(content.trim())
-    shadow.innerHTML = `
-        <style>
-            ${SHARED_SAO_CSS}
-            ${SHARED_SAO_PANEL_CSS}
-        </style>
-        <div class="sao-panel-wrapper">
-            <details class="sao-panel-details">
-                <summary>🗺️ 地图</summary>
-                <div>${safeContent}</div>
-            </details>
-        </div>
-    `
-}
