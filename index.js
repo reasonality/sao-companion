@@ -1130,7 +1130,7 @@ function bindEvents() {
             const preIncrement = saoData?.runtime?.calendarTurnCounter || 0;
             if (shouldTriggerPeriodicCalendarCheck({ calendarTurnCounter: preIncrement })) {
                 try {
-                    const cal = saoData.calendar;
+                    const cal = saoData?.calendar;
                     if (cal) {
                         const pendingCount = (cal.appointments || []).filter(a => a.status === 'pending').length;
                         const dayCount = Object.keys(cal.days || {}).length;
