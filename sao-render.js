@@ -2203,16 +2203,23 @@ function _collectNewSkillEntries() {
 function _buildEquipmentCard(eq) {
     const name = eq.name || eq.equipment_id || '未命名装备';
     const rCls = rarityClass(eq.rarity);
+    // 英文稀有度 → 中文显示
+    const RARITY_EN_TO_CN = { common: '白色', uncommon: '绿色', rare: '蓝色', epic: '紫色', legendary: '金色' };
+    const rarityCn = RARITY_EN_TO_CN[eq.rarity] || eq.rarity || '';
+    // slot 枚举 → 中文槽位名
+    const SLOT_EN_TO_CN = { weapon: '主手', off_hand: '副手', head: '头部', chest: '胸部', hands: '手部', legs: '腿部', accessory: '饰品' };
+    const slotCn = SLOT_EN_TO_CN[eq.slot] || eq.slot || '';
+    // 优先显示 weapon_type（中文武器类型），无则显示中文槽位
+    const typeLabel = eq.weapon_type || slotCn;
     const head = `<div class="sao-notify-head">
             <span class="sao-notify-head-name">⚔️ ${esc(name)}</span>
             <span class="sao-notify-head-badges">
-                ${eq.slot ? `<span class="sao-pill">${esc(eq.slot)}</span>` : ''}
-                ${eq.type ? `<span class="sao-pill">${esc(eq.type)}</span>` : ''}
-                ${eq.rarity ? `<span class="sao-pill sao-pill-rarity ${rCls}">${esc(eq.rarity)}</span>` : ''}
+                ${typeLabel ? `<span class="sao-pill">${esc(typeLabel)}</span>` : ''}
+                ${eq.rarity ? `<span class="sao-pill sao-pill-rarity ${rCls}">${esc(rarityCn)}</span>` : ''}
             </span>
         </div>`;
     // 剥离：名称 + 槽位 + 类型 + 稀有度（已被 header pill 显示）+ 描述（改走玻璃卡块）
-    const stripped = { ...eq, name: null, slot: null, type: null, rarity: null, description: null };
+    const stripped = { ...eq, name: null, slot: null, type: null, weapon_type: null, rarity: null, description: null };
     const rowsHtml = _renderEquipShared(stripped);
     const rowsBlock = rowsHtml ? `<div class="sao-notify-rows">${rowsHtml}</div>` : '';
     const descBlock = eq.description ? `<div class="sao-notify-desc">${esc(eq.description)}</div>` : '';

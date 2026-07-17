@@ -3,6 +3,7 @@
 
 import { getStore, saveStore } from './sao-store-core.js';
 import { log } from './sao-core.js';
+import { getPlayerStore } from './sao-store-player.js';
 
 // ============================================================
 // 常量
@@ -69,6 +70,16 @@ export async function addEquipmentItem(equipmentId, skipSave) {
         log(`装备已在背包中: ${equipmentId} → ${existing.item_id} (跳过重复添加)`);
         return existing.item_id;
     }
+    // 去重：已装备的物品不入包（装备栏和背包是同一物品的两个位置，不应同时存在）
+    try {
+        const player = getPlayerStore();
+        for (const [slot, eqId] of Object.entries(player?.equipment || {})) {
+            if (eqId === equipmentId) {
+                log(`装备已装备在 ${slot} 槽位: ${equipmentId} (跳过入包)`);
+                return null;
+            }
+        }
+    } catch { /* player store not ready */ }
     const itemId = generateItemId();
     store.items.push({
         item_id: itemId,
