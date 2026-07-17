@@ -40,18 +40,27 @@ function detailRow(label, value, valueClass) {
 export function renderDetailEquip(item) {
     const rows = [];
     if (item.name) rows.push(detailRow('名称', esc(item.name)));
-    if (item.slot) rows.push(detailRow('槽位', esc(item.slot)));
-    if (item.type) rows.push(detailRow('类型', esc(item.type)));
-    if (item.rarity) rows.push(detailRow('稀有度', esc(item.rarity), rarityClass(item.rarity)));
+    if (item.slot) {
+        const SLOT_EN_TO_CN = { weapon: '主手', off_hand: '副手', head: '头部', chest: '胸部', hands: '手部', legs: '腿部', accessory: '饰品' };
+        rows.push(detailRow('槽位', esc(SLOT_EN_TO_CN[item.slot] || item.slot)));
+    }
+    if (item.weapon_type) rows.push(detailRow('武器类型', esc(item.weapon_type)));
+    if (item.rarity) {
+        const RARITY_EN_TO_CN = { common: '白色', uncommon: '绿色', rare: '蓝色', epic: '紫色', legendary: '金色' };
+        rows.push(detailRow('稀有度', esc(RARITY_EN_TO_CN[item.rarity] || item.rarity), rarityClass(item.rarity)));
+    }
     if (item.item_level != null) rows.push(detailRow('物品等级', esc(item.item_level)));
     if (item.stats) {
         const labels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT', atk: '⚔️ ATK', hit: '🎯 HIT', crit: '💥 CRIT' };
         for (const [k, v] of Object.entries(item.stats)) {
-            if (v > 0) rows.push(detailRow(labels[k] || esc(k.toUpperCase()), '+' + esc(v)));
+            if (v != null) rows.push(detailRow(labels[k] || esc(k.toUpperCase()), '+' + esc(v)));
         }
     }
-    if (item.affixes && item.affixes.length > 0) {
-        rows.push(detailRow('附魔', item.affixes.map(a => `<span class="sao-tag sao-tag-affix">${esc(a)}</span>`).join(' ')));
+    if (item.affixes) {
+        const affixHtml = item.affixes.length > 0
+            ? item.affixes.map(a => `<span class="sao-tag sao-tag-affix">${esc(a)}</span>`).join(' ')
+            : '<span style="opacity:0.5">无</span>';
+        rows.push(detailRow('附魔', affixHtml));
     }
     if (item.description) rows.push(detailRow('描述', esc(item.description)));
     // 如果没有任何行，至少显示名称防止空弹窗

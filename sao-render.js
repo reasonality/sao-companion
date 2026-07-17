@@ -2219,7 +2219,7 @@ function _buildEquipmentCard(eq) {
             </span>
         </div>`;
     // 剥离：名称 + 槽位 + 类型 + 稀有度（已被 header pill 显示）+ 描述（改走玻璃卡块）
-    const stripped = { ...eq, name: null, slot: null, type: null, weapon_type: null, rarity: null, description: null };
+    const stripped = { ...eq, name: null, type: null, weapon_type: null, rarity: null, description: null };
     const rowsHtml = _renderEquipShared(stripped);
     const rowsBlock = rowsHtml ? `<div class="sao-notify-rows">${rowsHtml}</div>` : '';
     const descBlock = eq.description ? `<div class="sao-notify-desc">${esc(eq.description)}</div>` : '';
