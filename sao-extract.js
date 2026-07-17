@@ -2,7 +2,7 @@
 // 从 AI 回复中提取 SAO 状态标签（zd_status/user_status）并应用到 state
 
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
-import { getStore, saveStore } from './sao-store-core.js';
+import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
 import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
@@ -10,7 +10,7 @@ import { getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
 import { getInventoryStore, addEquipmentItem, addConsumable, addConsumableItem, setConsumableQty, addMaterial, addQuestItem, updateCurrency } from './sao-store-inventory.js';
 import { findOrCreateNpc, updateNpcState, addObservation, getNpcById, getNpcByName } from './sao-store-npc.js';
-import { findOrCreateConsumable } from './sao-store-consumable.js';
+import { findOrCreateConsumable, getConsumableById } from './sao-store-consumable.js';
 import { extractJsonObject } from './sao-specialists.js';
 import { setPlayerHousing, updatePlayerHousing, addDecoration, addFurniture, removeFurniture, clearPlayerHousing } from './sao-store-housing.js';
 
@@ -574,6 +574,73 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 if (player.equipment?.[newSlot] !== existingId) {
                     try { await equipItem(newSlot, existingId, true); } catch (e) { log(`equipItem 失败: ${e.message}`, 'warn'); }
                 }
+            }
+        }
+
+        // sellActions → 玩家卖出物品：从背包移除（或卸下已装备的），获得珂尔
+        if (Array.isArray(s.sellActions) && s.sellActions.length > 0) {
+            for (const sell of s.sellActions) {
+                if (!sell.name) continue;
+                const sellQty = Math.max(1, sell.qty || 1);
+                const corGained = Math.max(0, sell.cor_gained || 0);
+                const invStore = getInventoryStore();
+                const equipStore = getEquipmentStore();
+
+                // Find item in inventory by name (check equipment, consumable, material, quest_item)
+                let sold = false;
+                // Check equipment in inventory
+                for (let i = invStore.items.length - 1; i >= 0; i--) {
+                    const it = invStore.items[i];
+                    if (it.type === 'equipment' && it.equipment_id) {
+                        const def = equipStore?.byId?.[it.equipment_id];
+                        if (def && def.name === sell.name) {
+                            invStore.items.splice(i, 1);
+                            sold = true;
+                            log(`sellActions: 卖出装备 ${sell.name} → +${corGained} cor`);
+                            break;
+                        }
+                    } else if (it.type === 'consumable' && it.consumable_id) {
+                        const def = getConsumableById(it.consumable_id);
+                        if (def && def.name === sell.name) {
+                            it.qty = (it.qty || 1) - sellQty;
+                            if (it.qty <= 0) invStore.items.splice(i, 1);
+                            sold = true;
+                            log(`sellActions: 卖出消耗品 ${sell.name} x${sellQty} → +${corGained} cor`);
+                            break;
+                        }
+                    } else if ((it.type === 'material' || it.type === 'quest_item') && it.name === sell.name) {
+                        it.qty = (it.qty || 1) - sellQty;
+                        if (it.qty <= 0) invStore.items.splice(i, 1);
+                        sold = true;
+                        log(`sellActions: 卖出${it.type === 'material' ? '材料' : '任务物品'} ${sell.name} x${sellQty} → +${corGained} cor`);
+                        break;
+                    }
+                }
+
+                // If not in inventory, check if it's currently equipped → unequip + remove
+                if (!sold) {
+                    const player = getPlayerStore();
+                    for (const [slot, equipId] of Object.entries(player.equipment || {})) {
+                        const def = equipStore?.byId?.[equipId];
+                        if (def && def.name === sell.name) {
+                            player.equipment[slot] = null;
+                            sold = true;
+                            log(`sellActions: 卖出已装备 ${sell.name} (从 ${slot} 卸下) → +${corGained} cor`);
+                            break;
+                        }
+                    }
+                }
+
+                if (!sold) {
+                    log(`sellActions: 物品 "${sell.name}" 不在背包或装备中，跳过`, 'warn');
+                    continue;
+                }
+
+                // Add cor
+                if (corGained > 0) {
+                    await updateCurrency(corGained);
+                }
+                appendActionLog({ action: 'sell', itemName: sell.name, qty: sellQty, cor_gained: corGained, result: 'success' });
             }
         }
 

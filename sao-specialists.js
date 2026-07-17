@@ -629,6 +629,9 @@ export async function callAcquisitionSpecialist(narrativeText) {
 2. 没有获取事件则不输出任何标签（输出空文本）
 3. 每个获取事件输出一个标签，每个标签占一行
 4. 不要输出任何其他文本（不要解释、不要注释、不要 markdown、不要代码块标记）
+5. 卖出/出售/卖掉/交易给NPC → 输出 <remove_item>，绝对不要输出 <gain_equipment>
+6. 购买/买入/从商店获得 → 输出 <gain_equipment> 或对应类型的 gain 标签
+7. 叙事中提到某物品名字不代表获取——只有在玩家实际获得该物品时才输出 gain 标签
 
 ## 标签格式（9类）
 

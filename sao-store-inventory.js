@@ -63,6 +63,12 @@ export function generateItemId() {
  */
 export async function addEquipmentItem(equipmentId, skipSave) {
     const store = getInventoryStore();
+    // 去重：同一 equipment_id 不重复入包（装备是唯一实例，不应有多条）
+    const existing = store.items.find(it => it.type === 'equipment' && it.equipment_id === equipmentId);
+    if (existing) {
+        log(`装备已在背包中: ${equipmentId} → ${existing.item_id} (跳过重复添加)`);
+        return existing.item_id;
+    }
     const itemId = generateItemId();
     store.items.push({
         item_id: itemId,
