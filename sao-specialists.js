@@ -609,3 +609,101 @@ ${worldHint ? `世界: ${worldHint}` : ''}`;
         log('worldStatus 专家 JSON 解析失败: ' + e.message, 'warn');
     }
 }
+
+/**
+ * 获取事件检测专家——审查叙事文本，识别所有获取事件并输出对应标签。
+ * 替代主 LLM 输出 gain 标签的路径（主 LLM 不可靠，经常不输出）。
+ * @param {string} narrativeText - 本轮 AI 叙事正文
+ * @returns {Promise<string|null>} 标签文本（含 < 实体的标签需反转义）或 null（无获取事件）
+ */
+export async function callAcquisitionSpecialist(narrativeText) {
+    if (!narrativeText || !narrativeText.trim()) return null;
+
+    // 快速预检：无获取相关关键词时跳过 LLM 调用（节省 token）
+    const QUICK_CHECK_RE = /获得|得到|捡到|拾取|购买|买下|掉落|爆出|领悟|学会|习得|解锁|觉醒|创建|组建|成立|加入|使用|喝|服|吃|消耗|丢失|失去|被夺|赠予|送出|销毁|赠|装备上|换上/;
+    if (!QUICK_CHECK_RE.test(narrativeText)) return null;
+
+    const systemPrompt = `你是 SAO 游戏的获取事件检测器。阅读叙事文本，识别所有获取事件并输出对应的获取标签。
+
+## 检测规则
+1. 只在叙事明确描写了获取/获得/领悟/学会/加入/创建/使用/失去时才输出标签
+2. 没有获取事件则不输出任何标签（输出空文本）
+3. 每个获取事件输出一个标签，每个标签占一行
+4. 不要输出任何其他文本（不要解释、不要注释、不要 markdown、不要代码块标记）
+
+## 标签格式（9类）
+
+### 1. 剑技领悟
+<gain_skill name="剑技名" weapon_type="武器类型" rarity="稀有度" atk="攻击力" hit="命中率" crit="暴击率" apt="攻击次数" tpa="目标数" mp_cost="MP消耗" description="1-2句描述">武器类型</gain_skill>
+
+### 2. 装备获取
+<gain_equipment name="装备名" slot="槽位" weapon_type="武器类型" rarity="稀有度" item_level="等级" max_hp="HP加成" str="STR加成" agi="AGI加成" int="INT加成" vit="VIT加成" affixes="词缀1,词缀2" description="1-2句描述">装备</gain_equipment>
+slot枚举: weapon/off_hand/head/chest/hands/legs/accessory
+
+### 3. 消耗品获得
+<gain_consumable name="物品名" category="类别" rarity="稀有度" description="1-2句描述">类别:稀有度</gain_consumable>
+category枚举: hp_restore/mp_restore/full_restore/buff/cure
+
+### 4. Buff获得
+<gain_buff name="buff名" source="来源" permanent="false" duration="持续" str="加成值" vit="加成值" special_effects="特殊效果">描述</gain_buff>
+source枚举: food/furniture/title/guild/equipment_set/skill/special_event/enemy_trait
+
+### 5. 公会事件
+<gain_guild action="create" name="公会名" leader="会长" description="描述" buff_name="buff名" str="加成" vit="加成">公会</gain_guild>
+action: create(创建,默认)/join(加入)/leave(离开)
+
+### 6. 材料获得
+<gain_material name="材料名" qty="数量" rarity="稀有度" description="描述">材料</gain_material>
+
+### 7. 任务物品获得
+<gain_quest_item name="物品名" description="描述">任务物品</gain_quest_item>
+
+### 8. 使用物品
+<use_item name="物品名" qty="1" target="目标(可选)">使用描述</use_item>
+
+### 9. 移除物品
+<remove_item name="物品名" qty="数量">消失描述</remove_item>
+
+## 稀有度指南
+稀有度由你根据叙事语境决定：白色=杂兵掉落/普通商店；绿色=精英怪/普通任务；蓝色=楼层Boss/重要任务/隐藏宝箱；紫色=关键剧情/稀有掉落/特殊事件。
+不要滥用高稀有度——保持稀缺感。
+
+## 数值参考
+- 剑技 atk: 普通技能 80-150, 稀有技能 150-300, 高级技能 300+
+- 剑技 hit: 70-95, crit: 1-20
+- 装备 max_hp: 白色 10-30, 绿色 30-60, 蓝色 60-100, 紫色 100+
+- 装备属性 str/agi/int/vit: 白色 0-2, 绿色 2-5, 蓝色 5-10, 紫色 10+
+
+## 重要
+- 数值必须是合理范围内的正整数（0 除外：hit/crit/mp_cost 可为 0）
+- name 和 description 必须填写
+- 装备必须有 slot 和 weapon_type（武器类）或 weapon_type="防具"（防具类）
+- 消耗品必须有 category
+- 不要为叙事中未明确描写的物品/技能生成标签`;
+
+    const userPrompt = `## 叙事文本
+${narrativeText.substring(0, 3000)}
+
+请输出获取标签（无则空）：`;
+
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+    ];
+
+    let content;
+    try {
+        content = await callSpecialist('extract', messages, 512, { temperature: 0.3, timeoutMs: 15000 });
+    } catch (e) {
+        log('acquisition 专家调用失败: ' + e.message, 'warn');
+        return null;
+    }
+    if (!content || !content.trim()) return null;
+
+    // 反转义 HTML 实体为真实标签（processGainTags 需要真实 < >）
+    const unescaped = content.replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+    if (!unescaped || !unescaped.includes('<')) return null;
+
+    log('acquisition 专家输出标签: ' + unescaped.substring(0, 200));
+    return unescaped;
+}

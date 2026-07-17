@@ -56,7 +56,7 @@ import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } fro
 import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel, clearShownNotificationIds } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
-import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist } from './sao-specialists.js';
+import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist, callAcquisitionSpecialist } from './sao-specialists.js';
 import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
 import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
 import { DANGER_LABEL } from './sao-state-projection.js';
@@ -1104,6 +1104,17 @@ function bindEvents() {
 
             // gain_skill / gain_equipment 标签处理：主LLM决定获取，插件生成数值
             await processGainTags(rawText);
+
+            // 获取事件检测专家：子 LLM 审查叙事，自行生成 gain 标签
+            // （替代主 LLM 输出标签的不可靠路径）
+            try {
+                const specialistTags = await callAcquisitionSpecialist(rawText);
+                if (specialistTags) {
+                    await processGainTags(specialistTags);
+                }
+            } catch (e) {
+                log('acquisition 专家处理失败: ' + e.message, 'warn');
+            }
 
             // 月蚀独特技能解锁检查
             checkUniqueSkillUnlocks();
