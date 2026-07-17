@@ -1080,6 +1080,21 @@ function bindEvents() {
 
         await withProcessingLock(`msg-${messageId}`, async () => {
           try {
+            // 获取事件处理：先创建新实体，让后续状态专家/投影看到更新后的 store
+            // gain_skill / gain_equipment 标签处理：主LLM决定获取，插件生成数值
+            await processGainTags(rawText);
+
+            // 获取事件检测专家：子 LLM 审查叙事，自行生成 gain 标签
+            // （替代主 LLM 输出标签的不可靠路径）
+            try {
+                const specialistTags = await callAcquisitionSpecialist(rawText);
+                if (specialistTags) {
+                    await processGainTags(specialistTags);
+                }
+            } catch (e) {
+                log('acquisition 专家处理失败: ' + e.message, 'warn');
+            }
+
             // 点10: 专家1始终运行（不再受 toggle 控制）
             await callStatusSpecialist(messageId, rawText);
             // 多任务提取（状态）— P3: 传 messageId，extractAll 优先读 status 专家面板数据
@@ -1101,20 +1116,6 @@ function bindEvents() {
 
             // P4c: Custom skill unlock check
             checkCustomSkillUnlocks(rawText);
-
-            // gain_skill / gain_equipment 标签处理：主LLM决定获取，插件生成数值
-            await processGainTags(rawText);
-
-            // 获取事件检测专家：子 LLM 审查叙事，自行生成 gain 标签
-            // （替代主 LLM 输出标签的不可靠路径）
-            try {
-                const specialistTags = await callAcquisitionSpecialist(rawText);
-                if (specialistTags) {
-                    await processGainTags(specialistTags);
-                }
-            } catch (e) {
-                log('acquisition 专家处理失败: ' + e.message, 'warn');
-            }
 
             // 月蚀独特技能解锁检查
             checkUniqueSkillUnlocks();
