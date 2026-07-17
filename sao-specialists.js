@@ -619,9 +619,8 @@ ${worldHint ? `世界: ${worldHint}` : ''}`;
 export async function callAcquisitionSpecialist(narrativeText) {
     if (!narrativeText || !narrativeText.trim()) return null;
 
-    // 快速预检：无获取相关关键词时跳过 LLM 调用（节省 token）
-    const QUICK_CHECK_RE = /获得|得到|捡到|拾取|购买|买下|掉落|爆出|领悟|学会|习得|解锁|觉醒|创建|组建|成立|加入|使用|喝|服|吃|消耗|丢失|失去|被夺|赠予|送出|销毁|赠|装备上|换上/;
-    if (!QUICK_CHECK_RE.test(narrativeText)) return null;
+    // 不做关键词预检——叙事获取事件的表述方式无限多样，正则无法穷举。
+    // 子 LLM 自己会判断"无获取事件"并输出空文本，成本可控（输入仅叙事文本，输出为空或少量标签）。
 
     const systemPrompt = `你是 SAO 游戏的获取事件检测器。阅读叙事文本，识别所有获取事件并输出对应的获取标签。
 
