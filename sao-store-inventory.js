@@ -67,24 +67,6 @@ export function generateItemId() {
  */
 export async function addEquipmentItem(equipmentId, skipSave) {
     const store = getInventoryStore();
-    // 去重：同一 equipment_id 不重复入包（装备是唯一实例，不应有多条）
-    const existing = store.items.find(it => it.type === 'equipment' && it.equipment_id === equipmentId);
-    if (existing) {
-        log(`装备已在背包中: ${equipmentId} → ${existing.item_id} (跳过重复添加)`);
-        return existing.item_id;
-    }
-    // 去重：已装备的物品不入包（装备栏和背包是同一物品的两个位置，不应同时存在）
-    // 用懒加载避免循环依赖（sao-store-player.js 已 import 本模块）
-    try {
-        const { getPlayerStore } = await import('./sao-store-player.js');
-        const player = getPlayerStore();
-        for (const [slot, eqId] of Object.entries(player?.equipment || {})) {
-            if (eqId === equipmentId) {
-                log(`装备已装备在 ${slot} 槽位: ${equipmentId} (跳过入包)`);
-                return null;
-            }
-        }
-    } catch { /* player store not ready */ }
     const itemId = generateItemId();
     store.items.push({
         item_id: itemId,
@@ -112,6 +94,24 @@ export async function removeEquipmentItem(equipmentId, skipSave) {
         store.items.splice(idx, 1);
         if (skipSave !== true) await saveStore();
         log(`装备出背包: ${equipmentId}`);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * 按 item_id 从背包移除任意物品（装备/消耗品/材料/任务物品）。
+ * @param {string} itemId
+ * @param {boolean} [skipSave]
+ * @returns {boolean} 是否移除了条目
+ */
+export async function removeInventoryItemByItemId(itemId, skipSave) {
+    const store = getInventoryStore();
+    const idx = store.items.findIndex(item => item.item_id === itemId);
+    if (idx >= 0) {
+        const removed = store.items.splice(idx, 1)[0];
+        if (skipSave !== true) await saveStore();
+        log(`物品出背包: ${removed.type} ${removed.item_id}`);
         return true;
     }
     return false;

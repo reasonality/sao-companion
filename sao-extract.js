@@ -541,6 +541,21 @@ function hasSkillAcquisitionSignal(text) {
     return hasVerb && hasNoun;
 }
 
+/**
+ * 武器槽位决策：武器（weapon/off_hand）可装备到任一手。
+ * 优先级：空手 → 主手优先；双手都满 → 替换主手。
+ * @param {object} playerEquipment - player.equipment 对象
+ * @returns {string} 目标槽位 'weapon' 或 'off_hand'
+ */
+function decideWeaponSlot(playerEquipment) {
+    const mainEmpty = !playerEquipment?.weapon;
+    const offEmpty = !playerEquipment?.off_hand;
+    if (mainEmpty && offEmpty) return 'weapon';      // both empty → main hand
+    if (mainEmpty) return 'weapon';                  // main empty → main
+    if (offEmpty) return 'off_hand';                 // off empty → off hand
+    return 'weapon';                                  // both full → replace main
+}
+
 export async function applyExtractedData(extracted, customSkillDefs, isNewGame = false, rawText = '') {
     if (!extracted) return;
     const data = getStore();
@@ -556,7 +571,7 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
             const equipStore = getEquipmentStore();
             for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
                 if (!equipData || typeof equipData !== 'object') continue;
-                const newSlot = oldSlot;
+                let newSlot = oldSlot;
                 if (!SLOT_ENUM.includes(newSlot)) {
                     log(`applyExtractedData: 非法槽位 "${newSlot}"，跳过`, 'warn');
                     continue;
@@ -568,6 +583,11 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 if (!existingId) {
                     log(`applyExtractedData: 装备 "${equipData.name}" 不在 equipmentStore 中（需通过 gain_equipment 标签生成），跳过`, 'info');
                     continue;
+                }
+                // 武器槽位自动决策：weapon/off_hand 可装备到任一手
+                if (newSlot === 'weapon' || newSlot === 'off_hand') {
+                    const player = getPlayerStore();
+                    newSlot = decideWeaponSlot(player.equipment);
                 }
                 // 确保装备在对应槽位
                 const player = getPlayerStore();

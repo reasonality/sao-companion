@@ -16,7 +16,7 @@ import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot 
 import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, forgetPlayerSkill, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
 import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
-import { getInventoryStore, removeEquipmentItem, addMaterial, addQuestItem } from './sao-store-inventory.js';
+import { getInventoryStore, removeEquipmentItem, addMaterial, addQuestItem, removeInventoryItemByItemId } from './sao-store-inventory.js';
 import { useConsumable as useConsumableStore, getConsumableById, getConsumableStore } from './sao-store-consumable.js';
 import { saveSettingsDebounced } from '../../../../script.js';
 import {
@@ -1557,7 +1557,15 @@ function renderInventoryDetail(item) {
     }
     const detailHtml = renderDetailInv(item, getEquipmentById, getConsumableById);
     if (item.type === 'consumable' && item.item_id) {
-        return detailHtml + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button></div>`;
+        return detailHtml + `<div style="margin-top:12px;text-align:center;display:flex;gap:10px;justify-content:center;">` +
+            `<button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button>` +
+            `<button class="sao-btn sao-btn-secondary" data-action="discardItem" data-item-id="${esc(item.item_id)}">丢弃</button>` +
+            `</div>`;
+    }
+    if ((item.type === 'material' || item.type === 'quest_item') && item.item_id) {
+        return detailHtml + `<div style="margin-top:12px;text-align:center;">` +
+            `<button class="sao-btn sao-btn-secondary" data-action="discardItem" data-item-id="${esc(item.item_id)}">丢弃</button>` +
+            `</div>`;
     }
     return detailHtml;
 }
@@ -2718,6 +2726,35 @@ function initPanelLogic() {
             }
         },
 
+        // R5: 丢弃物品（消耗品/材料/任务物品）
+        async discardItem(itemId) {
+            if (!itemId) return;
+            if (!confirm('确定丢弃此物品？此操作不可撤销。')) return;
+            try {
+                const invStore = getInventoryStore();
+                const item = invStore.items.find(i => i.item_id === itemId);
+                const itemName = item?.name || item?.consumable_id || itemId;
+                const removed = await removeInventoryItemByItemId(itemId);
+                if (!removed) {
+                    (typeof toastr !== 'undefined' ? toastr.error('无法丢弃：物品不存在。', 'SAO Companion') : alert('无法丢弃：物品不存在。'));
+                    return;
+                }
+                appendActionLog({
+                    action: 'drop_item',
+                    itemType: item?.type || 'unknown',
+                    itemName: itemName,
+                    result: 'success'
+                });
+                await saveStore();
+                log('物品已丢弃: ' + itemId);
+                closeDetailModal();
+                refreshStatus();
+            } catch (e) {
+                log('丢弃物品失败: ' + e.message, 'error');
+                (typeof toastr !== 'undefined' ? toastr.error('丢弃失败: ' + e.message, 'SAO Companion') : alert('丢弃失败: ' + e.message));
+            }
+        },
+
         // R5: 使用消耗品
         async useConsumable(itemId) {
             if (!itemId) return;
@@ -3162,6 +3199,11 @@ function initPanelLogic() {
                 case 'discardEquipment': {
                     const eqId = target.getAttribute('data-equipment-id');
                     if (eqId) window.SaoPanel.discardEquipment(eqId);
+                    break;
+                }
+                case 'discardItem': {
+                    const itemId = target.getAttribute('data-item-id');
+                    if (itemId) window.SaoPanel.discardItem(itemId);
                     break;
                 }
                 case 'storeBrowse': {
