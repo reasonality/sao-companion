@@ -218,7 +218,7 @@ export async function removeEquipmentById(equipmentId, skipSave) {
         return false;
     }
     // 跨引用校验：检查是否已穿戴
-    const playerStore = getStore().playerStore;
+    const playerStore = getStore()?.playerStore;
     if (playerStore?.equipment) {
         for (const slot of Object.keys(playerStore.equipment)) {
             if (playerStore.equipment[slot] === equipmentId) {

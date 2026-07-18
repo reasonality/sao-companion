@@ -4,7 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, setCustomSkills, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -772,7 +772,7 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
         if (s.meditationProficiency != null) {
             const curMed = getPlayerStore()?.meditationProficiency || 0;
             if (s.meditationProficiency > curMed) {
-                updateMeditationProficiency(s.medititationProficiency, true);
+                updateMeditationProficiency(s.meditationProficiency, true);
             }
         }
         // 子技熟练度同样只增不减

@@ -706,7 +706,16 @@ export function renderEquipmentPanel() {
             continue;
         }
         const ks = keyStats(detail, slot, 3);
-        result.push({ slot, slotDisplay: SLOT_DISPLAY[slot], equipId: id, name: detail.name, keyStats: ks });
+        result.push({
+            slot, slotDisplay: SLOT_DISPLAY[slot], equipId: id, name: detail.name, keyStats: ks,
+            weapon_type: detail.weapon_type || null,
+            rarity: detail.rarity || null,
+            item_level: detail.item_level ?? null,
+            stats: detail.stats || null,
+            affixes: detail.affixes || [],
+            description: detail.description || null,
+            source: detail.source || null,
+        });
     }
     return result;
 }
@@ -725,6 +734,12 @@ export function renderSkillPanel() {
             name: detail?.name || s.name || '?',
             proficiency: s.proficiency ?? 0,
             combat: detail?.combat || null,
+            weapon_type: detail?.weapon_type || null,
+            rarity: detail?.rarity || null,
+            effects: detail?.effects || null,
+            description: detail?.description || null,
+            source: detail?.source || null,
+            category: detail?.category || null,
         };
     });
 }

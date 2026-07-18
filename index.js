@@ -590,6 +590,8 @@ async function processGainTags(rawText) {
             continue;
         }
 
+        const specialEffectsMatch = attrs.match(/special_effects\s*=\s*["']([^"']*)["']/i);
+
         const buff = {
             id: buffId,
             source: sourceMatch[1].trim(),
@@ -1610,7 +1612,7 @@ async function loadPanelHTML() {
 const _dataStoreDefs = [
     { key: 'player',     label: '玩家',     kind: 'player',     get: () => getPlayerStore() },
     { key: 'world',      label: '世界',     kind: 'world',      get: () => getWorldStore() },
-    { key: 'calendar',   label: '日历',     kind: 'calendar',   get: () => getStore().calendarStore },
+    { key: 'calendar',   label: '日历',     kind: 'calendar',   get: () => getStore()?.calendarStore },
     { key: 'npc',        label: 'NPC',     kind: 'collection', idField: 'npc_id',       get: () => getNpcStore() },
     { key: 'floor',      label: '楼层',     kind: 'collection', idField: 'floor_id',     get: () => getFloorStoreWithCanon() },  // 合并内存态 canon 供 UI 显示
     { key: 'equipment',  label: '装备',     kind: 'collection', idField: 'equipment_id', get: () => getEquipmentStore() },
@@ -1618,7 +1620,7 @@ const _dataStoreDefs = [
     { key: 'consumable', label: '消耗品',   kind: 'collection', idField: 'consumable_id', get: () => getConsumableStore() },
     { key: 'quest',      label: '任务',     kind: 'collection', idField: 'quest_id',     get: () => getQuestStore() },
     { key: 'inventory',  label: '背包',     kind: 'inventory',  get: () => getInventoryStore() },
-    { key: 'runtime',    label: '运行时',   kind: 'runtime',    get: () => getStore().runtime },
+    { key: 'runtime',    label: '运行时',   kind: 'runtime',    get: () => getStore()?.runtime },
 ];
 
 // 字段 ID 形如 _xxx / xxx_id / xxx_hash 的视为只读元信息

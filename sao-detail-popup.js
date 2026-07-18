@@ -63,6 +63,7 @@ export function renderDetailEquip(item) {
         rows.push(detailRow('附魔', affixHtml));
     }
     if (item.description) rows.push(detailRow('描述', esc(item.description)));
+    if (item.source) rows.push(detailRow('来源', esc(item.source)));
     // 如果没有任何行，至少显示名称防止空弹窗
     if (rows.length === 0 && item.name) rows.push(detailRow('名称', esc(item.name)));
     return rows.join('');
@@ -72,6 +73,7 @@ export function renderDetailEquip(item) {
 export function renderDetailSkill(sk, describeEnFn) {
     const rows = [];
     if (sk.weapon_type) rows.push(detailRow('武器类型', esc(sk.weapon_type)));
+    if (sk.category) rows.push(detailRow('类别', esc(sk.category)));
     if (sk.proficiency != null) rows.push(detailRow('技能等级', 'Lv' + esc(sk.proficiency)));
     if (sk.rarity) rows.push(detailRow('稀有度', esc(sk.rarity), rarityClass(sk.rarity)));
     // combat 字段：ATK/Hit%/Crit%/APT/TPA/MP/CD（技能详情弹窗之前缺失，只剩等级+稀有度）
@@ -103,6 +105,7 @@ export function renderDetailSkill(sk, describeEnFn) {
         }
     }
     if (sk.description) rows.push(detailRow('描述', esc(sk.description)));
+    if (sk.source) rows.push(detailRow('来源', esc(sk.source)));
     // 遗忘剑技按钮
     if (sk.skill_id) {
         rows.push(`<div style="margin-top:12px;text-align:center;">
