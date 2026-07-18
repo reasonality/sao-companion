@@ -636,11 +636,13 @@ export async function callAcquisitionSpecialist(narrativeText) {
 ## 标签格式（9类）
 
 ### 1. 剑技领悟
-<gain_skill name="剑技名" weapon_type="武器类型" rarity="稀有度" atk="攻击力" hit="命中率" crit="暴击率" apt="攻击次数" tpa="目标数" mp_cost="MP消耗" description="1-2句描述">武器类型</gain_skill>
+<gain_skill name="剑技名" weapon_type="武器类型" rarity="稀有度" description="1-2句描述">武器类型</gain_skill>
+注意：不要输出 atk/hit/crit/apt/tpa/mp_cost 等数值字段。数值由系统根据武器类型和稀有度自动计算。
 
 ### 2. 装备获取
-<gain_equipment name="装备名" slot="槽位" weapon_type="武器类型" rarity="稀有度" item_level="等级" max_hp="HP加成" str="STR加成" agi="AGI加成" int="INT加成" vit="VIT加成" affixes="词缀1,词缀2" description="1-2句描述">装备</gain_equipment>
+<gain_equipment name="装备名" slot="槽位" weapon_type="武器类型" rarity="稀有度" description="1-2句描述">装备</gain_equipment>
 slot枚举: weapon/off_hand/head/chest/hands/legs/accessory
+注意：不要输出 max_hp/str/agi/int/vit/affixes/item_level 等数值字段。数值由系统根据稀有度自动计算。你只需决定 name/slot/weapon_type/rarity/description。
 
 ### 3. 消耗品获得
 <gain_consumable name="物品名" category="类别" rarity="稀有度" description="1-2句描述">类别:稀有度</gain_consumable>
@@ -670,11 +672,10 @@ action: create(创建,默认)/join(加入)/leave(离开)
 稀有度由你根据叙事语境决定：白色=杂兵掉落/普通商店；绿色=精英怪/普通任务；蓝色=楼层Boss/重要任务/隐藏宝箱；紫色=关键剧情/稀有掉落/特殊事件。
 不要滥用高稀有度——保持稀缺感。
 
-## 数值参考
-- 剑技 atk: 普通技能 80-150, 稀有技能 150-300, 高级技能 300+
-- 剑技 hit: 70-95, crit: 1-20
-- 装备 max_hp: 白色 10-30, 绿色 30-60, 蓝色 60-100, 紫色 100+
-- 装备属性 str/agi/int/vit: 白色 1-2, 绿色 2-5, 蓝色 5-10, 紫色 10+（白色至少1，不能全0）
+## 数值参考（由系统自动计算，你无需输出数值字段）
+- 剑技数值（atk/hit/crit/apt/tpa/mp_cost）：系统根据武器类型和技能等级自动计算
+- 装备数值（max_hp/str/agi/int/vit/affixes/item_level）：系统根据稀有度自动计算
+- 你只需决定稀有度（白色/绿色/蓝色/紫色），系统按稀有度表生成对应数值
 
 ## 重要
 - 数值必须是合理范围内的正整数（0 除外：hit/crit/mp_cost 可为 0）
