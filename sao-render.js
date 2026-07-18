@@ -2161,7 +2161,7 @@ function _collectNewEquipmentEntries() {
         if (!entry || _shownNotificationEquipmentIds.has(id)) continue;
         // 附加 equipment_id 字段符合 _renderEquipShared 的预期（不影响输出）
         newEntries.push({ ...entry, equipment_id: id });
-        _shownNotificationEquipmentIds.add(id);
+        // NOTE: don't add to Set here — only after successful render
     }
     return newEntries;
 }
@@ -2185,10 +2185,10 @@ function _collectNewSkillEntries() {
         const def = store.byId[id];
         if (!def) continue;
         // 故意剥离 skill_id：suppress _renderSkillShared 中的"遗忘此剑技"按钮
-        const merged = { ...def, proficiency: s.proficiency ?? 0, name: def.name || s.name };
+        const merged = { ...def, proficiency: s.proficiency ?? 0, name: def.name || s.name, _skillId: id };
         delete merged.skill_id;
         newEntries.push(merged);
-        _shownNotificationSkillIds.add(id);
+        // NOTE: don't add to Set here — only after successful render
     }
     return newEntries;
 }
@@ -2300,6 +2300,10 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
             </details>
         </div>
     `
+    // Only mark as shown after successful render
+    for (const eq of newEntries) {
+        if (eq.equipment_id) _shownNotificationEquipmentIds.add(eq.equipment_id);
+    }
 }
 
 function renderSwordSkill(messageEl, rawText, messageId, refNode) {
@@ -2321,5 +2325,9 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
             </details>
         </div>
     `
+    // Only mark as shown after successful render
+    for (const sk of newEntries) {
+        if (sk._skillId) _shownNotificationSkillIds.add(sk._skillId);
+    }
 }
 
