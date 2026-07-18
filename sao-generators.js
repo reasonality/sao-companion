@@ -307,11 +307,13 @@ export async function generateEquipment(context, callModelFn, prefilledName, pre
                 if (v > hi) { log('generateEquipment: ' + name + ' ' + v + ' 过高，钳制到 ' + hi, 'warn'); return hi; }
                 return v;
             };
-            stats.maxHp = clamp(pf.stats.maxHp ?? stats.maxHp, 0, 9999, 'maxHp');
-            stats.str = clamp(pf.stats.str ?? stats.str, 0, 9999, 'str');
-            stats.agi = clamp(pf.stats.agi ?? stats.agi, 0, 9999, 'agi');
-            stats.int = clamp(pf.stats.int ?? stats.int, 0, 9999, 'int');
-            stats.vit = clamp(pf.stats.vit ?? stats.vit, 0, 9999, 'vit');
+            // 注意：prefilled 里的 0 视为"未提供"，fallback 到骰子值
+            // 子 LLM 可能输出 str="0"，不应覆盖骰子算出的合理值
+            stats.maxHp = clamp((pf.stats.maxHp != null && pf.stats.maxHp > 0) ? pf.stats.maxHp : stats.maxHp, 0, 9999, 'maxHp');
+            stats.str = clamp((pf.stats.str != null && pf.stats.str > 0) ? pf.stats.str : stats.str, 0, 9999, 'str');
+            stats.agi = clamp((pf.stats.agi != null && pf.stats.agi > 0) ? pf.stats.agi : stats.agi, 0, 9999, 'agi');
+            stats.int = clamp((pf.stats.int != null && pf.stats.int > 0) ? pf.stats.int : stats.int, 0, 9999, 'int');
+            stats.vit = clamp((pf.stats.vit != null && pf.stats.vit > 0) ? pf.stats.vit : stats.vit, 0, 9999, 'vit');
         }
         if (Array.isArray(pf.affixes) && pf.affixes.length > 0) affixNames = pf.affixes.slice();
         if (pf.item_level != null) {
