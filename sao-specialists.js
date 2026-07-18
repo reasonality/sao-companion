@@ -651,10 +651,12 @@ category枚举: hp_restore/mp_restore/full_restore/buff/cure
 ### 4. Buff获得
 <gain_buff name="buff名" source="来源" permanent="false" duration="持续" str="加成值" vit="加成值" special_effects="特殊效果">描述</gain_buff>
 source枚举: food/furniture/title/guild/equipment_set/skill/special_event/enemy_trait
+加成值范围: 1-10（按 buff 强度决定，title/guild 通常 3-10，food 通常 1-3）。至少输出 1 个非 0 加成值或 special_effects。
 
 ### 5. 公会事件
 <gain_guild action="create" name="公会名" leader="会长" description="描述" buff_name="buff名" str="加成" vit="加成">公会</gain_guild>
 action: create(创建,默认)/join(加入)/leave(离开)
+公会 buff 加成值范围: 5-15（公会 buff 通常比个人 buff 强）。
 
 ### 6. 材料获得
 <gain_material name="材料名" qty="数量" rarity="稀有度" description="描述">材料</gain_material>
