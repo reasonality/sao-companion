@@ -2265,19 +2265,26 @@ function _buildNpcCard(npc) {
                 ${npc.floor_id != null ? `<span class="sao-pill sao-pill-floor">F${esc(npc.floor_id)}</span>` : ''}
             </span>
         </div>`;
+    const _EMPTY = '<span style="opacity:0.5">—</span>';
     const rows = [];
-    if (npc.location) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">位置</span><span class="sao-detail-value">${esc(npc.location)}</span></div>`);
-    if (npc.uniqueSkill?.name) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">独特技能</span><span class="sao-detail-value">${esc(npc.uniqueSkill.name)}</span></div>`);
+    // 关系（header pill 已显示，但也作为 row 全显示）
+    rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">关系</span><span class="sao-detail-value">${npc.relationship ? esc(npc.relationship) : _EMPTY}</span></div>`);
+    rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">好感度</span><span class="sao-detail-value">${npc.affinity ? '❤ ' + esc(npc.affinity) : _EMPTY}</span></div>`);
+    rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">楼层</span><span class="sao-detail-value">${npc.floor_id != null ? 'F' + esc(npc.floor_id) : _EMPTY}</span></div>`);
+    rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">位置</span><span class="sao-detail-value">${npc.location ? esc(npc.location) : _EMPTY}</span></div>`);
+    rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">独特技能</span><span class="sao-detail-value">${npc.uniqueSkill?.name ? esc(npc.uniqueSkill.name) : _EMPTY}</span></div>`);
     if (npc.status && npc.status.length) {
         const tags = npc.status.map(s => `<span class="sao-tag">${esc(s)}</span>`).join(' ');
         rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">状态</span><span class="sao-detail-value" style="text-align:right;display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">${tags}</span></div>`);
+    } else {
+        rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">状态</span><span class="sao-detail-value">${_EMPTY}</span></div>`);
     }
-    if (npc.last_seen_date) rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">最后目击</span><span class="sao-detail-value">${esc(npc.last_seen_date)}</span></div>`);
-    const rowsBlock = rows.length ? `<div class="sao-notify-rows">${rows.join('')}</div>` : '';
+    rows.push(`<div class="sao-detail-row"><span class="sao-detail-label">最后目击</span><span class="sao-detail-value">${npc.last_seen_date ? esc(npc.last_seen_date) : _EMPTY}</span></div>`);
+    const rowsBlock = `<div class="sao-notify-rows">${rows.join('')}</div>`;
     const obs = npc.observations && npc.observations.length
         ? npc.observations.slice(-3).map(o => esc(o)).join(' · ')
         : '';
-    const obsBlock = obs ? `<div class="sao-notify-desc"><strong>观察</strong>${obs}</div>` : '';
+    const obsBlock = `<div class="sao-notify-desc"><strong>观察</strong>${obs || _EMPTY}</div>`;
     return `<div class="sao-notify-item">${head}${rowsBlock}${obsBlock}</div>`;
 }
 
