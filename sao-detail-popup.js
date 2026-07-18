@@ -113,11 +113,20 @@ export function renderDetailSkill(sk, describeEnFn) {
 }
 
 /** 物品详情行。equipmentResolver 为可选的装备解析函数（传入返回装备 def 或 null）。 */
-export function renderDetailInv(item, equipmentResolver) {
+export function renderDetailInv(item, equipmentResolver, consumableResolver) {
     if (item.type === 'equipment' && item.equipment_id && equipmentResolver) {
         const eq = equipmentResolver(item.equipment_id);
         if (eq) return renderDetailEquip(eq);
     }
+    // 消耗品：用 consumable_id 从 consumableStore 查定义并合并显示
+    if (item.type === 'consumable' && item.consumable_id && consumableResolver) {
+        const def = consumableResolver(item.consumable_id);
+        if (def) {
+            // 合并：def 的完整字段 + item 的 qty
+            return renderDetailConsumable(def, item.qty);
+        }
+    }
+    // 材料/任务物品/无 resolver 的 fallback：用 inventory item 自身字段
     const TYPE_LABELS = { equipment: '装备', consumable: '消耗品', material: '材料', quest_item: '任务物品' };
     const rows = [];
     if (item.name) rows.push(detailRow('名称', esc(item.name)));
@@ -129,5 +138,34 @@ export function renderDetailInv(item, equipmentResolver) {
         rows.push(detailRow('效果', item.effects.map(e => esc(typeof e === 'string' ? e : e.name || JSON.stringify(e))).join(', ')));
     }
     if (item.description) rows.push(detailRow('描述', esc(item.description)));
+    return rows.join('');
+}
+
+/** 消耗品详情弹窗 — 显示完整 schema 字段：name/category/rarity/item_level/effects/description/source + qty */
+function renderDetailConsumable(def, qty) {
+    const RARITY_EN_TO_CN = { common: '白色', uncommon: '绿色', rare: '蓝色', epic: '紫色', legendary: '金色' };
+    const CATEGORY_CN = { hp_restore: 'HP恢复', mp_restore: 'MP恢复', full_restore: '全恢复', buff: '增益', cure: '治疗', narrative: '叙事效果' };
+    const rows = [];
+    if (def.name) rows.push(detailRow('名称', esc(def.name)));
+    if (qty != null) rows.push(detailRow('数量', esc(qty)));
+    if (def.category) rows.push(detailRow('类别', esc(CATEGORY_CN[def.category] || def.category)));
+    const rarityCn = RARITY_EN_TO_CN[def.rarity] || def.rarity;
+    if (def.rarity) rows.push(detailRow('稀有度', esc(rarityCn), rarityClass(def.rarity)));
+    if (def.item_level != null) rows.push(detailRow('物品等级', '⭐' + esc(def.item_level)));
+    // effects: 数值效果（restore/buff/cure）+ 叙事效果
+    if (def.effects && def.effects.length > 0) {
+        const effectHtml = def.effects.map(e => {
+            if (typeof e === 'string') return `<span class="sao-tag">${esc(e)}</span>`;
+            const parts = [];
+            if (e.type) parts.push(e.type);
+            if (e.target) parts.push(e.target);
+            if (e.value != null) parts.push(e.value);
+            if (e.description) parts.push(e.description);
+            return `<span class="sao-tag">${esc(parts.join(' '))}</span>`;
+        }).join(' ');
+        rows.push(detailRow('效果', effectHtml));
+    }
+    if (def.description) rows.push(detailRow('描述', esc(def.description)));
+    if (def.source) rows.push(detailRow('来源', esc(def.source)));
     return rows.join('');
 }

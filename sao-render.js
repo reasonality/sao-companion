@@ -1585,7 +1585,7 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
 // 详情弹窗渲染辅助（_renderDetailInv 封装 getEquipmentById 部分应用）
 // ============================================================
 
-function _renderDetailInv(item) { return _renderInvShared(item, getEquipmentById); }
+function _renderDetailInv(item) { return _renderInvShared(item, getEquipmentById, getConsumableById); }
 
 /**
  * C3/C5.5: 为状态面板交互按钮附加事件监听。

@@ -1553,7 +1553,7 @@ function renderInventoryDetail(item) {
                 `</div>`;
         }
     }
-    const detailHtml = renderDetailInv(item);
+    const detailHtml = renderDetailInv(item, getEquipmentById, getConsumableById);
     if (item.type === 'consumable' && item.item_id) {
         return detailHtml + `<div style="margin-top:12px;text-align:center;"><button class="sao-btn" data-action="useConsumable" data-item-id="${esc(item.item_id)}">使用</button></div>`;
     }
