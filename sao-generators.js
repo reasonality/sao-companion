@@ -415,6 +415,17 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
     const skillLevel = context.skillLevel || 1;
     const pf = context.prefilled;
 
+    // Non-combat skill categories — no atk/hit/crit/apt/tpa/mpCost
+    const NON_COMBAT_CATEGORIES = ['support', 'crafting', 'gathering', 'cooking', 'utility', 'social', '探索', '采集', '锻造', '烹饪', '支援', '社交', '生活'];
+    const isNonCombat = (cat) => {
+        if (!cat) return false;
+        const c = String(cat).toLowerCase();
+        return NON_COMBAT_CATEGORIES.some(nc => c.includes(String(nc).toLowerCase()));
+    };
+
+    const skillCategory = (pf && pf.category) ? pf.category : 'sword_skill';
+    const _isNonCombatSkill = isNonCombat(skillCategory);
+
     // 1) 掷稀有度 (1D20)
     let rarityEntry = lookupRoll(SKILL_RARITY_TABLE, (Math.floor(Math.random() * 20) + 1));
 
@@ -500,8 +511,8 @@ export async function generateSkill(context, callModelFn, prefilledName, prefill
         name: '',
         weapon_type: weaponType,
         rarity: rarityEn,
-        category: (pf && pf.category) ? pf.category : 'sword_skill',
-        combat: {
+        category: skillCategory,
+        combat: _isNonCombatSkill ? null : {
             atk: _baseATK,
             hit: _hitRate,
             crit: _critRate,
@@ -576,9 +587,9 @@ ${fullSkillJson}
         const skillId = findOrCreateSkill({
             name: skill.name,
             rarity: skill.rarity,
-            category: (pf && pf.category) ? pf.category : 'sword_skill',
+            category: skillCategory,
             weapon_type: skill.weapon_type,
-            combat: {
+            combat: _isNonCombatSkill ? null : {
                 atk: skill.base_damage,
                 hit: skill.hit_rate,
                 crit: skill.crit_rate,

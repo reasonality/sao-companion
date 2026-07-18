@@ -635,9 +635,10 @@ export async function callAcquisitionSpecialist(narrativeText) {
 
 ## 标签格式（9类）
 
-### 1. 剑技领悟
-<gain_skill name="剑技名" weapon_type="武器类型" rarity="稀有度" description="1-2句描述">武器类型</gain_skill>
-注意：不要输出 atk/hit/crit/apt/tpa/mp_cost 等数值字段。数值由系统根据武器类型和稀有度自动计算。
+### 1. 技能领悟
+<gain_skill name="技能名" weapon_type="武器类型" category="技能类别" rarity="稀有度" description="1-2句描述">武器类型</gain_skill>
+category枚举: sword_skill(剑技/战斗技能)/support(支援)/gathering(采集)/crafting(锻造)/cooking(烹饪)/utility(通用)/social(社交)
+注意：不要输出 atk/hit/crit/apt/tpa/mp_cost 等数值字段。数值由系统根据武器类型和稀有度自动计算。非战斗技能（support/gathering/crafting/cooking/utility/social）不会有战斗数值。
 
 ### 2. 装备获取
 <gain_equipment name="装备名" slot="槽位" weapon_type="武器类型" rarity="稀有度" description="1-2句描述">装备</gain_equipment>
