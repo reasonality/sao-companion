@@ -4,7 +4,7 @@
 import { getSettings, log, getSaoData, safeJsonParse } from './sao-core.js';
 import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
 import { getWorldStore } from './sao-store-world.js';
-import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR } from './sao-store-player.js';
+import { getPlayerStore, updatePlayerProgression, updatePlayerPosition, updatePlayerIdentity, equipItem, updateMeditationProficiency, updateSubTechniqueProficiency, initStartingCharacter, STARTING_COR, updatePlayerVitals } from './sao-store-player.js';
 import { SLOT_ENUM } from './sao-store-equipment.js';
 import { getEquipmentStore } from './sao-store-equipment.js';
 import { getSkillById, getSkillStore } from './sao-store-skill.js';
@@ -645,12 +645,29 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
         }
 
         // 1. 数值 → playerStore（逻辑管理：新游戏数值全部由插件逻辑定义，
-        //    不从卡片/LLM 读取 STR/AGI/INT/VIT/HP/MP。装备加成在上方 equipItem 中已处理。
-        //    之后 LLM 消息不再覆盖数值；maxHp/maxMp 由升级成长 + 装备加成管理。
+        //    不从卡片/LLM 读取 STR/AGI/INT/VIT。装备加成在上方 equipItem 中已处理。
+        //    STR/AGI/INT/VIT 是成长变量，由升级+装备管理，不从 LLM 提取。
+        //    HP/MP 是剧情变量（受伤/恢复），从状态专家提取并应用。
         if (isNewGame) {
             initStartingCharacter();
         }
-        // 非新游戏：hp/mp/str/agi/int/vit 不再从 LLM 提取覆盖
+
+        // HP/MP 更新（剧情驱动：受伤/恢复/消耗）
+        // updatePlayerVitals 会 clamp 到 [0, max]，安全
+        if (!isNewGame && (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null)) {
+            try {
+                await updatePlayerVitals({
+                    hp: s.hp,
+                    maxHp: s.max_hp,
+                    mp: s.mp,
+                    maxMp: s.max_mp,
+                }, true);
+                log(`HP/MP 更新: HP ${s.hp ?? '?'}/${s.max_hp ?? '?'}, MP ${s.mp ?? '?'}/${s.max_mp ?? '?'}`);
+            } catch (e) {
+                log('HP/MP 更新失败: ' + e.message, 'warn');
+            }
+        }
+        // STR/AGI/INT/VIT 不从 LLM 提取覆盖（成长变量，由升级+装备管理）
 
         if (s.level != null || s.exp != null) {
             await updatePlayerProgression(s.level, s.exp, true);
