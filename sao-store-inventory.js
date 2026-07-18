@@ -3,7 +3,10 @@
 
 import { getStore, saveStore } from './sao-store-core.js';
 import { log } from './sao-core.js';
-import { getPlayerStore } from './sao-store-player.js';
+// 注意：不直接 import getPlayerStore from sao-store-player.js
+// sao-store-player.js 已 import { getInventoryStore } from 本模块
+// 直接反向 import 会形成循环依赖，ES module 在某些加载顺序下 export 为 undefined
+// 用懒加载避免循环
 
 // ============================================================
 // 常量
@@ -71,7 +74,9 @@ export async function addEquipmentItem(equipmentId, skipSave) {
         return existing.item_id;
     }
     // 去重：已装备的物品不入包（装备栏和背包是同一物品的两个位置，不应同时存在）
+    // 用懒加载避免循环依赖（sao-store-player.js 已 import 本模块）
     try {
+        const { getPlayerStore } = await import('./sao-store-player.js');
         const player = getPlayerStore();
         for (const [slot, eqId] of Object.entries(player?.equipment || {})) {
             if (eqId === equipmentId) {
