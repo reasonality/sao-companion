@@ -668,7 +668,7 @@ function cleanupSaoLightDom(messageEl) {
         const text = p.textContent;
         // 匹配 SAO 标签的转义形式（DOMPurify 剥离后残留的 &lt;swordskill&gt; 等）
         // 或 specialist 输出格式的残留纯文本（📜 词条 / ⚔️ 基础攻击力 等 emoji 行）
-        const hasEscapedTag = /&lt;\/?(?:equip|swordskill|user_status|zd_status|calendar|map|system_state_ref|digest)&gt;/i.test(text);
+        const hasEscapedTag = /&lt;\/?(?:equip|swordskill|user_status|zd_status|calendar|map|system_state_ref|digest|gain_equipment|gain_skill|gain_consumable|gain_buff|gain_guild|gain_material|gain_quest_item|use_item|remove_item)&gt;/i.test(text);
         // 检测 specialist 面板格式的残留文本（多行 emoji 属性列表）
         const specialistPatterns = [
             /📜\s*词条/, /⚔️\s*基础攻击力/, /🎯\s*命中率/, /💥\s*暴击率/,
