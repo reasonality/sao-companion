@@ -262,6 +262,7 @@ export function getPlayerGuild() {
 
 /**
  * 玩家加入公会（自动应用公会 buff）。
+ * 注意：本函数不调用 saveStore()，由调用方负责保存（参考 processGainTags 的 gain_guild 处理）。
  * @param {string} guildName - 公会名称
  * @returns {boolean} 是否成功加入
  */
@@ -290,6 +291,7 @@ export function joinGuild(guildName) {
 
 /**
  * 玩家离开当前公会（移除公会 buff）。
+ * 注意：本函数不调用 saveStore()，由调用方负责保存（参考 processGainTags 的 gain_guild 处理）。
  * @returns {boolean} 是否成功离开
  */
 export function leaveGuild() {
