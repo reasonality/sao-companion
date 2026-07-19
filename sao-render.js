@@ -746,7 +746,10 @@ function renderUserStatus(messageEl, rawText, messageId, refNode) {
             const _stripRe = new RegExp(`<(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})\\b[^>]*>[\\s\\S]*?<\\/(?:${SAO_CUSTOM_TAGS.filter(t => t !== 'user_status').join('|')})>`, 'gi');
             content = tagContent.replace(_stripRe, '');
         }
-        if (content === null) return;
+        // 4. 最终回退：创建空面板占位（防止 store 出错时面板完全消失）
+        if (content === null) {
+            content = '<div class="sao-status-section" data-sao-section="info"><div class="sao-status-section-title">玩家状态</div><div style="opacity:0.5;padding:8px;">状态数据加载中...</div></div>';
+        }
     }
     const { shadow } = createSaoShadowHost(messageEl, 'user_status', refNode)
     // 保留已有 details 的 open 状态（renderAllTags 每次重建 innerHTML 会丢失）
