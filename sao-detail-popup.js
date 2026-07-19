@@ -51,7 +51,7 @@ export function renderDetailEquip(item) {
     }
     if (item.item_level != null) rows.push(detailRow('物品等级', esc(item.item_level)));
     if (item.stats) {
-        const labels = { max_hp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT', atk: '⚔️ ATK', hit: '🎯 HIT', crit: '💥 CRIT' };
+        const labels = { maxHp: '❤️ HP', str: '💪 STR', agi: '🏃 AGI', int: '🧠 INT', vit: '🔋 VIT', atk: '⚔️ ATK', hit: '🎯 HIT', crit: '💥 CRIT' };
         for (const [k, v] of Object.entries(item.stats)) {
             if (v != null) rows.push(detailRow(labels[k] || esc(k.toUpperCase()), '+' + esc(v)));
         }
