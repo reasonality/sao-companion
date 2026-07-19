@@ -403,816 +403,6 @@ function enableCardRegex() {
  * 格式: <gain_skill name="剑技名" weapon_type="武器类型" description="描述">武器类型</gain_skill>
  *       <gain_equipment name="装备名" slot="槽位" stat_type="类型" rarity="稀有度" description="描述">类型:稀有度</gain_equipment>
  */
-// SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.45 (用原卡模板替换自写美化)
-// 功能: 多模型分工 + 状态监控 + 独立控制台
-
-import { renderExtensionTemplateAsync } from '../../../extensions.js';
-import {
-    MODULE_NAME, logs,
-    esc, getContext, getCurrentCharacter, isSaoCard,
-    getSettings,
-    getSaoData,
-    safeJsonParse, safe,
-    log, updateLogDisplay,
-    bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
-} from './sao-core.js';
-import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot } from './sao-store-core.js';
-import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, forgetPlayerSkill, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
-import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
-import { getSkillById, getSkillStore } from './sao-store-skill.js';
-import { getInventoryStore, removeEquipmentItem, addMaterial, addQuestItem, removeInventoryItemByItemId } from './sao-store-inventory.js';
-import { useConsumable as useConsumableStore, getConsumableById, getConsumableStore } from './sao-store-consumable.js';
-import { saveSettingsDebounced } from '../../../../script.js';
-import {
-    generateEquipment, generateSkill, generateLoot, generateConsumable,
-} from './sao-generators.js';
-import { event_types } from '../../../events.js';
-import { power_user } from '../../../power-user.js';
-
-import {
-    initCalendarIfNeeded,
-    updateCalendarIncremental,
-    persistCalendar,
-    parseDate, formatDate,
-    addAppointmentToCalendar,
-    buildCleanCalendarDays,
-} from './sao-calendar.js';
-import { buildCalCellHtml } from './sao-calendar-cell.js';
-import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-detail-popup.js';
-
-import { extractAll, applyExtractedData } from './sao-extract.js';
-import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks, checkUniqueSkillUnlocks } from './sao-skills.js';
-import { expireBuffs, addTemporaryBuff, addPermanentBuff } from './sao-buff.js';
-import { initPresetGuilds, createGuild, joinGuild, leaveGuild, getGuildByName } from './sao-store-guild.js';
-import {
-    getEffectCodeTable, resetEffectCodeTable,
-    initToolSystem,
-} from './sao-tools.js';
-import { getFloorStore, getFloorById, getFloorStoreWithCanon } from './sao-store-floor.js';
-import { runLorebookPreParser } from './sao-preparser.js';
-import { getWorldStore } from './sao-store-world.js';
-import { getNpcStore } from './sao-store-npc.js';
-import { getQuestStore } from './sao-store-quest.js';
-import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
-import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
-// memory.js 已移除
-import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
-import { DOMPurify } from '../../../../lib.js';
-import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
-import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist, callAcquisitionSpecialist } from './sao-specialists.js';
-import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
-import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
-import { DANGER_LABEL } from './sao-state-projection.js';
-// sao-rules.js 已删除（规则段落直接内联到各专家 systemPrompt）
-
-
-// ============================================================
-// 常量
-// ============================================================
-
-/** 装备槽中文标签 — 侧栏/装备列表用（完整 slot 集，与 sao-state-projection.js SLOT_DISPLAY 不同：投影用短标签） */
-const SLOT_LABELS = {
-    weapon: '武器', off_hand: '副手',
-    armor: '防具', chest: '胸部', helmet: '头盔', head: '头部',
-    boots: '靴子', legs: '腿部', gloves: '手套', hands: '手部',
-    shield: '盾牌', accessory: '饰品', ring: '戒指', necklace: '项链',
-    cape: '披风', belt: '腰带',
-};
-
-// ============================================================
-// 骰子表常量已迁移至 sao-generators.js
-// ============================================================
-
-// ============================================================
-// P4c: 自定义技能系统 (Custom Skill System)
-// ============================================================
-
-// 骰子工具函数已迁移至 sao-generators.js
-
-// ============================================================
-// 工具函数
-// ============================================================
-
-const _processingLocks = {};
-let _saoCurrentData = {};
-let _initChainDone = false; // 协调 CHAT_CHANGED 和 safety net，防止 init 链重复执行
-
-/** 运行 init 链：injectMemoryAndState + initCalendarIfNeeded + initPresetGuilds + _initChainDone 标志
- *  从 CHAT_CHANGED 调用。新游戏时延迟到 first_mes IIFE 完成后调用（避免读到空 store）。 */
-function _runInitChainAfterFirstMes() {
-    injectMemoryAndState();
-    initCalendarIfNeeded();
-    initPresetGuilds();
-    _initChainDone = true;
-}
-function withProcessingLock(key, fn) {
-    const prev = _processingLocks[key] || Promise.resolve();
-    const next = prev.then(() => fn()).catch(e => {
-        log(`Processing error (${key}): ${e.message}`, 'error');
-    }).finally(() => {
-        // 没有后续任务排队进来时，清理自己，避免内存长期累积
-        if (_processingLocks[key] === next) delete _processingLocks[key];
-    });
-    _processingLocks[key] = next;
-    return next;
-}
-
-// ============================================================
-// 子代理任务
-// ============================================================
-
-// ============================================================
-// <zd_status> 和 <user_status> 正则解析器 (FIX 1)
-// ============================================================
-// [sao-extract.js] parseZdStatus, parseUserStatus, extractAll, applyExtractedData 已移至 sao-extract.js
-
-// ============================================================
-// 生成子代理已迁移至 sao-generators.js
-// ============================================================
-
-// ============================================================
-// SAO 卡兼容模式（替代 TavernHelper 脚本）
-// ============================================================
-
-/**
- * 启用 SAO 卡兼容模式
- * 1. 关闭不兼容的酒馆设置（修改全局 power_user）
- * 2. 启用角色卡局部正则
- *
- * 全局设置副作用（有保存/恢复机制，见 disableCompatMode）：
- * - auto_fix_generated_markdown → false
- * - encode_tags → false
- * - trim_sentences → false
- * - forbid_external_media → true
- * 风险: 若插件异常退出未执行 disableCompatMode，用户全局设置可能残留。
- */
-function enableCompatMode() {
-    const settings = getSettings();
-    if (!settings.compatMode) return;
-
-    // === 1. 关闭不兼容设置 ===
-    try {
-        if (power_user) {
-            // 保存原始值（始终覆盖，确保崩溃后恢复最新基线）
-            settings._savedPowerUser = {
-                auto_fix_generated_markdown: power_user.auto_fix_generated_markdown,
-                encode_tags: power_user.encode_tags,
-                trim_sentences: power_user.trim_sentences,
-                forbid_external_media: power_user.forbid_external_media,
-            };
-
-            // 关闭不兼容选项
-            power_user.auto_fix_generated_markdown = false;
-            power_user.encode_tags = false;
-            power_user.trim_sentences = false;
-            power_user.forbid_external_media = true;
-
-            // 更新 UI 复选框
-            $('#auto_fix_generated_markdown').prop('checked', false);
-            $('#encode_tags').prop('checked', false);
-            $('#trim_sentences_checkbox').prop('checked', false);
-            $('#forbid_external_media').prop('checked', true);
-
-            // 保存设置
-            if (window.saveSettingsDebounced) window.saveSettingsDebounced();
-            log('已关闭不兼容选项（自动修复Markdown/显示标签/修剪句子/禁止外部媒体）');
-        }
-    } catch (e) {
-        log('关闭不兼容选项失败: ' + e.message, 'warn');
-    }
-
-    // === 2. 启用角色卡局部正则 ===
-    enableCardRegex();
-}
-
-/**
- * 恢复原始设置（切出 SAO 卡时）
- */
-function disableCompatMode() {
-    if (!power_user) return;
-
-    const settings = getSettings();
-    const saved = settings._savedPowerUser;
-    if (!saved) return;
-
-    let restored = false;
-    if (saved.auto_fix_generated_markdown !== undefined) {
-        power_user.auto_fix_generated_markdown = saved.auto_fix_generated_markdown;
-        $('#auto_fix_generated_markdown').prop('checked', saved.auto_fix_generated_markdown);
-        restored = true;
-    }
-    if (saved.encode_tags !== undefined) {
-        power_user.encode_tags = saved.encode_tags;
-        $('#encode_tags').prop('checked', saved.encode_tags);
-        restored = true;
-    }
-    if (saved.trim_sentences !== undefined) {
-        power_user.trim_sentences = saved.trim_sentences;
-        $('#trim_sentences_checkbox').prop('checked', saved.trim_sentences);
-        restored = true;
-    }
-    if (saved.forbid_external_media !== undefined) {
-        power_user.forbid_external_media = saved.forbid_external_media;
-        $('#forbid_external_media').prop('checked', saved.forbid_external_media);
-        restored = true;
-    }
-    if (restored) {
-        delete settings._savedPowerUser;
-        if (window.saveSettingsDebounced) window.saveSettingsDebounced();
-        log('已恢复原始酒馆设置');
-    }
-
-    // 恢复被 enableCardRegex 启用的正则脚本的 disabled 状态
-    if (settings._savedRegexState && settings._savedRegexState.length > 0) {
-        try {
-            const char = getCurrentCharacter();
-            if (char?.data?.extensions?.regex_scripts) {
-                const scripts = char.data.extensions.regex_scripts;
-                let restoredCount = 0;
-                settings._savedRegexState.forEach(savedEntry => {
-                    const script = scripts.find(s => s.scriptName === savedEntry.scriptName);
-                    if (script && savedEntry.disabled) {
-                        script.disabled = true;
-                        restoredCount++;
-                    }
-                });
-                if (restoredCount > 0) {
-                    log(`已恢复 ${restoredCount} 个正则脚本的 disabled 状态`);
-                }
-            }
-        } catch (e) {
-            log('恢复正则脚本状态失败: ' + e.message, 'warn');
-        }
-        delete settings._savedRegexState;
-        saveSettingsDebounced();
-    }
-}
-
-/**
- * 运行时稳定化：剥离 SAO 卡正则脚本 replaceString 外层的 markdown 代码围栏
- * 原因: 部分正则脚本（如「快速回复」「开场白」；已迁移/删除的「战斗1.30」系列也曾如此）
- * 的 replaceString 以 ```text\n<!DOCTYPE html... 开头、以 ...</html>\n``` 结尾。
- * SillyTavern 正则引擎原样注入后，二次渲染会把围栏内的 HTML/JS 暴露为裸文本。
- * 去掉外层围栏后 replaceString 就是纯 HTML，注入行为不变但安全。
- * 只做内存修改，不写磁盘/卡。适用于卡中所有带代码围栏的正则脚本。
- */
-function stabilizeSaoRegexScripts() {
-    try {
-        const char = getCurrentCharacter();
-        if (!char?.data?.extensions?.regex_scripts) return;
-
-        const scripts = char.data.extensions.regex_scripts;
-        let sanitized = 0;
-
-        for (const script of scripts) {
-            if (typeof script.replaceString !== 'string') continue;
-
-            let rs = script.replaceString;
-
-            // 剥离开头 ```text 或 ```html 围栏
-            const fenceHeadMatch = rs.match(/^```(?:[a-zA-Z]*)?\s*/);
-            // 剥离结尾 ``` 围栏（允许尾部空白/换行）
-            const fenceTailMatch = rs.match(/\s*```\s*$/);
-
-            if (fenceHeadMatch && fenceTailMatch) {
-                rs = rs.slice(fenceHeadMatch[0].length);
-                rs = rs.slice(0, rs.length - fenceTailMatch[0].length);
-
-                // 可选: 修复已知的畸形碎片 '</head></html>\n\n  <body>'（重复/错位标签）
-                // 修成正常的 '</head><body>'，避免 body 内容落在 head 中
-                rs = rs.replace(/<\/head>\s*<\/html>\s*\n\s*<body>/gi, '</head>\n  <body>');
-
-                script.replaceString = rs;
-                sanitized++;
-                log(`正则脚本「${script.scriptName}」已剥离代码围栏 (${rs.length} 字符)`);
-            }
-        }
-
-        if (sanitized > 0) {
-            log(`运行时正则稳定化: 共处理 ${sanitized} 个脚本`);
-        }
-    } catch (e) {
-        log('正则稳定化失败: ' + e.message, 'warn');
-    }
-}
-
-// 白名单：插件应管理的正则脚本（排除3个不应自动启用的工具/可选脚本）
-const REGEX_WHITELIST = new Set([
-    '公会状态栏',
-    // npc状态栏: 已由插件 Shadow DOM 渲染器接管（renderNpcStatus），从白名单移除
-    '快速回复', '开场白',
-    // 注意: '战斗1.30手机' 有意不加入白名单。
-    // 手机版是桌面端的窄屏适配，两者不应同时启用。
-    // 插件无法可靠检测设备类型，因此手机版由用户手动启用/禁用。
-
-    // Phase 1: 以下 5 个显示类正则已由插件 Shadow DOM 渲染器替代，从白名单移除。
-    // DOMPurify uponSanitizeElement 钩子保留自定义标签作为 DOM 元素，渲染器 querySelector 定位。
-    // 移除的正则: '日期', '角色状态栏', '装备栏', '剑技栏', '地图2'
-
-    // Phase 2: '战斗1.30电脑' 已移除（战斗系统已清理），从白名单移除。
-    // 移除的正则: '战斗1.30电脑'
-
-    // Phase 3: 以下 promptOnly 隐藏正则已由插件 saoPromptCleanerInterceptor 替代，从白名单移除。
-    // 插件通过 generate_interceptor + CHAT_COMPLETION_PROMPT_READY + GENERATE_AFTER_COMBINE_PROMPTS
-    // 在 prompt 组装前统一清理 SAO 标签，不再需要正则脚本逐个处理。
-    // 移除的正则: '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
-    //            '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告'
-    // 保留: '摘要' 已迁移至插件 (extractAll 解析 digest + SAO_PROMPT_STRIP_TAGS 清理)，从白名单移除
-]);
-
-// 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
-// Phase 1 (显示类): 日期, 角色状态栏, 装备栏, 剑技栏, 地图2
-//   DOMPurify uponSanitizeElement 钩子保留自定义标签，Shadow DOM 渲染器 querySelector 渲染。
-// Phase 2 (战斗): 战斗1.30电脑
-// Phase 3 (promptOnly): 隐藏摘要, 隐藏npc, 隐藏日历, 隐藏战斗, 隐藏状态栏,
-//                        隐藏地图, 隐藏骰子, 隐藏npc思维链, 隐藏公会状态栏, 隐藏回复, 隐藏预告
-// Phase 4 (摘要): 摘要 (extractAll + SAO_PROMPT_STRIP_TAGS 已接管 digest 解析和 prompt 清理)
-// 注意: '战斗1.30手机' 有意不在列表中（用户手动控制，见 §12.3）。
-const MIGRATED_SCRIPTS = new Set([
-    '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
-    '战斗1.30电脑',
-    'npc状态栏',
-    '摘要',
-    '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
-    '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告',
-]);
-
-/**
- * 启用当前角色卡的局部正则脚本（白名单模式）
- */
-function enableCardRegex() {
-    try {
-        const ctx = getContext();
-        const char = getCurrentCharacter();
-        if (!char || !char.data?.extensions?.regex_scripts) {
-            log('未找到角色卡正则脚本', 'warn');
-            return;
-        }
-
-        const settings = getSettings();
-        const scripts = char.data.extensions.regex_scripts;
-        let enabled = 0;
-        scripts.forEach(s => {
-            if (s.disabled === true && REGEX_WHITELIST.has(s.scriptName)) {
-                // 记录原始 disabled 状态，供 disableCompatMode 恢复
-                if (!settings._savedRegexState) settings._savedRegexState = [];
-                const existingIdx = settings._savedRegexState.findIndex(e => e.scriptName === s.scriptName);
-                if (existingIdx >= 0) {
-                    settings._savedRegexState[existingIdx] = { scriptName: s.scriptName, disabled: true };
-                } else {
-                    settings._savedRegexState.push({ scriptName: s.scriptName, disabled: true });
-                }
-                s.disabled = false;
-                enabled++;
-            } else if (s.disabled === true) {
-                log(`跳过正则脚本（不在白名单）: ${s.scriptName}`, 'info');
-            }
-        });
-
-        // 主动禁用已迁移脚本（避免与插件渲染/prompt清理产生双重处理）
-        let forceDisabled = 0;
-        scripts.forEach(s => {
-            if (s.disabled === false && MIGRATED_SCRIPTS.has(s.scriptName)) {
-                if (!settings._savedRegexState) settings._savedRegexState = [];
-                const existingIdx = settings._savedRegexState.findIndex(e => e.scriptName === s.scriptName);
-                if (existingIdx >= 0) {
-                    settings._savedRegexState[existingIdx] = { scriptName: s.scriptName, disabled: false };
-                } else {
-                    settings._savedRegexState.push({ scriptName: s.scriptName, disabled: false });
-                }
-                s.disabled = true;
-                forceDisabled++;
-            }
-        });
-        if (forceDisabled > 0) {
-            log(`主动禁用 ${forceDisabled} 个已迁移脚本（原状态已保存，切卡时恢复）`);
-        }
-
-        if (enabled > 0 || forceDisabled > 0) {
-            log(`已启用 ${enabled} 个角色卡正则脚本（共 ${scripts.length} 个）`);
-            saveSettingsDebounced();
-        }
-    } catch (e) {
-        log('启用正则脚本失败: ' + e.message, 'warn');
-    }
-}
-
-// ============================================================
-// Phase 1 PoC: Shadow DOM 标签渲染
-// ============================================================
-
-/**
- * 处理 <gain_skill> 和 <gain_equipment> 标签：主LLM直接提供名称+描述，插件仅计算数值。
- * 格式: <gain_skill name="剑技名" weapon_type="武器类型" description="描述">武器类型</gain_skill>
- *       <gain_equipment name="装备名" slot="槽位" stat_type="类型" rarity="稀有度" description="描述">类型:稀有度</gain_equipment>
- */
-// SAO Companion - 刀剑神域角色卡专用扩展
-// 版本: 0.6.45 (用原卡模板替换自写美化)
-// 功能: 多模型分工 + 状态监控 + 独立控制台
-
-import { renderExtensionTemplateAsync } from '../../../extensions.js';
-import {
-    MODULE_NAME, logs,
-    esc, getContext, getCurrentCharacter, isSaoCard,
-    getSettings,
-    getSaoData,
-    safeJsonParse, safe,
-    log, updateLogDisplay,
-    bindSaoEvent, bindSaoDom, unbindAllSaoEvents, isSaoEventsBound, setSaoEventsBound,
-} from './sao-core.js';
-import { getStore, saveStore, appendActionLog, captureSnapshot, restoreSnapshot } from './sao-store-core.js';
-import { getPlayerStore, CURSOR_LABELS as CURSOR_LABEL, equipItem, unequipItem, forgetPlayerSkill, incrementIncapacitatedTurns, resetIncapacitatedTurns, getIncapacitatedTurns, migrateToLogicManaged } from './sao-store-player.js';
-import { getEquipmentById, removeEquipmentById, getEquipmentStore } from './sao-store-equipment.js';
-import { getSkillById, getSkillStore } from './sao-store-skill.js';
-import { getInventoryStore, removeEquipmentItem, addMaterial, addQuestItem, removeInventoryItemByItemId } from './sao-store-inventory.js';
-import { useConsumable as useConsumableStore, getConsumableById, getConsumableStore } from './sao-store-consumable.js';
-import { saveSettingsDebounced } from '../../../../script.js';
-import {
-    generateEquipment, generateSkill, generateLoot, generateConsumable,
-} from './sao-generators.js';
-import { event_types } from '../../../events.js';
-import { power_user } from '../../../power-user.js';
-
-import {
-    initCalendarIfNeeded,
-    updateCalendarIncremental,
-    persistCalendar,
-    parseDate, formatDate,
-    addAppointmentToCalendar,
-    buildCleanCalendarDays,
-} from './sao-calendar.js';
-import { buildCalCellHtml } from './sao-calendar-cell.js';
-import { renderDetailEquip, renderDetailSkill, renderDetailInv } from './sao-detail-popup.js';
-
-import { extractAll, applyExtractedData } from './sao-extract.js';
-import { CUSTOM_SKILL_DEFS, checkCustomSkillUnlocks, checkUniqueSkillUnlocks } from './sao-skills.js';
-import { expireBuffs, addTemporaryBuff, addPermanentBuff } from './sao-buff.js';
-import { initPresetGuilds, createGuild, joinGuild, leaveGuild, getGuildByName } from './sao-store-guild.js';
-import {
-    getEffectCodeTable, resetEffectCodeTable,
-    initToolSystem,
-} from './sao-tools.js';
-import { getFloorStore, getFloorById, getFloorStoreWithCanon } from './sao-store-floor.js';
-import { runLorebookPreParser } from './sao-preparser.js';
-import { getWorldStore } from './sao-store-world.js';
-import { getNpcStore } from './sao-store-npc.js';
-import { getQuestStore } from './sao-store-quest.js';
-import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
-import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
-// memory.js 已移除
-import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
-import { DOMPurify } from '../../../../lib.js';
-import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
-import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist, callAcquisitionSpecialist } from './sao-specialists.js';
-import { shouldTriggerPeriodicCalendarCheck, shouldTriggerCalendarModel, calendarModelUpdate, resetCalendarModelRunning } from './sao-calendar-model.js';
-import { callNpcBackgroundSpecialist, shouldTriggerNpcBackground } from './sao-npc-background.js';
-import { DANGER_LABEL } from './sao-state-projection.js';
-// sao-rules.js 已删除（规则段落直接内联到各专家 systemPrompt）
-
-
-// ============================================================
-// 常量
-// ============================================================
-
-/** 装备槽中文标签 — 侧栏/装备列表用（完整 slot 集，与 sao-state-projection.js SLOT_DISPLAY 不同：投影用短标签） */
-const SLOT_LABELS = {
-    weapon: '武器', off_hand: '副手',
-    armor: '防具', chest: '胸部', helmet: '头盔', head: '头部',
-    boots: '靴子', legs: '腿部', gloves: '手套', hands: '手部',
-    shield: '盾牌', accessory: '饰品', ring: '戒指', necklace: '项链',
-    cape: '披风', belt: '腰带',
-};
-
-// ============================================================
-// 骰子表常量已迁移至 sao-generators.js
-// ============================================================
-
-// ============================================================
-// P4c: 自定义技能系统 (Custom Skill System)
-// ============================================================
-
-// 骰子工具函数已迁移至 sao-generators.js
-
-// ============================================================
-// 工具函数
-// ============================================================
-
-const _processingLocks = {};
-let _saoCurrentData = {};
-let _initChainDone = false; // 协调 CHAT_CHANGED 和 safety net，防止 init 链重复执行
-
-/** 运行 init 链：injectMemoryAndState + initCalendarIfNeeded + initPresetGuilds + _initChainDone 标志
- *  从 CHAT_CHANGED 调用。新游戏时延迟到 first_mes IIFE 完成后调用（避免读到空 store）。 */
-function _runInitChainAfterFirstMes() {
-    injectMemoryAndState();
-    initCalendarIfNeeded();
-    initPresetGuilds();
-    _initChainDone = true;
-}
-function withProcessingLock(key, fn) {
-    const prev = _processingLocks[key] || Promise.resolve();
-    const next = prev.then(() => fn()).catch(e => {
-        log(`Processing error (${key}): ${e.message}`, 'error');
-    }).finally(() => {
-        // 没有后续任务排队进来时，清理自己，避免内存长期累积
-        if (_processingLocks[key] === next) delete _processingLocks[key];
-    });
-    _processingLocks[key] = next;
-    return next;
-}
-
-// ============================================================
-// 子代理任务
-// ============================================================
-
-// ============================================================
-// <zd_status> 和 <user_status> 正则解析器 (FIX 1)
-// ============================================================
-// [sao-extract.js] parseZdStatus, parseUserStatus, extractAll, applyExtractedData 已移至 sao-extract.js
-
-// ============================================================
-// 生成子代理已迁移至 sao-generators.js
-// ============================================================
-
-// ============================================================
-// SAO 卡兼容模式（替代 TavernHelper 脚本）
-// ============================================================
-
-/**
- * 启用 SAO 卡兼容模式
- * 1. 关闭不兼容的酒馆设置（修改全局 power_user）
- * 2. 启用角色卡局部正则
- *
- * 全局设置副作用（有保存/恢复机制，见 disableCompatMode）：
- * - auto_fix_generated_markdown → false
- * - encode_tags → false
- * - trim_sentences → false
- * - forbid_external_media → true
- * 风险: 若插件异常退出未执行 disableCompatMode，用户全局设置可能残留。
- */
-function enableCompatMode() {
-    const settings = getSettings();
-    if (!settings.compatMode) return;
-
-    // === 1. 关闭不兼容设置 ===
-    try {
-        if (power_user) {
-            // 保存原始值（始终覆盖，确保崩溃后恢复最新基线）
-            settings._savedPowerUser = {
-                auto_fix_generated_markdown: power_user.auto_fix_generated_markdown,
-                encode_tags: power_user.encode_tags,
-                trim_sentences: power_user.trim_sentences,
-                forbid_external_media: power_user.forbid_external_media,
-            };
-
-            // 关闭不兼容选项
-            power_user.auto_fix_generated_markdown = false;
-            power_user.encode_tags = false;
-            power_user.trim_sentences = false;
-            power_user.forbid_external_media = true;
-
-            // 更新 UI 复选框
-            $('#auto_fix_generated_markdown').prop('checked', false);
-            $('#encode_tags').prop('checked', false);
-            $('#trim_sentences_checkbox').prop('checked', false);
-            $('#forbid_external_media').prop('checked', true);
-
-            // 保存设置
-            if (window.saveSettingsDebounced) window.saveSettingsDebounced();
-            log('已关闭不兼容选项（自动修复Markdown/显示标签/修剪句子/禁止外部媒体）');
-        }
-    } catch (e) {
-        log('关闭不兼容选项失败: ' + e.message, 'warn');
-    }
-
-    // === 2. 启用角色卡局部正则 ===
-    enableCardRegex();
-}
-
-/**
- * 恢复原始设置（切出 SAO 卡时）
- */
-function disableCompatMode() {
-    if (!power_user) return;
-
-    const settings = getSettings();
-    const saved = settings._savedPowerUser;
-    if (!saved) return;
-
-    let restored = false;
-    if (saved.auto_fix_generated_markdown !== undefined) {
-        power_user.auto_fix_generated_markdown = saved.auto_fix_generated_markdown;
-        $('#auto_fix_generated_markdown').prop('checked', saved.auto_fix_generated_markdown);
-        restored = true;
-    }
-    if (saved.encode_tags !== undefined) {
-        power_user.encode_tags = saved.encode_tags;
-        $('#encode_tags').prop('checked', saved.encode_tags);
-        restored = true;
-    }
-    if (saved.trim_sentences !== undefined) {
-        power_user.trim_sentences = saved.trim_sentences;
-        $('#trim_sentences_checkbox').prop('checked', saved.trim_sentences);
-        restored = true;
-    }
-    if (saved.forbid_external_media !== undefined) {
-        power_user.forbid_external_media = saved.forbid_external_media;
-        $('#forbid_external_media').prop('checked', saved.forbid_external_media);
-        restored = true;
-    }
-    if (restored) {
-        delete settings._savedPowerUser;
-        if (window.saveSettingsDebounced) window.saveSettingsDebounced();
-        log('已恢复原始酒馆设置');
-    }
-
-    // 恢复被 enableCardRegex 启用的正则脚本的 disabled 状态
-    if (settings._savedRegexState && settings._savedRegexState.length > 0) {
-        try {
-            const char = getCurrentCharacter();
-            if (char?.data?.extensions?.regex_scripts) {
-                const scripts = char.data.extensions.regex_scripts;
-                let restoredCount = 0;
-                settings._savedRegexState.forEach(savedEntry => {
-                    const script = scripts.find(s => s.scriptName === savedEntry.scriptName);
-                    if (script && savedEntry.disabled) {
-                        script.disabled = true;
-                        restoredCount++;
-                    }
-                });
-                if (restoredCount > 0) {
-                    log(`已恢复 ${restoredCount} 个正则脚本的 disabled 状态`);
-                }
-            }
-        } catch (e) {
-            log('恢复正则脚本状态失败: ' + e.message, 'warn');
-        }
-        delete settings._savedRegexState;
-        saveSettingsDebounced();
-    }
-}
-
-/**
- * 运行时稳定化：剥离 SAO 卡正则脚本 replaceString 外层的 markdown 代码围栏
- * 原因: 部分正则脚本（如「快速回复」「开场白」；已迁移/删除的「战斗1.30」系列也曾如此）
- * 的 replaceString 以 ```text\n<!DOCTYPE html... 开头、以 ...</html>\n``` 结尾。
- * SillyTavern 正则引擎原样注入后，二次渲染会把围栏内的 HTML/JS 暴露为裸文本。
- * 去掉外层围栏后 replaceString 就是纯 HTML，注入行为不变但安全。
- * 只做内存修改，不写磁盘/卡。适用于卡中所有带代码围栏的正则脚本。
- */
-function stabilizeSaoRegexScripts() {
-    try {
-        const char = getCurrentCharacter();
-        if (!char?.data?.extensions?.regex_scripts) return;
-
-        const scripts = char.data.extensions.regex_scripts;
-        let sanitized = 0;
-
-        for (const script of scripts) {
-            if (typeof script.replaceString !== 'string') continue;
-
-            let rs = script.replaceString;
-
-            // 剥离开头 ```text 或 ```html 围栏
-            const fenceHeadMatch = rs.match(/^```(?:[a-zA-Z]*)?\s*/);
-            // 剥离结尾 ``` 围栏（允许尾部空白/换行）
-            const fenceTailMatch = rs.match(/\s*```\s*$/);
-
-            if (fenceHeadMatch && fenceTailMatch) {
-                rs = rs.slice(fenceHeadMatch[0].length);
-                rs = rs.slice(0, rs.length - fenceTailMatch[0].length);
-
-                // 可选: 修复已知的畸形碎片 '</head></html>\n\n  <body>'（重复/错位标签）
-                // 修成正常的 '</head><body>'，避免 body 内容落在 head 中
-                rs = rs.replace(/<\/head>\s*<\/html>\s*\n\s*<body>/gi, '</head>\n  <body>');
-
-                script.replaceString = rs;
-                sanitized++;
-                log(`正则脚本「${script.scriptName}」已剥离代码围栏 (${rs.length} 字符)`);
-            }
-        }
-
-        if (sanitized > 0) {
-            log(`运行时正则稳定化: 共处理 ${sanitized} 个脚本`);
-        }
-    } catch (e) {
-        log('正则稳定化失败: ' + e.message, 'warn');
-    }
-}
-
-// 白名单：插件应管理的正则脚本（排除3个不应自动启用的工具/可选脚本）
-const REGEX_WHITELIST = new Set([
-    '公会状态栏',
-    // npc状态栏: 已由插件 Shadow DOM 渲染器接管（renderNpcStatus），从白名单移除
-    '快速回复', '开场白',
-    // 注意: '战斗1.30手机' 有意不加入白名单。
-    // 手机版是桌面端的窄屏适配，两者不应同时启用。
-    // 插件无法可靠检测设备类型，因此手机版由用户手动启用/禁用。
-
-    // Phase 1: 以下 5 个显示类正则已由插件 Shadow DOM 渲染器替代，从白名单移除。
-    // DOMPurify uponSanitizeElement 钩子保留自定义标签作为 DOM 元素，渲染器 querySelector 定位。
-    // 移除的正则: '日期', '角色状态栏', '装备栏', '剑技栏', '地图2'
-
-    // Phase 2: '战斗1.30电脑' 已移除（战斗系统已清理），从白名单移除。
-    // 移除的正则: '战斗1.30电脑'
-
-    // Phase 3: 以下 promptOnly 隐藏正则已由插件 saoPromptCleanerInterceptor 替代，从白名单移除。
-    // 插件通过 generate_interceptor + CHAT_COMPLETION_PROMPT_READY + GENERATE_AFTER_COMBINE_PROMPTS
-    // 在 prompt 组装前统一清理 SAO 标签，不再需要正则脚本逐个处理。
-    // 移除的正则: '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
-    //            '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告'
-    // 保留: '摘要' 已迁移至插件 (extractAll 解析 digest + SAO_PROMPT_STRIP_TAGS 清理)，从白名单移除
-]);
-
-// 已迁移脚本：插件已接管渲染/prompt清理，必须在插件活跃时主动禁用，避免双重渲染/重复prompt清理。
-// Phase 1 (显示类): 日期, 角色状态栏, 装备栏, 剑技栏, 地图2
-//   DOMPurify uponSanitizeElement 钩子保留自定义标签，Shadow DOM 渲染器 querySelector 渲染。
-// Phase 2 (战斗): 战斗1.30电脑
-// Phase 3 (promptOnly): 隐藏摘要, 隐藏npc, 隐藏日历, 隐藏战斗, 隐藏状态栏,
-//                        隐藏地图, 隐藏骰子, 隐藏npc思维链, 隐藏公会状态栏, 隐藏回复, 隐藏预告
-// Phase 4 (摘要): 摘要 (extractAll + SAO_PROMPT_STRIP_TAGS 已接管 digest 解析和 prompt 清理)
-// 注意: '战斗1.30手机' 有意不在列表中（用户手动控制，见 §12.3）。
-const MIGRATED_SCRIPTS = new Set([
-    '日期', '角色状态栏', '装备栏', '剑技栏', '地图2',
-    '战斗1.30电脑',
-    'npc状态栏',
-    '摘要',
-    '隐藏摘要', '隐藏npc', '隐藏日历', '隐藏战斗', '隐藏状态栏',
-    '隐藏地图', '隐藏骰子', '隐藏npc思维链', '隐藏公会状态栏', '隐藏回复', '隐藏预告',
-]);
-
-/**
- * 启用当前角色卡的局部正则脚本（白名单模式）
- */
-function enableCardRegex() {
-    try {
-        const ctx = getContext();
-        const char = getCurrentCharacter();
-        if (!char || !char.data?.extensions?.regex_scripts) {
-            log('未找到角色卡正则脚本', 'warn');
-            return;
-        }
-
-        const settings = getSettings();
-        const scripts = char.data.extensions.regex_scripts;
-        let enabled = 0;
-        scripts.forEach(s => {
-            if (s.disabled === true && REGEX_WHITELIST.has(s.scriptName)) {
-                // 记录原始 disabled 状态，供 disableCompatMode 恢复
-                if (!settings._savedRegexState) settings._savedRegexState = [];
-                const existingIdx = settings._savedRegexState.findIndex(e => e.scriptName === s.scriptName);
-                if (existingIdx >= 0) {
-                    settings._savedRegexState[existingIdx] = { scriptName: s.scriptName, disabled: true };
-                } else {
-                    settings._savedRegexState.push({ scriptName: s.scriptName, disabled: true });
-                }
-                s.disabled = false;
-                enabled++;
-            } else if (s.disabled === true) {
-                log(`跳过正则脚本（不在白名单）: ${s.scriptName}`, 'info');
-            }
-        });
-
-        // 主动禁用已迁移脚本（避免与插件渲染/prompt清理产生双重处理）
-        let forceDisabled = 0;
-        scripts.forEach(s => {
-            if (s.disabled === false && MIGRATED_SCRIPTS.has(s.scriptName)) {
-                if (!settings._savedRegexState) settings._savedRegexState = [];
-                const existingIdx = settings._savedRegexState.findIndex(e => e.scriptName === s.scriptName);
-                if (existingIdx >= 0) {
-                    settings._savedRegexState[existingIdx] = { scriptName: s.scriptName, disabled: false };
-                } else {
-                    settings._savedRegexState.push({ scriptName: s.scriptName, disabled: false });
-                }
-                s.disabled = true;
-                forceDisabled++;
-            }
-        });
-        if (forceDisabled > 0) {
-            log(`主动禁用 ${forceDisabled} 个已迁移脚本（原状态已保存，切卡时恢复）`);
-        }
-
-        if (enabled > 0 || forceDisabled > 0) {
-            log(`已启用 ${enabled} 个角色卡正则脚本（共 ${scripts.length} 个）`);
-            saveSettingsDebounced();
-        }
-    } catch (e) {
-        log('启用正则脚本失败: ' + e.message, 'warn');
-    }
-}
-
-// ============================================================
-// Phase 1 PoC: Shadow DOM 标签渲染
-// ============================================================
-
-/**
- * 处理 <gain_skill> 和 <gain_equipment> 标签：主LLM直接提供名称+描述，插件仅计算数值。
- * 格式: <gain_skill name="剑技名" weapon_type="武器类型" description="描述">武器类型</gain_skill>
- *       <gain_equipment name="装备名" slot="槽位" stat_type="类型" rarity="稀有度" description="描述">类型:稀有度</gain_equipment>
- */
 async function processGainTags(rawText, skipSave = false) {
     if (!rawText) return;
 
@@ -1263,7 +453,7 @@ async function processGainTags(rawText, skipSave = false) {
             const skill = await generateSkill(skillContext, callModel, prefilledName, prefilledDesc);
             if (skill) {
                 log(`[gain_skill] 完成: ${skill.name} (ATK ${skill.base_damage})`);
-                await saveStore();
+                if (!skipSave) await saveStore();
             }
         } catch (e) {
             log(`[gain_skill] 失败: ${e.message}`, 'warn');
@@ -1321,7 +511,7 @@ async function processGainTags(rawText, skipSave = false) {
             const equip = await generateEquipment(context, callModel, prefilledName, prefilledDesc);
             if (equip) {
                 log(`[gain_equipment] 完成: ${equip.name} (${equip.rarity})`);
-                await saveStore();
+                if (!skipSave) await saveStore();
             }
         } catch (e) {
             log(`[gain_equipment] 失败: ${e.message}`, 'warn');
@@ -1358,7 +548,7 @@ async function processGainTags(rawText, skipSave = false) {
             const consumable = await generateConsumable(context, callModel, prefilledName, prefilledDesc);
             if (consumable) {
                 log(`[gain_consumable] 完成: ${consumable.name} (${consumable.rarity})`);
-                await saveStore();
+                if (!skipSave) await saveStore();
             }
         } catch (e) {
             log(`[gain_consumable] 失败: ${e.message}`, 'warn');
@@ -1440,7 +630,7 @@ async function processGainTags(rawText, skipSave = false) {
                 addTemporaryBuff(player, buff);
                 log(`[gain_buff] 临时 buff 添加: ${name} (${buffId}) duration=${buff.duration}`);
             }
-            await saveStore();
+            if (!skipSave) await saveStore();
         } catch (e) {
             log(`[gain_buff] 失败: ${e.message}`, 'warn');
         }
@@ -1474,7 +664,7 @@ async function processGainTags(rawText, skipSave = false) {
             if (action === 'leave') {
                 const ok = leaveGuild();
                 log(`[gain_guild] 玩家离开公会: ${ok ? '成功' : '未加入公会'}`);
-                await saveStore();
+                if (!skipSave) await saveStore();
                 continue;
             }
 
@@ -1482,7 +672,7 @@ async function processGainTags(rawText, skipSave = false) {
                 // 加入已有公会（应用其 buff）
                 const ok = joinGuild(guildName);
                 log(`[gain_guild] 玩家加入公会 ${guildName}: ${ok ? '成功（buff 已应用）' : '失败（公会不存在）'}`);
-                await saveStore();
+                if (!skipSave) await saveStore();
                 continue;
             }
 
@@ -1527,7 +717,7 @@ async function processGainTags(rawText, skipSave = false) {
                 const ok = joinGuild(guildName);
                 log(`[gain_guild] 玩家加入新建公会: ${ok ? '成功（buff 已应用）' : '失败'}`);
             }
-            await saveStore();
+            if (!skipSave) await saveStore();
         } catch (e) {
         log(`[gain_guild] 失败: ${e.message}`, 'warn');
         }
@@ -1545,7 +735,7 @@ async function processGainTags(rawText, skipSave = false) {
         try {
             await addMaterial(name, qty, true);
             log(`[gain_material] 材料 ${name} x${qty} 添加到背包`);
-            await saveStore();
+            if (!skipSave) await saveStore();
         } catch (e) {
             log(`[gain_material] 失败: ${e.message}`, 'warn');
         }
@@ -1563,7 +753,7 @@ async function processGainTags(rawText, skipSave = false) {
         try {
             await addQuestItem(name, description, true);
             log(`[gain_quest_item] 任务物品 ${name} 添加到背包`);
-            await saveStore();
+            if (!skipSave) await saveStore();
         } catch (e) {
             log(`[gain_quest_item] 失败: ${e.message}`, 'warn');
         }
@@ -1614,7 +804,7 @@ async function processGainTags(rawText, skipSave = false) {
                 } catch (e) {
                     log(`[use_item] 消耗品使用失败: ${e.message}`, 'warn');
                 }
-                await saveStore();
+                if (!skipSave) await saveStore();
                 continue;
             }
         }
@@ -1627,7 +817,7 @@ async function processGainTags(rawText, skipSave = false) {
         }
         log(`[use_item] 使用 ${itemName} x${reduceQty}${target ? ' (目标: ' + target + ')' : ''}`);
         appendActionLog({ action: 'use_item', itemType: foundType, itemName, qty: reduceQty, target, result: 'success' });
-        await saveStore();
+        if (!skipSave) await saveStore();
     }
 
     // === <remove_item> === LLM移除物品（丢失/被夺/赠予/销毁，无效果）
@@ -1666,7 +856,7 @@ async function processGainTags(rawText, skipSave = false) {
         }
         log(`[remove_item] 移除 ${itemName} x${reduceQty}`);
         appendActionLog({ action: 'remove_item', itemType: foundItem.type, itemName, qty: reduceQty, result: 'success' });
-        await saveStore();
+        if (!skipSave) await saveStore();
     }
 }
 
@@ -1773,7 +963,7 @@ function bindEvents() {
                             _initDeferred = true; // 延迟 init 链
                             (async () => {
                                 try {
-                                    await processGainTags(firstAiMsg.mes, true);  // skipSave — followed by saveStore()
+                              await processGainTags(firstAiMsg.mes, true);
                                     await saveStore();
                                     const extracted = await extractAll(firstAiMsg.mes, callModel, null);
                                     if (extracted) {
@@ -1914,8 +1104,8 @@ function bindEvents() {
             // （替代主 LLM 输出标签的不可靠路径）
             try {
                 const specialistTags = await callAcquisitionSpecialist(rawText);
-                if (specialistTags) {
-                    await processGainTags(specialistTags, true);  // skipSave — line 1997 saves once at end
+       if (specialistTags) {
+                    await processGainTags(specialistTags, true);
                 }
             } catch (e) {
                 log('acquisition 专家处理失败: ' + e.message, 'warn');
