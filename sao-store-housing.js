@@ -38,7 +38,7 @@ export function getPlayerHousing() {
  * 设定玩家住房（购房时调用）。
  * @param {object} housing - { type, floor_id, location, description, decorations: [], furniture: [] }
  */
-export function setPlayerHousing(housing) {
+export async function setPlayerHousing(housing, skipSave = false) {
     const store = getHousingStore();
     store.playerHousing = {
         type: housing.type || 'apartment',
@@ -49,13 +49,15 @@ export function setPlayerHousing(housing) {
         furniture: housing.furniture || [],
     };
     log(`房屋设定: ${store.playerHousing.location || store.playerHousing.type}`);
+    if (!skipSave) await saveStore();
 }
 
 /**
  * 更新玩家住房（局部更新，如添加装饰/家具）。
  * @param {object} updates - 部分住房数据，合并到现有数据
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function updatePlayerHousing(updates) {
+export async function updatePlayerHousing(updates, skipSave = false) {
     const store = getHousingStore();
     if (!store.playerHousing) return;
     if (updates.location !== undefined) store.playerHousing.location = updates.location;
@@ -63,39 +65,46 @@ export function updatePlayerHousing(updates) {
     if (Array.isArray(updates.decorations)) store.playerHousing.decorations = updates.decorations;
     if (Array.isArray(updates.furniture)) store.playerHousing.furniture = updates.furniture;
     log(`房屋更新: ${JSON.stringify(Object.keys(updates))}`);
+    if (!skipSave) await saveStore();
 }
 
 /**
  * 添加装饰到玩家住房。
  * @param {string} decoration - 自由文本描述
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function addDecoration(decoration) {
+export async function addDecoration(decoration, skipSave = false) {
     const store = getHousingStore();
     if (!store.playerHousing) return;
     store.playerHousing.decorations.push(decoration);
     log(`装修更新: ${decoration}`);
+    if (!skipSave) await saveStore();
 }
 
 /**
  * 添加家具到玩家住房。
  * @param {object} furniture - { name, buff?: { name, effects, description } }
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function addFurniture(furniture) {
+export async function addFurniture(furniture, skipSave = false) {
     const store = getHousingStore();
     if (!store.playerHousing) return;
     store.playerHousing.furniture.push(furniture);
     log(`家具添加: ${furniture.name}`);
+    if (!skipSave) await saveStore();
 }
 
 /**
  * 按名称移除家具。
  * @param {string} name
+ * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function removeFurniture(name) {
+export async function removeFurniture(name, skipSave = false) {
     const store = getHousingStore();
     if (!store.playerHousing) return;
     store.playerHousing.furniture = store.playerHousing.furniture.filter(f => f.name !== name);
     log(`家具移除: ${name}`);
+    if (!skipSave) await saveStore();
 }
 
 /**
@@ -133,7 +142,8 @@ export function getActiveFurnitureBuffs() {
 /**
  * 清除玩家住房（出售/搬出）。
  */
-export function clearPlayerHousing() {
+export async function clearPlayerHousing(skipSave = false) {
     getHousingStore().playerHousing = null;
     log('房屋清除');
+    if (!skipSave) await saveStore();
 }
