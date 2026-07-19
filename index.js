@@ -93,6 +93,15 @@ const SLOT_LABELS = {
 const _processingLocks = {};
 let _saoCurrentData = {};
 let _initChainDone = false; // 协调 CHAT_CHANGED 和 safety net，防止 init 链重复执行
+
+/** 运行 init 链：injectMemoryAndState + initCalendarIfNeeded + initPresetGuilds + _initChainDone 标志
+ *  从 CHAT_CHANGED 调用。新游戏时延迟到 first_mes IIFE 完成后调用（避免读到空 store）。 */
+function _runInitChainAfterFirstMes() {
+    injectMemoryAndState();
+    initCalendarIfNeeded();
+    initPresetGuilds();
+    _initChainDone = true;
+}
 function withProcessingLock(key, fn) {
     const prev = _processingLocks[key] || Promise.resolve();
     const next = prev.then(() => fn()).catch(e => {
@@ -933,6 +942,7 @@ function bindEvents() {
             // 从 first_mes 的 <user_status>/<zd_status>/<gain_equipment>/<gain_skill> 标签提取初始状态。
             // first_mes 不触发 MESSAGE_RECEIVED，状态专家不会运行，store 停留在默认值。
             // 这里手动 extractAll + applyExtractedData 从 first_mes 初始化。
+            let _initDeferred = false; // 新游戏时，init 链延迟到 IIFE 完成后执行
             {
                 const chatCtx2 = getContext();
                 const chat2 = chatCtx2.chat;
@@ -951,6 +961,7 @@ function bindEvents() {
                             && !player?.identity?.name;
                         if (isDefault) {
                             log('检测到新游戏，从 first_mes 初始化 store');
+                            _initDeferred = true; // 延迟 init 链
                             (async () => {
                                 try {
                                     await processGainTags(firstAiMsg.mes);
@@ -967,20 +978,19 @@ function bindEvents() {
                                 } catch (e) {
                                     log('从 first_mes 初始化失败: ' + e.message, 'warn');
                                 }
+                                // IIFE 完成后执行 init 链（之前因 fire-and-forget 提前跑导致读到空 store）
+                                _runInitChainAfterFirstMes();
                             })();
                         }
                     }
                 }
             }
 
-            injectMemoryAndState();
-            initCalendarIfNeeded();
-
-            // Phase 2: Initialize preset guilds
-            initPresetGuilds();
-
-            // 标记 init 链完成，防止 safety net 重复执行
-            _initChainDone = true;
+            // 非新游戏路径：立即执行 init 链
+            // 新游戏路径：延迟到 IIFE 完成（_runInitChainAfterFirstMes 内部调用）
+            if (!_initDeferred) {
+                _runInitChainAfterFirstMes();
+            }
 
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
