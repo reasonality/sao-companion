@@ -92,6 +92,7 @@ const SLOT_LABELS = {
 
 const _processingLocks = {};
 let _saoCurrentData = {};
+let _initChainDone = false; // 协调 CHAT_CHANGED 和 safety net，防止 init 链重复执行
 function withProcessingLock(key, fn) {
     const prev = _processingLocks[key] || Promise.resolve();
     const next = prev.then(() => fn()).catch(e => {
@@ -977,6 +978,9 @@ function bindEvents() {
 
             // Phase 2: Initialize preset guilds
             initPresetGuilds();
+
+            // 标记 init 链完成，防止 safety net 重复执行
+            _initChainDone = true;
 
             // 刷新面板（如果已打开）
             if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
@@ -3796,7 +3800,7 @@ export function init() {
             document.body.classList.add('sao-card-active');
 
             // 补运行初始化链（与 CHAT_CHANGED handler 相同的逻辑，但只运行一次）
-            if (!safetyInitialized) {
+            if (!_initChainDone && !safetyInitialized) {
                 safetyInitialized = true;
                 log('安全网: 角色就绪，补运行初始化链');
                 try {
