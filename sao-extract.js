@@ -564,6 +564,16 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
     if (extracted.state) {
         const s = extracted.state;
 
+        // 1. 数值 → playerStore（逻辑管理：新游戏数值全部由插件逻辑定义，
+        //    不从卡片/LLM 读取 STR/AGI/INT/VIT。装备加成在下方 equipItem 中处理。
+        //    STR/AGI/INT/VIT 是成长变量，由升级+装备管理，不从 LLM 提取。
+        //    HP/MP 是剧情变量（受伤/恢复），从状态专家提取并应用。
+        // 注意：initStartingCharacter 必须在 Equipment 处理之前，确保 _baseVitals 已初始化
+        // 否则 equipItem 的 recalcStatsFromEquipment 会用错误的 base 计算 maxHp
+        if (isNewGame) {
+            initStartingCharacter();
+        }
+
         // 2. Equipment → 只更新已有装备的运行时状态（如耐久度），不创建新装备。
         // 新装备只能通过 <gain_equipment> 标签 → generateEquipment 创建（路径A，逻辑管理）。
         // 专家只报告当前装备状态，无权创建装备定义。
@@ -686,13 +696,11 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
             }
         }
 
-        // 1. 数值 → playerStore（逻辑管理：新游戏数值全部由插件逻辑定义，
+        // 1. 数值 → playerStore（initStartingCharacter 已在上方 Equipment 处理前调用）
         //    不从卡片/LLM 读取 STR/AGI/INT/VIT。装备加成在上方 equipItem 中已处理。
         //    STR/AGI/INT/VIT 是成长变量，由升级+装备管理，不从 LLM 提取。
         //    HP/MP 是剧情变量（受伤/恢复），从状态专家提取并应用。
-        if (isNewGame) {
-            initStartingCharacter();
-        }
+        // (initStartingCharacter moved above Equipment section for correct _baseVitals timing)
 
         // HP/MP 更新（剧情驱动：受伤/恢复/消耗）
         // updatePlayerVitals 会 clamp 到 [0, max]，安全
