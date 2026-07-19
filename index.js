@@ -1097,8 +1097,9 @@ function bindEvents() {
         await withProcessingLock(`msg-${messageId}`, async () => {
           try {
             // 获取事件处理：先创建新实体，让后续状态专家/投影看到更新后的 store
-            // gain_skill / gain_equipment 标签处理：主LLM决定获取，插件生成数值
-            await processGainTags(rawText);
+            // gain_skill / gain_equipment 标签处理：跳过主 LLM 输出的标签（极少输出且不可靠）
+            // 由 acquisition specialist 统一负责生成 gain 标签，避免双重处理同名装备创建重复
+            // await processGainTags(rawText);  // 跳过 — specialist 是可靠路径
 
             // 获取事件检测专家：子 LLM 审查叙事，自行生成 gain 标签
             // （替代主 LLM 输出标签的不可靠路径）
