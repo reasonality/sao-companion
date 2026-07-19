@@ -101,6 +101,10 @@ function _runInitChainAfterFirstMes() {
     initCalendarIfNeeded();
     initPresetGuilds();
     _initChainDone = true;
+    // 刷新面板（如果打开）— 确保 IIFE 完成后 maxHp/属性等更新显示
+    if (document.getElementById('sao_panel_overlay')?.style.display === 'block') {
+        refreshStatus();
+    }
 }
 function withProcessingLock(key, fn) {
     const prev = _processingLocks[key] || Promise.resolve();
