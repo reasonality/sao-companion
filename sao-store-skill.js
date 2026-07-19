@@ -51,9 +51,13 @@ export function generateSkillId(name) {
         slug = 'skill_h' + simpleHash(name);
     }
 
-    // 幂等：slug 已存在则返回
+    // 幂等：slug 已存在且 name 匹配则返回；若 slug 已被不同名字占用（hash 碰撞）则加时间戳后缀
     if (store.byId[slug]) {
-        return slug;
+        if (store.byId[slug].name === name) {
+            return slug;
+        }
+        // hash 碰撞：不同名字生成同 slug → 加时间戳后缀避免覆盖
+        slug = slug + '_' + Date.now();
     }
 
     return slug;
