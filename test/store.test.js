@@ -284,28 +284,33 @@ describe('Equipment Store', () => {
         expect(equip.stats.atk).toBe(40);
     });
 
-    it('findOrCreateEquipment returns same ID for same name (single instance)', () => {
+    it('findOrCreateEquipment always creates new ID for each call (unique instances)', () => {
         const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
         const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
-        expect(id1).toBe(id2);
+        expect(id1).not.toBe(id2);
+        // Both should be in nameToId
+        const ids = mockStore.equipmentStore.nameToId['铁剑'];
+        expect(ids).toContain(id1);
+        expect(ids).toContain(id2);
     });
 
-    it('findOrCreateEquipment returns same ID for same name when only one instance exists (single-instance shortcut)', () => {
+    it('findOrCreateEquipment creates unique instance even with different stats', () => {
         const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 5, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
-        // Second call with different stats but same name — returns existing ID
-        // because nameToId has only 1 entry, so no findBestMatch is needed
         const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 35 }, affixes: [], description: '测试', source: 'test' });
-        expect(id1).toBe(id2);
+        expect(id1).not.toBe(id2);
+        // Each has its own stats
+        expect(getEquipmentById(id1).item_level).toBe(5);
+        expect(getEquipmentById(id2).item_level).toBe(10);
     });
 
-    it('findOrCreateEquipment uses findBestMatch for multi-instance with closest stats', () => {
-        // Create two instances with different stats
+    it('findOrCreateEquipment creates unique instance for each gain_equipment call', () => {
         const id1 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 5, stats: { atk: 20 }, affixes: [], description: '测试', source: 'test' });
         const id2 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 35 }, affixes: [], description: '测试', source: 'test' });
 
-        // Query with stats close to id2
-        const matched = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 34 }, affixes: [], description: '测试', source: 'test' });
-        expect(matched).toBe(id2);
+        // Third call creates yet another new instance
+        const id3 = findOrCreateEquipment({ name: '铁剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 10, stats: { atk: 34 }, affixes: [], description: '测试', source: 'test' });
+        expect(id3).not.toBe(id1);
+        expect(id3).not.toBe(id2);
     });
 
     it('generateEquipmentId produces sequential IDs', () => {
@@ -734,20 +739,23 @@ describe('Equipment Behavioral Invariants', () => {
         expect(inInventory).toHaveLength(0);
     });
 
-    it('findOrCreateEquipment idempotency: same {name, slot, stats} returns same ID, single store entry', () => {
+    it('findOrCreateEquipment creates unique instance each call, nameToId tracks all', () => {
         const id1 = findOrCreateEquipment({ name: '月光剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 25 }, affixes: [], description: '测试', source: 'test' });
         const id2 = findOrCreateEquipment({ name: '月光剑', slot: 'weapon', weapon_type: '单手剑', rarity: 'common', item_level: 1, stats: { atk: 25 }, affixes: [], description: '测试', source: 'test' });
-        expect(id1).toBe(id2);
+        expect(id1).not.toBe(id2);
 
-        // equipmentStore.nameToId for this name should have exactly one entry
+        // equipmentStore.nameToId for this name should have two entries
         const ids = mockStore.equipmentStore.nameToId['月光剑'];
         expect(Array.isArray(ids)).toBe(true);
-        expect(ids).toHaveLength(1);
-        expect(ids[0]).toBe(id1);
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(id1);
+        expect(ids).toContain(id2);
 
-        // equipmentStore.byId should have exactly one entry for that ID
+        // equipmentStore.byId should have both entries
         expect(mockStore.equipmentStore.byId[id1]).toBeTruthy();
         expect(mockStore.equipmentStore.byId[id1].name).toBe('月光剑');
+        expect(mockStore.equipmentStore.byId[id2]).toBeTruthy();
+        expect(mockStore.equipmentStore.byId[id2].name).toBe('月光剑');
     });
 
     it('no-duplicate equipment_id: after equipItem, ID appears in slot but NOT in inventory', async () => {

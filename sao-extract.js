@@ -615,6 +615,17 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                         const def = equipStore?.byId?.[it.equipment_id];
                         if (def && def.name === sell.name) {
                             invStore.items.splice(i, 1);
+                            // 删除装备定义，防止 applyExtractedData 重新装备
+                            if (equipStore.byId[it.equipment_id]) {
+                                delete equipStore.byId[it.equipment_id];
+                                const nameIds = equipStore.nameToId[sell.name];
+                                if (nameIds) {
+                                    const idx = nameIds.indexOf(it.equipment_id);
+                                    if (idx >= 0) nameIds.splice(idx, 1);
+                                    if (nameIds.length === 0) delete equipStore.nameToId[sell.name];
+                                }
+                                log(`sellActions: 删除装备定义 ${it.equipment_id} (${sell.name})`);
+                            }
                             sold = true;
                             log(`sellActions: 卖出装备 ${sell.name} → +${corGained} cor`);
                             break;
@@ -644,6 +655,17 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                         const def = equipStore?.byId?.[equipId];
                         if (def && def.name === sell.name) {
                             player.equipment[slot] = null;
+                            // 删除装备定义，防止 applyExtractedData 重新装备
+                            if (equipStore.byId[equipId]) {
+                                delete equipStore.byId[equipId];
+                                const nameIds = equipStore.nameToId[sell.name];
+                                if (nameIds) {
+                                    const idx = nameIds.indexOf(equipId);
+                                    if (idx >= 0) nameIds.splice(idx, 1);
+                                    if (nameIds.length === 0) delete equipStore.nameToId[sell.name];
+                                }
+                                log(`sellActions: 删除已装备定义 ${equipId} (${sell.name})`);
+                            }
                             sold = true;
                             log(`sellActions: 卖出已装备 ${sell.name} (从 ${slot} 卸下) → +${corGained} cor`);
                             break;

@@ -56,11 +56,9 @@ export function generateEquipmentId() {
 }
 
 /**
- * 查找或创建装备条目。
- * 1. 按 name 在 nameToId 查找
- * 2. 单件匹配 → 直接返回该 ID
- * 3. 多件匹配 → findBestMatch 按属性相似度取最接近
- * 4. 无匹配 → 创建新条目，写入 byId + nameToId
+ * 创建装备条目（每次调用都创建唯一实例）。
+ * 同名装备每次调用都会生成新的 equipment_id，每件是独立实例。
+ * nameToId 索引保留，供 applyExtractedData 按名称查找实例。
  * 不自动加入 inventoryStore。
  * @param {object} equipData - 装备数据（至少含 name）
  * @returns {string} equipment_id
@@ -113,18 +111,8 @@ export function findOrCreateEquipment(equipData) {
         return null;
     }
 
-    const existingIds = store.nameToId[name];
-    if (existingIds && existingIds.length > 0) {
-        // 过滤掉已不存在的 ID
-        const validIds = existingIds.filter(id => store.byId[id]);
-        if (validIds.length === 1) {
-            return validIds[0];
-        } else if (validIds.length > 1) {
-            return findBestMatch(equipData, validIds);
-        }
-    }
-
-    // 创建新条目
+    // 始终创建新条目（每件装备是唯一实例，同名匕首也有独立 ID）
+    // nameToId 索引保留，供 applyExtractedData 按名称查找实例
     const id = generateEquipmentId();
     const entry = {
         equipment_id: id,
