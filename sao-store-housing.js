@@ -132,10 +132,10 @@ export function getActiveFurnitureBuffs() {
     if (!housing || !housing.furniture) return [];
     return housing.furniture.filter(f => f.buff).map(f => ({
         id: 'furniture_' + f.name,
-        source: '家具：' + f.name,
+        source: 'furniture',
         name: f.buff.name,
         effects: f.buff.effects,
-        description: f.buff.description,
+        description: f.buff.description || (f.buff.name + '（' + f.name + '）'),
     }));
 }
 

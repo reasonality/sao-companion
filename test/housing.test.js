@@ -322,7 +322,7 @@ describe('getActiveFurnitureBuffs', () => {
         const buffs = getActiveFurnitureBuffs();
         expect(buffs).toHaveLength(2);
         expect(buffs[0].id).toBe('furniture_魔法床');
-        expect(buffs[0].source).toBe('家具：魔法床');
+        expect(buffs[0].source).toBe('furniture');
         expect(buffs[0].name).toBe('深度休息');
         expect(buffs[0].effects).toEqual({ vit: 10 });
         expect(buffs[1].id).toBe('furniture_护符');
