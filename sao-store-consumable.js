@@ -234,11 +234,7 @@ export async function useConsumable(itemId) {
         item = allItems.find(i => i.consumable_id === itemId);
         if (item) log(`useConsumable: item_id ${itemId} 未匹配，按 consumable_id 找到`, 'warn');
     }
-    if (!item) {
-        // 最后回退：找任何 consumable 类型且 qty>0 的物品（可能 item_id 字段缺失）
-        item = allItems.find(i => (i.type === 'consumable' || i.consumable_id) && i.qty > 0);
-        if (item) log(`useConsumable: item_id ${itemId} 未匹配，回退到第一个消耗品 ${item.consumable_id}`, 'warn');
-    }
+    // 注意：不使用第三个 fallback（任意消耗品）—— 会用错药，掩盖数据完整性问题
     if (!item) {
         log(`useConsumable: 物品 ${itemId} 不存在于背包（共 ${allItems.length} 个物品，item_id 列表: ${allItems.map(i=>i.item_id||'(空)').join(',')}）`, 'warn');
         return [`物品 ${itemId} 不在背包中`];
