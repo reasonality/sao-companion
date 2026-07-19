@@ -616,10 +616,10 @@ export function getUniqueSkill() {
  * 设置独特技能对象。
  * @param {object} skillObj - uniqueSkill 对象
  */
-export function setUniqueSkill(skillObj) {
+export async function setUniqueSkill(skillObj, skipSave = false) {
     const player = getPlayerStore();
     player.uniqueSkill = skillObj;
-    saveStore();
+    if (!skipSave) await saveStore();
 }
 
 /**
@@ -627,10 +627,10 @@ export function setUniqueSkill(skillObj) {
  * @param {number} value - 新值（clamp 0-2000）
  * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function updateMeditationProficiency(value, skipSave = false) {
+export async function updateMeditationProficiency(value, skipSave = false) {
     const player = getPlayerStore();
     player.meditationProficiency = Math.max(0, Math.min(2000, Number(value) || 0));
-    if (!skipSave) saveStore();
+    if (!skipSave) await saveStore();
 }
 
 /**
@@ -639,12 +639,12 @@ export function updateMeditationProficiency(value, skipSave = false) {
  * @param {number} prof - 熟练度值
  * @param {boolean} [skipSave] - 是否跳过 saveStore
  */
-export function updateSubTechniqueProficiency(techId, prof, skipSave = false) {
+export async function updateSubTechniqueProficiency(techId, prof, skipSave = false) {
     const player = getPlayerStore();
     if (!player.uniqueSkill?.subTechniques?.[techId]) return;
     if (!player.uniqueSkill.subTechniques[techId].unlocked) return;
     player.uniqueSkill.subTechniques[techId].proficiency = Math.max(0, Number(prof) || 0);
-    if (!skipSave) saveStore();
+    if (!skipSave) await saveStore();
 }
 
 // === 计算过载回合计数（module-level，不持久化，不进 store） ===
