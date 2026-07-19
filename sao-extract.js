@@ -579,6 +579,11 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
         // 专家只报告当前装备状态，无权创建装备定义。
         if (s.equipment && typeof s.equipment === 'object') {
             const equipStore = getEquipmentStore();
+            // 预扫描 sellActions：跳过被卖物品，避免"先装备再卖出"的浪费
+            const soldNames = new Set();
+            if (Array.isArray(s.sellActions)) {
+                for (const sa of s.sellActions) { if (sa?.name) soldNames.add(sa.name); }
+            }
             for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
                 if (!equipData || typeof equipData !== 'object') continue;
                 let newSlot = oldSlot;
@@ -587,6 +592,8 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     continue;
                 }
                 if (!equipData.name) continue;
+                // 跳过被卖物品（sellActions 会处理）
+                if (soldNames.has(equipData.name)) { continue; }
                 // 查找已存在的装备（按名称匹配）
                 const existingIds = equipStore?.nameToId?.[equipData.name] || [];
                 const existingId = existingIds.find(id => equipStore.byId[id]);
