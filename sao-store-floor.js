@@ -13,6 +13,13 @@ import { simpleHash } from './sao-store-npc.js';
 // ============================================================
 const _ephemeralCanon = {};
 
+/** 清空模块级 ephemeral canon 缓存（切换聊天时调用，防止旧聊天的 canon 泄漏到新聊天） */
+export function clearEphemeralCanon() {
+    for (const key of Object.keys(_ephemeralCanon)) {
+        delete _ephemeralCanon[key];
+    }
+}
+
 /**
  * 从持久化 store 迁移 canon 到内存态（一次性）。
  * 处理旧 chat 数据中已持久化的 canon。
@@ -199,6 +206,9 @@ export function getFloorByNumber(num) {
  */
 export function initFloorFromWorldBook(entries) {
     if (!entries || !Array.isArray(entries)) return 0;
+
+    // 清空模块级 canon 缓存：每次重新初始化前清空，防止旧聊天的 canon 泄漏到新聊天
+    clearEphemeralCanon();
 
     const store = getFloorStore();
     let count = 0;
