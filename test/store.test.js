@@ -1191,9 +1191,10 @@ describe('useConsumable', () => {
         const results = await useConsumable(itemId);
         expect(results[0]).toContain('STR +5');
         expect(player.attributes.str).toBe(15);
-        expect(player.buffs).toHaveLength(1);
-        expect(player.buffs[0].stat).toBe('str');
-        expect(player.buffs[0].remaining).toBe(3);
+        // buff 存入 player.buffs.temporary（addTemporaryBuff 正确结构）
+        expect(player.buffs.temporary).toHaveLength(1);
+        expect(player.buffs.temporary[0].effects.str).toBe(5);
+        expect(player.buffs.temporary[0].source).toBe('food');
     });
 
     it('handles narrative effects (no numerical effect, just consumes)', async () => {

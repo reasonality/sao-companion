@@ -6,6 +6,7 @@ import { getStore, saveStore, appendActionLog } from './sao-store-core.js';
 import { log } from './sao-core.js';
 import { getInventoryStore, generateItemId } from './sao-store-inventory.js';
 import { getPlayerStore, updatePlayerVitals, updatePlayerAttributes } from './sao-store-player.js';
+import { addTemporaryBuff } from './sao-buff.js';
 
 // ============================================================
 // 常量
@@ -274,15 +275,19 @@ export async function useConsumable(itemId) {
                 await updatePlayerAttributes({ [eff.stat]: newVal }, true);
                 results.push(`${eff.stat.toUpperCase()} +${eff.value} (${oldVal}→${newVal})`);
 
-                // buff 有 duration 则存 buffs
+                // buff 有 duration 则存 buffs（用 addTemporaryBuff，不直接改 playerStore.buffs 结构）
                 if (eff.type === 'buff' && eff.duration && eff.duration > 0) {
-                    if (!Array.isArray(playerStore.buffs)) playerStore.buffs = [];
-                    playerStore.buffs.push({
-                        stat: eff.stat,
-                        value: eff.value,
-                        duration: eff.duration,
-                        remaining: eff.duration
+                    addTemporaryBuff(playerStore, {
+                        id: 'consumable_' + def.consumable_id + '_' + eff.stat,
+                        source: 'food',
+                        name: def.name,
+                        effects: { [eff.stat]: eff.value },
+                        special_effects: [],
+                        description: def.name + '（消耗品buff）',
+                        duration: String(eff.duration),
+                        expires: 'manual',
                     });
+                    results.push(`Buff: ${eff.stat}+${eff.value} 持续${eff.duration}回合`);
                 }
             } else {
                 // M1: 未知 buff/restore 目标属性，给用户反馈而非静默忽略
