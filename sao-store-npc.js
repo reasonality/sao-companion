@@ -20,9 +20,12 @@ export function getNpcStore() {
     }
     if (!store.npcStore.byId) store.npcStore.byId = {};
     if (!store.npcStore.nameToId) store.npcStore.nameToId = {};
-    // backward-compat: 旧存档 NPC 可能缺少 uniqueSkill 字段
-    for (const entry of Object.values(store.npcStore.byId)) {
-        if (entry.uniqueSkill === undefined) entry.uniqueSkill = null;
+    // 一次性迁移：旧存档 NPC 可能缺少 uniqueSkill 字段（只在首次运行，避免 O(n) 扫描每次调用）
+    if (!store.npcStore._uniqueSkillMigrated) {
+        for (const entry of Object.values(store.npcStore.byId)) {
+            if (entry.uniqueSkill === undefined) entry.uniqueSkill = null;
+        }
+        store.npcStore._uniqueSkillMigrated = true;
     }
     return store.npcStore;
 }
