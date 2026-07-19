@@ -73,6 +73,24 @@ const PRESET_GUILDS = [
 // ============================================================
 
 /**
+ * 生成唯一公会 ID（计数器模式，避免 Date.now() 同毫秒冲突）。
+ * 解析现有 guild_NNN 格式 ID，取最大值 +1。
+ * @returns {string} guild_001 格式 ID
+ */
+function generateGuildId() {
+    const store = getGuildStore();
+    let maxNum = 0;
+    for (const id of Object.keys(store.byId)) {
+        const match = id.match(/^guild_(\d+)$/);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNum) maxNum = num;
+        }
+    }
+    return 'guild_' + String(maxNum + 1).padStart(3, '0');
+}
+
+/**
  * 获取 guildStore 引用（惰性初始化）。
  * @returns {{ byId: Object, nameToId: Object }}
  */
@@ -177,7 +195,7 @@ export function createGuild(name, leader, options = {}) {
         }
     }
 
-    const id = 'guild_' + Date.now();
+    const id = generateGuildId();
     const guild = {
         guild_id: id,
         name,
