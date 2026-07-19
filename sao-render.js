@@ -1975,16 +1975,8 @@ function renderNpcStatus(messageEl, rawText, messageId, refNode) {
 // 新装备/新剑技通知面板 — row-based 渲染（与 sao-detail-popup.js 一致）
 // 数据源：equipmentStore.byId / playerStore.skills（结构化数据）
 // 直接复用 _renderEquipShared / _renderSkillShared 模板，避免布局漂移。
-// 模块级 Set 跟踪已展示 ID，避免同一会话内重复弹出。
+// 去重策略：per-message tag matching + DOM existence check（不依赖全局 Set）。
 // ============================================================
-const _shownNotificationEquipmentIds = new Set();
-const _shownNotificationSkillIds = new Set();
-
-/** 清空已展示通知 ID 集合（CHAT_CHANGED 时调用，确保重新进入聊天时重新渲染通知面板） */
-export function clearShownNotificationIds() {
-    _shownNotificationEquipmentIds.clear();
-    _shownNotificationSkillIds.clear();
-}
 
 /** 通知面板共享 CSS — row 样式 + 每条目卡片 + 头/底布局（与 sao-detail-popup.js + panel.html 同一设计语言） */
 const SAO_NOTIFY_ROW_CSS = `
@@ -2152,51 +2144,6 @@ const SAO_NOTIFY_ROW_CSS = `
 `;
 
 /**
- * 收集本会话内尚未在通知面板中展示过的装备条目（结构化 fallback 路径）。
- * @returns {object[]}
- */
-function _collectNewEquipmentEntries() {
-    let store;
-    try { store = getEquipmentStore(); } catch { return []; }
-    if (!store?.byId) return [];
-    const newEntries = [];
-    for (const [id, entry] of Object.entries(store.byId)) {
-        if (!entry || _shownNotificationEquipmentIds.has(id)) continue;
-        // 附加 equipment_id 字段符合 _renderEquipShared 的预期（不影响输出）
-        newEntries.push({ ...entry, equipment_id: id });
-        // NOTE: don't add to Set here — only after successful render
-    }
-    return newEntries;
-}
-
-/**
- * 收集本会话内尚未在通知面板中展示过的剑技条目。
- * 与 sao-render.js 详情弹窗（行 1786-1791）相同模式：从 playerStore.skills 取 proficiency，
- * 与 skillStore.byId[skill_id].def 合并。注意：剥离 skill_id 以阻止 _renderSkillShared
- * 渲染"遗忘此剑技"按钮（通知面板上下文未绑定 forget handler，避免点击无响应）。
- * @returns {object[]}
- */
-function _collectNewSkillEntries() {
-    let store, player;
-    try { store = getSkillStore(); } catch { return []; }
-    try { player = getPlayerStore(); } catch { player = null; }
-    if (!store?.byId || !Array.isArray(player?.skills)) return [];
-    const newEntries = [];
-    for (const s of player.skills) {
-        const id = s?.skill_id;
-        if (!id || _shownNotificationSkillIds.has(id)) continue;
-        const def = store.byId[id];
-        if (!def) continue;
-        // 故意剥离 skill_id：suppress _renderSkillShared 中的"遗忘此剑技"按钮
-        const merged = { ...def, proficiency: s.proficiency ?? 0, name: def.name || s.name, _skillId: id };
-        delete merged.skill_id;
-        newEntries.push(merged);
-        // NOTE: don't add to Set here — only after successful render
-    }
-    return newEntries;
-}
-
-/**
  * 装备通知条目卡（结构化投影 fallback 专用） — 与 sao-detail-popup 的 row 结构同语言，但有清晰 sub-card 视觉层次。
  * 调用策略：
  *   - headers: 显示 name + 槽位 + 类型 + 稀有度 pill（在头部条）
@@ -2292,11 +2239,36 @@ function _buildNpcCard(npc) {
 }
 
 function renderEquipment(messageEl, rawText, messageId, refNode) {
-    // 从 equipmentStore 投影渲染（新架构：<gain_equipment> 是创建标签，非显示标签）
-    const newEntries = _collectNewEquipmentEntries();
+    // Only render on messages that actually have <gain_equipment> tags in rawText
+    if (!refNode) return;
+    // Skip if this message already has an equipment notification (DOM = source of truth)
+    if (messageEl.querySelector('.sao-render-host[data-sao-tag="gain_equipment"]')) return;
+
+    // Parse equipment names from this message's <gain_equipment> tags
+    const equipMatches = [...(rawText || '').matchAll(/<gain_equipment([^>]*)>/gi)];
+    const gainedNames = [];
+    for (const m of equipMatches) {
+        const attrs = m[1] || '';
+        const nm = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        if (nm) gainedNames.push(nm[1].trim().toLowerCase());
+    }
+    if (gainedNames.length === 0) return;
+
+    // Match against equipment store by name
+    let store;
+    try { store = getEquipmentStore(); } catch { return; }
+    if (!store?.byId) return;
+    const nameSet = new Set(gainedNames);
+    const newEntries = [];
+    for (const [id, entry] of Object.entries(store.byId)) {
+        if (entry && entry.name && nameSet.has(entry.name.toLowerCase())) {
+            newEntries.push({ ...entry, equipment_id: id });
+        }
+    }
     if (newEntries.length === 0) return;
+
     const itemsHtml = newEntries.map(eq => _buildEquipmentCard(eq)).join('');
-    const { shadow } = createSaoShadowHost(messageEl, 'gain_equipment', refNode)
+    const { shadow } = createSaoShadowHost(messageEl, 'gain_equipment', refNode);
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -2309,19 +2281,43 @@ function renderEquipment(messageEl, rawText, messageId, refNode) {
                 <div>${itemsHtml}</div>
             </details>
         </div>
-    `
-    // Only mark as shown after successful render
-    for (const eq of newEntries) {
-        if (eq.equipment_id) _shownNotificationEquipmentIds.add(eq.equipment_id);
-    }
+    `;
 }
 
 function renderSwordSkill(messageEl, rawText, messageId, refNode) {
-    // 从 skillStore 投影渲染（新架构：<gain_skill> 是创建标签，非显示标签）
-    const newEntries = _collectNewSkillEntries();
+    if (!refNode) return;
+    if (messageEl.querySelector('.sao-render-host[data-sao-tag="gain_skill"]')) return;
+
+    const skillMatches = [...(rawText || '').matchAll(/<gain_skill([^>]*)>/gi)];
+    const gainedNames = [];
+    for (const m of skillMatches) {
+        const attrs = m[1] || '';
+        const nm = attrs.match(/name\s*=\s*["']([^"']*)["']/i);
+        if (nm) gainedNames.push(nm[1].trim().toLowerCase());
+    }
+    if (gainedNames.length === 0) return;
+
+    let store, player;
+    try { store = getSkillStore(); } catch { return; }
+    try { player = getPlayerStore(); } catch { player = null; }
+    if (!store?.byId || !Array.isArray(player?.skills)) return;
+    const nameSet = new Set(gainedNames);
+    const newEntries = [];
+    for (const s of player.skills) {
+        const id = s?.skill_id;
+        if (!id) continue;
+        const def = store.byId[id];
+        if (!def) continue;
+        const skillName = (def.name || s.name || '').toLowerCase();
+        if (!nameSet.has(skillName)) continue;
+        const merged = { ...def, proficiency: s.proficiency ?? 0, name: def.name || s.name };
+        delete merged.skill_id;
+        newEntries.push(merged);
+    }
     if (newEntries.length === 0) return;
+
     const itemsHtml = newEntries.map(sk => _buildSkillCard(sk)).join('');
-    const { shadow } = createSaoShadowHost(messageEl, 'gain_skill', refNode)
+    const { shadow } = createSaoShadowHost(messageEl, 'gain_skill', refNode);
     shadow.innerHTML = `
         <style>
             ${SHARED_SAO_CSS}
@@ -2334,10 +2330,6 @@ function renderSwordSkill(messageEl, rawText, messageId, refNode) {
                 <div>${itemsHtml}</div>
             </details>
         </div>
-    `
-    // Only mark as shown after successful render
-    for (const sk of newEntries) {
-        if (sk._skillId) _shownNotificationSkillIds.add(sk._skillId);
-    }
+    `;
 }
 

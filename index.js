@@ -53,7 +53,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel, clearShownNotificationIds } from './sao-render.js';
+import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist, callAcquisitionSpecialist } from './sao-specialists.js';
@@ -458,7 +458,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel, clearShownNotificationIds } from './sao-render.js';
+import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist, callAcquisitionSpecialist } from './sao-specialists.js';
@@ -863,7 +863,7 @@ import { checkQuestsFromNarrative } from './sao-quest-specialist.js';
 import { abandonQuest, getActiveQuests, getCompletedQuests } from './sao-store-quest.js';
 // memory.js 已移除
 import { cleanSaoPromptText, cleanTimelinePromptText, injectMemoryAndState } from './sao-prompt.js';
-import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel, clearShownNotificationIds } from './sao-render.js';
+import { registerSaoDompurifyHook, renderAllTags, refreshLatestChatStatusPanel } from './sao-render.js';
 import { DOMPurify } from '../../../../lib.js';
 import { ROLES, SUB_ROLES, ALL_MODEL_KEYS, ROLE_LABELS, SUB_ROLE_LABELS, fetchModelList, callModel, isModelConfigured } from './sao-models.js';
 import { fireSpecialistPanels, callStatusSpecialist, _clearSpecialistPanels, callWorldSpecialist, callAcquisitionSpecialist } from './sao-specialists.js';
@@ -1730,7 +1730,6 @@ function bindEvents() {
         document.body.classList.toggle('sao-card-active', isSaoCard());
         if (isSaoCard()) {
             log('聊天切换，加载 per-chat 数据');
-            clearShownNotificationIds();
             stabilizeSaoRegexScripts();
             enableCompatMode();
             // B3 + Pre-parser: Initialize stores from world book (Phase 1: NPCs, Phase 2: Floors, Phase 3: Timeline)
