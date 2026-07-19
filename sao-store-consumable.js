@@ -85,6 +85,13 @@ export function findOrCreateConsumable(data) {
 
     const existingId = store.nameToId[name];
     if (existingId && store.byId[existingId]) {
+        // 合并最新定义（effects/description/category 可被更新，匹配 skill 模式）
+        const existing = store.byId[existingId];
+        if (data.effects) existing.effects = data.effects;
+        if (data.description) existing.description = data.description;
+        if (data.category && CATEGORY_ENUM.includes(data.category)) existing.category = data.category;
+        if (data.rarity) existing.rarity = data.rarity;
+        if (data.item_level != null) existing.item_level = data.item_level;
         return existingId;
     }
 
