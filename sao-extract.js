@@ -574,16 +574,19 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
             initStartingCharacter();
         }
 
+        // 预扫描 sellActions：构建被卖物品名集合，供 Equipment/Inventory 处理时跳过
+        // 防止 status specialist 同时输出 sellActions 和 inventory/equipment 含被卖物品
+        // 导致"先加回背包再卖出"或"卖出后又被 inventory 加回"的重复
+        const soldNames = new Set();
+        if (Array.isArray(s.sellActions)) {
+            for (const sa of s.sellActions) { if (sa?.name) soldNames.add(sa.name); }
+        }
+
         // 2. Equipment → 只更新已有装备的运行时状态（如耐久度），不创建新装备。
         // 新装备只能通过 <gain_equipment> 标签 → generateEquipment 创建（路径A，逻辑管理）。
         // 专家只报告当前装备状态，无权创建装备定义。
         if (s.equipment && typeof s.equipment === 'object') {
             const equipStore = getEquipmentStore();
-            // 预扫描 sellActions：跳过被卖物品，避免"先装备再卖出"的浪费
-            const soldNames = new Set();
-            if (Array.isArray(s.sellActions)) {
-                for (const sa of s.sellActions) { if (sa?.name) soldNames.add(sa.name); }
-            }
             for (const [oldSlot, equipData] of Object.entries(s.equipment)) {
                 if (!equipData || typeof equipData !== 'object') continue;
                 let newSlot = oldSlot;
@@ -768,6 +771,11 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
         if (Array.isArray(s.inventory) && s.inventory.length > 0) {
             for (const item of s.inventory) {
                 if (!item || !item.name) continue;
+                // 跳过被卖物品（sellActions 会处理，防止卖出后被 inventory 加回）
+                if (soldNames.has(item.name)) {
+                    log(`applyExtractedData: 跳过被卖物品 "${item.name}"（inventory）`);
+                    continue;
+                }
                 // Determine type: if item has stats/equipment-like fields OR matches weapon/armor name keywords,
                 // route to equipment+inventory (backpack).
                 // 消耗品名称优先：即使含武器关键词（如"剑技药水"含"剑"），含药水/食物等词则判为消耗品。

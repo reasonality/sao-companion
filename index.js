@@ -1136,44 +1136,12 @@ _bindEvt(event_types.CHAT_CHANGED, () => {
             // 由 acquisition specialist 统一负责生成 gain 标签，避免双重处理同名装备创建重复
             // await processGainTags(rawText);  // 跳过 — specialist 是可靠路径
 
-            // 卖出叙事预检测：从 rawText 提取卖出的物品名，传给 processGainTags 作为"跳过创建"列表
-            // 防止 acquisition specialist 误把"卖出"当作"获得"而创建新装备
-            const _soldNames = new Set();
-            const _sellPatterns = [/卖出|出售|卖掉|卖给|交易给|售出/g];
-            for (const re of _sellPatterns) {
-                let m;
-                while ((m = re.exec(rawText)) !== null) {
-                    // 提取卖出关键词后的物品名（取前后 20 字符内的中文/字母词）
-                    const around = rawText.substring(Math.max(0, m.index - 20), Math.min(rawText.length, m.index + 40));
-                    // 简单提取：匹配"卖出/卖掉XXX" 或 "把XXX卖出" 模式
-                    const nameMatch1 = around.match(/(?:卖出|出售|卖掉|卖给|售出)\s*了?\s*的?\s*([\u4e00-\u9fa5a-zA-Z0-9·]{1,15})/);
-                    const nameMatch2 = around.match(/把\s*([\u4e00-\u9fa5a-zA-Z0-9·]{1,15})\s*(?:卖出|出售|卖掉|卖给|售出)/);
-                    if (nameMatch1) _soldNames.add(nameMatch1[1].trim());
-                    if (nameMatch2) _soldNames.add(nameMatch2[1].trim());
-                }
-            }
-            if (_soldNames.size > 0) {
-                log(`卖出叙事预检测: ${[..._soldNames].join(', ')}`);
-            }
-
             // 获取事件检测专家：子 LLM 审查叙事，自行生成 gain 标签
             // （替代主 LLM 输出标签的不可靠路径）
             try {
                 const specialistTags = await callAcquisitionSpecialist(rawText);
        if (specialistTags) {
-                    // 如果 specialist 误输出 gain_equipment 且名字在 _soldNames 里，跳过创建
-                    // 这里通过正则过滤掉被卖物品的 gain 标签
-                    let filteredTags = specialistTags;
-                    if (_soldNames.size > 0) {
-                        filteredTags = specialistTags.replace(/<gain_equipment([^>]*)name\s*=\s*["']([^"']*)["']([^>]*)>[\s\S]*?<\/gain_equipment>/gi, (match, pre, name, post) => {
-                            if (_soldNames.has(name.trim())) {
-                                log(`卖出防护: 跳过 gain_equipment "${name}"（在卖出叙事中）`);
-                                return '';
-                            }
-                            return match;
-                        });
-                    }
-                    await processGainTags(filteredTags, true);
+                    await processGainTags(specialistTags, true);
                 }
             } catch (e) {
                 log('acquisition 专家处理失败: ' + e.message, 'warn');
