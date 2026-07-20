@@ -8,6 +8,34 @@ import { callSpecialist } from './sao-models.js';
 import { projectStateHint, projectEquipmentSummary, projectSkillSummary, projectNpcHint } from './sao-state-projection.js';
 import { applyWorldUpdates, projectWorldHint } from './sao-store-world.js';
 // 规则段落（精简版，从世界书摘取核心规则，替代原 sao-rules.js 动态提取）
+
+/**
+ * 从主 LLM 原始输出中提取叙事正文，剥离思维链/推理过程。
+ * 支持的思维链格式：
+ *   <think>...</think>、<thinking>...</thinking>、<reasoning>...</reasoning>
+ *   <Thought>...</Thought>、<analysis>...</analysis>
+ *   以及 markdown 思考块（# 思考 / ## 推理 开头到下一个 ## 之前）
+ * @param {string} raw - 主 LLM 原始输出（message.mes）
+ * @returns {string} 仅叙事正文
+ */
+export function extractNarrativeBody(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    let text = raw;
+    // 1. 剥离 XML/自定义标签包裹的思维链
+    text = text.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
+    text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+    text = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '');
+    text = text.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '');
+    // 2. 剥离未闭合的思维链标签（标签开头到字符串结尾）
+    text = text.replace(/<think(?:ing)?>[\s\S]*$/gi, '');
+    text = text.replace(/<reasoning>[\s\S]*$/gi, '');
+    text = text.replace(/<thought>[\s\S]*$/gi, '');
+    text = text.replace(/<analysis>[\s\S]*$/gi, '');
+    // 3. 剥离 markdown 思考块（# 思考 / ## 推理 / ## 思考过程 开头到下一个 ## 标题或文末）
+    text = text.replace(/^#{1,3}\s*(思考|推理|分析|思维过程|Thoughts?|Reasoning|Analysis)[^\n]*\n[\s\S]*?(?=^#{1,3}\s|\n$|$)/gim, '');
+    return text.trim();
+}
+
 const RULE_LEVEL = `
 ## 等级规则
 - **等级公式:** 升到等级 L 所需总 EXP = 50 * L * (L - 1)。反解: L = floor(0.5 + sqrt(2500 + 200 * 总EXP) / 100)
@@ -143,7 +171,7 @@ function _buildPanelPrompt(panelName, instruction, narrativeText, currentStateHi
         },
         {
             role: 'user',
-            content: `## 当前状态摘要\n${currentStateHint || '(无)'}\n\n## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`
+            content: `## 当前状态摘要\n${currentStateHint || '(无)'}\n\n## 本轮叙事正文\n${extractNarrativeBody(narrativeText)}\n\n请输出 JSON。`
         },
     ];
 }
@@ -428,7 +456,7 @@ ${skillHint ? '技能: ' + skillHint : ''}`;
     const ruleHints = RULE_LEVEL + '\n\n' + RULE_SKILL + '\n\n' + RULE_SWORDSKILL + '\n\n' + RULE_MEDITATION;
 
     const npcHint = projectNpcHint();
-    const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n` +
+    const userPrompt = `## 本轮叙事正文\n${extractNarrativeBody(narrativeText)}\n` +
         (npcHint ? `\n## 已知 NPC\n${npcHint}\n` : '') +
         `\n请输出 JSON。`;
 
@@ -579,7 +607,7 @@ ${worldHint ? `世界: ${worldHint}` : ''}`;
     // 规则按需注入：经济、房屋
     const ruleHints = RULE_ECONOMY + '\n\n' + RULE_HOUSING;
 
-    const userPrompt = `## 本轮叙事正文\n${(narrativeText || '').substring(0, 2000)}\n\n请输出 JSON。`;
+    const userPrompt = `## 本轮叙事正文\n${extractNarrativeBody(narrativeText)}\n\n请输出 JSON。`;
 
     let content;
     try {
@@ -685,7 +713,7 @@ action: create(创建,默认)/join(加入)/leave(离开)
 - 不要为叙事中未明确描写的物品/技能生成标签`;
 
     const userPrompt = `## 叙事文本
-${narrativeText.substring(0, 3000)}
+${extractNarrativeBody(narrativeText)}
 
 请输出获取标签（无则空）：`;
 

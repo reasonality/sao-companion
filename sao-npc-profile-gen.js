@@ -5,6 +5,7 @@
 import { callSpecialist } from './sao-models.js';
 import { log, safeJsonParse, getCurrentCharacter } from './sao-core.js';
 import { getNpcByName } from './sao-store-npc.js';
+import { extractNarrativeBody } from './sao-specialists.js';
 
 /**
  * 判断是否需要为该 NPC 生成档案（世界书已有条目则跳过）。
@@ -102,7 +103,7 @@ export function _writeProfileToEntries(npcName, profile) {
 export async function generateNpcProfiles(newNpcNames, narrativeContext) {
     if (!Array.isArray(newNpcNames) || newNpcNames.length === 0) return 0;
 
-    const contextSnippet = (narrativeContext || '').substring(0, 1500);
+    const contextSnippet = extractNarrativeBody(narrativeContext);
     let generated = 0;
 
     for (const name of newNpcNames) {

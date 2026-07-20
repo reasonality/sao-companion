@@ -6,6 +6,7 @@ import { getSettings, log, safeJsonParse } from './sao-core.js';
 import { callSpecialist } from './sao-models.js';
 import { getQuestStore, createQuest, updateQuest, completeQuest } from './sao-store-quest.js';
 import { saveStore } from './sao-store-core.js';
+import { extractNarrativeBody } from './sao-specialists.js';
 // 规则段落（精简版，从世界书摘取核心规则）
 const RULE_LEVEL = `
 ## 等级规则
@@ -83,7 +84,7 @@ export async function checkQuestsFromNarrative(messageText, messageId) {
 ${questContext.length > 0 ? JSON.stringify(questContext, null, 2) : '(无活跃任务)'}
 
 ## 本轮叙事正文
-${messageText.substring(0, 2000)}
+${extractNarrativeBody(messageText)}
 
 请输出 JSON。`;
 

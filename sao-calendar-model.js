@@ -4,6 +4,7 @@
 import { getSettings, getSaoData, log, getContext } from './sao-core.js';
 import { callModel } from './sao-models.js';
 import { getStore } from './sao-store-core.js';
+import { extractNarrativeBody } from './sao-specialists.js';
 import {
     persistCalendar,
     persistCalendarPanel,
@@ -71,7 +72,7 @@ export { shouldTriggerCalendarModel };
  */
 function buildCalendarPrompt(calendar, rawText) {
     const currentDate = calendar.currentDate || '';
-    const aiReply = (rawText || '').substring(0, 2000);
+    const aiReply = extractNarrativeBody(rawText);
     const timeline = getTimelineForPrompt(currentDate, 1500);
     const pending = (calendar.appointments || []).filter(a => a.status === 'pending').slice(0, 20);
     const pendingLines = pending.map((a, i) => `[${i}] ${a.id || ''} | ${a.date || ''} ${(a.time || '').padEnd(5)} | ${a.description || ''}`);

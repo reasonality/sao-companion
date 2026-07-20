@@ -6,6 +6,7 @@ import { callSpecialist } from './sao-models.js';
 import { getStore, saveStore } from './sao-store-core.js';
 import { log, safeJsonParse } from './sao-core.js';
 import { getPlayerStore } from './sao-store-player.js';
+import { extractNarrativeBody } from './sao-specialists.js';
 import { projectNpcHint } from './sao-state-projection.js';
 import { findOrCreateNpc, updateNpcState, addObservation } from './sao-store-npc.js';
 
@@ -59,7 +60,7 @@ export async function callNpcBackgroundSpecialist(messageId, narrativeText) {
 - 无需更新的 NPC 不要输出
 - 输出空数组表示本轮无后台变化`;
 
-    const userPrompt = `最近叙事摘要:\n${(narrativeText || '').substring(0, 1500)}`;
+    const userPrompt = `最近叙事摘要:\n${extractNarrativeBody(narrativeText)}`;
     const messages = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
