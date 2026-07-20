@@ -721,17 +721,16 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
         //    HP/MP 是剧情变量（受伤/恢复），从状态专家提取并应用。
         // (initStartingCharacter moved above Equipment section for correct _baseVitals timing)
 
-        // HP/MP 更新（剧情驱动：受伤/恢复/消耗）
-        // updatePlayerVitals 会 clamp 到 [0, max]，安全
-        if (!isNewGame && (s.hp != null || s.max_hp != null || s.mp != null || s.max_mp != null)) {
+        // HP/MP 当前值更新（剧情驱动：受伤/恢复/消耗）
+        // 注意：只更新当前 hp/mp，不更新 max_hp/max_mp（上限由逻辑管理：基础值+装备加成）
+        // 状态专家可能按等级公式输出 max_hp=510，但逻辑用 STARTING_MAX_HP=100 + 装备加成
+        if (!isNewGame && (s.hp != null || s.mp != null)) {
             try {
                 await updatePlayerVitals({
                     hp: s.hp,
-                    maxHp: s.max_hp,
                     mp: s.mp,
-                    maxMp: s.max_mp,
                 }, true);
-                log(`HP/MP 更新: HP ${s.hp ?? '?'}/${s.max_hp ?? '?'}, MP ${s.mp ?? '?'}/${s.max_mp ?? '?'}`);
+                log(`HP/MP 当前值更新: HP ${s.hp ?? '?'}, MP ${s.mp ?? '?'}`);
             } catch (e) {
                 log('HP/MP 更新失败: ' + e.message, 'warn');
             }
@@ -789,6 +788,14 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     const existingId = existingIds.find(id => equipStore.byId[id]);
                     if (!existingId) {
                         log(`applyExtractedData: 装备 "${item.name}" 不在 equipmentStore 中（需通过 gain_equipment 标签生成），跳过`, 'info');
+                        continue;
+                    }
+                    // 检查该装备是否已装备或已在背包（避免 Inventory 重复添加）
+                    const player = getPlayerStore();
+                    const equippedIds = new Set(Object.values(player?.equipment || {}).filter(Boolean));
+                    const inBackpack = (getInventoryStore().items || []).some(it => it.type === 'equipment' && it.equipment_id === existingId);
+                    if (equippedIds.has(existingId) || inBackpack) {
+                        log(`applyExtractedData: 装备 "${item.name}" 已装备或在背包中，跳过 inventory 添加`);
                         continue;
                     }
                     await addEquipmentItem(existingId, true);
