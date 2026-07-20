@@ -941,7 +941,12 @@ function bindEvents() {
     // M8: 幂等守卫 —— 热重载/重复 init 时先清旧监听再绑新，避免回调翻倍
     if (isSaoEventsBound()) deactivate();
     setSaoEventsBound(true);
-    _bindEvt(event_types.CHAT_CHANGED, () => {
+_bindEvt(event_types.CHAT_CHANGED, () => {
+        // 重置 init chain 标志：每次切换聊天都允许 init chain 重新跑
+        // 防止"退出再进入"时 _initChainDone 保持 true 导致 init chain 跳过
+        _initChainDone = false;
+        // 重置模块级缓存数据：防止旧聊天的数据泄漏到新聊天
+        _saoCurrentData = {};
         // 切换角色卡时重置效果代码表缓存，使其重新从新卡解析
         resetEffectCodeTable();
         // 会话切换时重置日历模型并发守卫（原 sao-calendar-model.js 顶层监听，M8 集中后改由此处统一追踪）
