@@ -615,6 +615,7 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
         }
 
         // sellActions → 玩家卖出物品：从背包移除（或卸下已装备的），获得珂尔
+        // 防御性设计：移除所有匹配装备（含 acquisition 专家误创建的重复项）
         if (Array.isArray(s.sellActions) && s.sellActions.length > 0) {
             for (const sell of s.sellActions) {
                 if (!sell.name) continue;
@@ -623,68 +624,62 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                 const invStore = getInventoryStore();
                 const equipStore = getEquipmentStore();
 
-                // Find item in inventory by name (check equipment, consumable, material, quest_item)
                 let sold = false;
-                // Check equipment in inventory
+
+                // 1. 移除背包中所有匹配装备（防御 acquisition 专家重复创建）
                 for (let i = invStore.items.length - 1; i >= 0; i--) {
                     const it = invStore.items[i];
                     if (it.type === 'equipment' && it.equipment_id) {
                         const def = equipStore?.byId?.[it.equipment_id];
                         if (def && def.name === sell.name) {
                             invStore.items.splice(i, 1);
-                            // 删除装备定义，防止 applyExtractedData 重新装备
-                            if (equipStore.byId[it.equipment_id]) {
-                                delete equipStore.byId[it.equipment_id];
-                                const nameIds = equipStore.nameToId[sell.name];
-                                if (nameIds) {
-                                    const idx = nameIds.indexOf(it.equipment_id);
-                                    if (idx >= 0) nameIds.splice(idx, 1);
-                                    if (nameIds.length === 0) delete equipStore.nameToId[sell.name];
-                                }
-                                log(`sellActions: 删除装备定义 ${it.equipment_id} (${sell.name})`);
-                            }
                             sold = true;
-                            log(`sellActions: 卖出装备 ${sell.name} → +${corGained} cor`);
-                            break;
+                            log(`sellActions: 卖出装备 ${sell.name} (${it.equipment_id})`);
                         }
-                    } else if (it.type === 'consumable' && it.consumable_id) {
-                        const def = getConsumableById(it.consumable_id);
-                        if (def && def.name === sell.name) {
-                            it.qty = (it.qty || 1) - sellQty;
-                            if (it.qty <= 0) invStore.items.splice(i, 1);
-                            sold = true;
-                            log(`sellActions: 卖出消耗品 ${sell.name} x${sellQty} → +${corGained} cor`);
-                            break;
-                        }
-                    } else if ((it.type === 'material' || it.type === 'quest_item') && it.name === sell.name) {
-                        it.qty = (it.qty || 1) - sellQty;
-                        if (it.qty <= 0) invStore.items.splice(i, 1);
-                        sold = true;
-                        log(`sellActions: 卖出${it.type === 'material' ? '材料' : '任务物品'} ${sell.name} x${sellQty} → +${corGained} cor`);
-                        break;
                     }
                 }
 
-                // If not in inventory, check if it's currently equipped → unequip + remove
+                // 2. 卸下所有匹配已装备项（无论背包是否找到）
+                const player = getPlayerStore();
+                for (const [slot, equipId] of Object.entries(player.equipment || {})) {
+                    const def = equipStore?.byId?.[equipId];
+                    if (def && def.name === sell.name) {
+                        player.equipment[slot] = null;
+                        sold = true;
+                        log(`sellActions: 卸下已装备 ${sell.name} (从 ${slot})`);
+                    }
+                }
+
+                // 3. 批量删除 equipmentStore 中该名称的所有装备定义
+                const nameIds = equipStore?.nameToId?.[sell.name];
+                if (Array.isArray(nameIds)) {
+                    for (const id of [...nameIds]) {
+                        if (equipStore.byId[id]) {
+                            delete equipStore.byId[id];
+                            log(`sellActions: 删除装备定义 ${id} (${sell.name})`);
+                        }
+                    }
+                }
+                delete equipStore.nameToId[sell.name];
+
+                // 4. 非装备物品（消耗品/材料/任务物品）：保留原有语义（按 sellQty 减少）
                 if (!sold) {
-                    const player = getPlayerStore();
-                    for (const [slot, equipId] of Object.entries(player.equipment || {})) {
-                        const def = equipStore?.byId?.[equipId];
-                        if (def && def.name === sell.name) {
-                            player.equipment[slot] = null;
-                            // 删除装备定义，防止 applyExtractedData 重新装备
-                            if (equipStore.byId[equipId]) {
-                                delete equipStore.byId[equipId];
-                                const nameIds = equipStore.nameToId[sell.name];
-                                if (nameIds) {
-                                    const idx = nameIds.indexOf(equipId);
-                                    if (idx >= 0) nameIds.splice(idx, 1);
-                                    if (nameIds.length === 0) delete equipStore.nameToId[sell.name];
-                                }
-                                log(`sellActions: 删除已装备定义 ${equipId} (${sell.name})`);
+                    for (let i = invStore.items.length - 1; i >= 0; i--) {
+                        const it = invStore.items[i];
+                        if (it.type === 'consumable' && it.consumable_id) {
+                            const def = getConsumableById(it.consumable_id);
+                            if (def && def.name === sell.name) {
+                                it.qty = (it.qty || 1) - sellQty;
+                                if (it.qty <= 0) invStore.items.splice(i, 1);
+                                sold = true;
+                                log(`sellActions: 卖出消耗品 ${sell.name} x${sellQty}`);
+                                break;
                             }
+                        } else if ((it.type === 'material' || it.type === 'quest_item') && it.name === sell.name) {
+                            it.qty = (it.qty || 1) - sellQty;
+                            if (it.qty <= 0) invStore.items.splice(i, 1);
                             sold = true;
-                            log(`sellActions: 卖出已装备 ${sell.name} (从 ${slot} 卸下) → +${corGained} cor`);
+                            log(`sellActions: 卖出${it.type === 'material' ? '材料' : '任务物品'} ${sell.name} x${sellQty}`);
                             break;
                         }
                     }
@@ -700,6 +695,20 @@ export async function applyExtractedData(extracted, customSkillDefs, isNewGame =
                     await updateCurrency(corGained);
                 }
                 appendActionLog({ action: 'sell', itemName: sell.name, qty: sellQty, cor_gained: corGained, result: 'success' });
+            }
+        }
+
+        // 清理孤立装备物品：背包中 equipment_id 指向已删除的 equipmentStore 条目
+        // 防止 "inv_008" 等 item_id 作为装备名显示
+        {
+            const invStore = getInventoryStore();
+            const equipStore = getEquipmentStore();
+            for (let i = invStore.items.length - 1; i >= 0; i--) {
+                const it = invStore.items[i];
+                if (it.type === 'equipment' && it.equipment_id && !equipStore?.byId?.[it.equipment_id]) {
+                    invStore.items.splice(i, 1);
+                    log(`孤立装备清理: ${it.item_id} → equipment_id "${it.equipment_id}" 已不存在，移除`, 'warn');
+                }
             }
         }
 

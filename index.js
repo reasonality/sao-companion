@@ -848,19 +848,46 @@ async function processGainTags(rawText, skipSave = false) {
             }
             if (displayName === itemName) { foundItem = it; break; }
         }
-        if (!foundItem) {
-            log(`[remove_item] 物品 "${itemName}" 不在背包中，跳过`, 'warn');
+        if (foundItem) {
+            const reduceQty = Math.min(qty, foundItem.qty || 1);
+            foundItem.qty = (foundItem.qty || 1) - reduceQty;
+            if (foundItem.qty <= 0) {
+                const idx = invStore.items.indexOf(foundItem);
+                if (idx >= 0) invStore.items.splice(idx, 1);
+                // 装备被完全移除时，销毁 equipmentStore 定义（防止孤立引用）
+                if (foundItem.type === 'equipment' && foundItem.equipment_id) {
+                    const removed = await removeEquipmentById(foundItem.equipment_id, true);
+                    if (removed) log(`[remove_item] 同步销毁装备定义 ${foundItem.equipment_id}`);
+                }
+            }
+            log(`[remove_item] 移除 ${itemName} x${reduceQty}`);
+            appendActionLog({ action: 'remove_item', itemType: foundItem.type, itemName, qty: reduceQty, result: 'success' });
+            if (!skipSave) await saveStore();
             continue;
         }
-        const reduceQty = Math.min(qty, foundItem.qty || 1);
-        foundItem.qty = (foundItem.qty || 1) - reduceQty;
-        if (foundItem.qty <= 0) {
-            const idx = invStore.items.indexOf(foundItem);
-            if (idx >= 0) invStore.items.splice(idx, 1);
+
+        // 背包未找到 → 检查已装备槽位（装备可能在身上而非背包）
+        const equipStore = getEquipmentStore();
+        const player = getPlayerStore();
+        let unequipped = false;
+        for (const [slot, equipId] of Object.entries(player.equipment || {})) {
+            const def = equipStore?.byId?.[equipId];
+            if (def && def.name === itemName) {
+                player.equipment[slot] = null;
+                // 销毁装备定义
+                const removed = await removeEquipmentById(equipId, true);
+                if (removed) log(`[remove_item] 卸下并销毁已装备 ${itemName} (${equipId} 从 ${slot})`);
+                unequipped = true;
+                break;
+            }
         }
-        log(`[remove_item] 移除 ${itemName} x${reduceQty}`);
-        appendActionLog({ action: 'remove_item', itemType: foundItem.type, itemName, qty: reduceQty, result: 'success' });
-        if (!skipSave) await saveStore();
+        if (unequipped) {
+            log(`[remove_item] 移除已装备 ${itemName}`);
+            appendActionLog({ action: 'remove_item', itemType: 'equipment', itemName, qty: 1, result: 'success' });
+            if (!skipSave) await saveStore();
+        } else {
+            log(`[remove_item] 物品 "${itemName}" 不在背包或装备中，跳过`, 'warn');
+        }
     }
 }
 
